@@ -1,0 +1,19 @@
+BASE CONFIGURATION (Common to all scenarios)
+------------------------------------------
+RSI_Period = 14
+RSI_SmoothPeriod = 14
+MinRsiSpread = 2.0
+Trail_SL_Percent = 20.0
+UseTrailingStop = true
+
+SCENARIO 4: RSI Crossover with RSI Trend Filter
+---------------------------------------------
+Description: Only trade in direction of RSI trend
+Configuration:
+- UseTrendFilter = false
+- UseRsiZoneFilter = false
+- UseRsiTrendFilter = true
+- AllowCounterTrendOB = false
+Expected Behavior: Focus on RSI momentum continuation
+
+Results:

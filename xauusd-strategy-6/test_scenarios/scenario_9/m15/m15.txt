@@ -1,0 +1,23 @@
+BASE CONFIGURATION (Common to all scenarios)
+------------------------------------------
+RSI_Period = 14
+RSI_SmoothPeriod = 14
+MinRsiSpread = 2.0
+Trail_SL_Percent = 20.0
+UseTrailingStop = true
+
+SCENARIO 9: Swing Trading
+-----------------------
+Description: Longer-term trades with stronger confirmation
+Configuration:
+- UseTrendFilter = true
+- FastMA = 50
+- SlowMA = 200
+- UseRsiZoneFilter = true
+- BuyZoneThreshold = 40.0
+- SellZoneThreshold = 60.0
+- UseRsiTrendFilter = true
+- AllowCounterTrendOB = false
+Expected Behavior: Fewer signals, longer holding periods
+
+Results:

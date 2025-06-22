@@ -1,0 +1,25 @@
+BASE CONFIGURATION (Common to all scenarios)
+------------------------------------------
+RSI_Period = 14
+RSI_SmoothPeriod = 14
+MinRsiSpread = 2.0
+Trail_SL_Percent = 20.0
+UseTrailingStop = true
+
+SCENARIO 7: Balanced Trend and Reversal
+------------------------------------
+Description: Mix of trend and counter-trend opportunities
+Configuration:
+- UseTrendFilter = true
+- FastMA = 20
+- SlowMA = 50
+- UseRsiZoneFilter = true
+- BuyZoneThreshold = 45.0
+- SellZoneThreshold = 55.0
+- UseRsiTrendFilter = true
+- AllowCounterTrendOB = true
+- OversoldLevel = 30.0
+- OverboughtLevel = 70.0
+Expected Behavior: Moderate number of signals, mix of setups
+
+Results:

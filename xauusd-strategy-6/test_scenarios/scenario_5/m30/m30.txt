@@ -1,0 +1,23 @@
+BASE CONFIGURATION (Common to all scenarios)
+------------------------------------------
+RSI_Period = 14
+RSI_SmoothPeriod = 14
+MinRsiSpread = 2.0
+Trail_SL_Percent = 20.0
+UseTrailingStop = true
+
+SCENARIO 5: Conservative Trend Following
+-------------------------------------
+Description: Multiple trend confirmations required
+Configuration:
+- UseTrendFilter = true
+- FastMA = 20
+- SlowMA = 50
+- UseRsiZoneFilter = true
+- BuyZoneThreshold = 40.0
+- SellZoneThreshold = 60.0
+- UseRsiTrendFilter = true
+- AllowCounterTrendOB = false
+Expected Behavior: Very few signals, strong trend confirmation
+
+Results:

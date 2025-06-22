@@ -1,0 +1,23 @@
+BASE CONFIGURATION (Common to all scenarios)
+------------------------------------------
+RSI_Period = 14
+RSI_SmoothPeriod = 14
+MinRsiSpread = 2.0
+Trail_SL_Percent = 20.0
+UseTrailingStop = true
+
+SCENARIO 6: Aggressive Counter-Trend
+---------------------------------
+Description: Focus on reversal trades in extreme conditions
+Configuration:
+- UseTrendFilter = false
+- UseRsiZoneFilter = true
+- BuyZoneThreshold = 30.0
+- SellZoneThreshold = 70.0
+- UseRsiTrendFilter = true
+- AllowCounterTrendOB = true
+- OversoldLevel = 20.0
+- OverboughtLevel = 80.0
+Expected Behavior: Targets strong reversals from extreme levels
+
+Results:

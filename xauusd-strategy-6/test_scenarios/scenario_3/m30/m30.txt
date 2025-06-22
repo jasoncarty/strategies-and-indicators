@@ -1,0 +1,20 @@
+BASE CONFIGURATION (Common to all scenarios)
+------------------------------------------
+RSI_Period = 14
+RSI_SmoothPeriod = 14
+MinRsiSpread = 2.0
+Trail_SL_Percent = 20.0
+UseTrailingStop = true
+
+SCENARIO 3: RSI Crossover with MA Trend Filter
+--------------------------------------------
+Description: Only trade in direction of larger trend
+Configuration:
+- UseTrendFilter = true
+- FastMA = 20
+- SlowMA = 50
+- UseRsiZoneFilter = false
+- UseRsiTrendFilter = false
+Expected Behavior: Fewer signals, better trend alignment
+
+Results:

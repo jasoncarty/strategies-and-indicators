@@ -1,0 +1,24 @@
+BASE CONFIGURATION (Common to all scenarios)
+------------------------------------------
+RSI_Period = 14
+RSI_SmoothPeriod = 14
+MinRsiSpread = 2.0
+Trail_SL_Percent = 20.0
+UseTrailingStop = true
+
+1. PRIORITY SCENARIO A: Modified Scenario 7 - "Balanced Trend and Reversal"
+Description: Best suited for gold's volatile nature while maintaining trend alignment
+Configuration:
+- UseTrendFilter = true
+- FastMA = 20
+- SlowMA = 50
+- UseRsiZoneFilter = true
+- BuyZoneThreshold = 40.0      // Wider zone for volatile moves
+- SellZoneThreshold = 60.0
+- UseRsiTrendFilter = true
+- AllowCounterTrendOB = true
+- OversoldLevel = 25.0         // Adjusted for gold's volatility
+- OverboughtLevel = 75.0
+Rationale: Captures both trend moves and reversals while accounting for gold's higher volatility
+
+Results:

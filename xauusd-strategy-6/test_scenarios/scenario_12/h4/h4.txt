@@ -1,0 +1,22 @@
+BASE CONFIGURATION (Common to all scenarios)
+------------------------------------------
+RSI_Period = 14
+RSI_SmoothPeriod = 14
+MinRsiSpread = 2.0
+Trail_SL_Percent = 20.0
+UseTrailingStop = true
+
+2. PRIORITY SCENARIO B: Modified Scenario 8 - "Aggressive Scalping"
+Description: Capitalizes on gold's sharp intraday moves
+Configuration:
+- UseTrendFilter = true
+- FastMA = 10
+- SlowMA = 25                  // Shorter period for faster signals
+- UseRsiZoneFilter = true
+- BuyZoneThreshold = 42.0
+- SellZoneThreshold = 58.0
+- UseRsiTrendFilter = false    // Focus on immediate momentum
+Trading Times: Focus on London open (8-10 GMT) and US session (12-16 GMT)
+Rationale: Best for capturing quick moves during high-liquidity periods
+
+Results:

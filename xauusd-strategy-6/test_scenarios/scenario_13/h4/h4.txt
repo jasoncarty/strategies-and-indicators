@@ -1,0 +1,23 @@
+BASE CONFIGURATION (Common to all scenarios)
+------------------------------------------
+RSI_Period = 14
+RSI_SmoothPeriod = 14
+MinRsiSpread = 2.0
+Trail_SL_Percent = 20.0
+UseTrailingStop = true
+
+3. PRIORITY SCENARIO C: Modified Scenario 6 - "News-Ready Counter-Trend"
+Description: Targets reversal opportunities after sharp news-driven moves
+Configuration:
+- UseTrendFilter = false
+- UseRsiZoneFilter = true
+- BuyZoneThreshold = 25.0      // Extreme levels for news reactions
+- SellZoneThreshold = 75.0
+- UseRsiTrendFilter = true
+- AllowCounterTrendOB = true
+- OversoldLevel = 20.0
+- OverboughtLevel = 80.0
+Best Used: During high-impact news events, NFP, Fed announcements
+Rationale: Captures reversals after news-driven overextensions
+
+Results:

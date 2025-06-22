@@ -1,0 +1,972 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>RSI/SMA Strategy Test Results Analysis</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f2f2f2; }
+            .scenario { margin-bottom: 30px; }
+            .pros-cons { display: flex; justify-content: space-between; }
+            .pros, .cons { width: 45%; }
+            .metric-good { color: green; font-weight: bold; }
+            .metric-bad { color: red; font-weight: bold; }
+            .recommendations { background-color: #f9f9f9; padding: 15px; margin: 20px 0; }
+            td.numeric { text-align: right; }
+            td.positive { color: green; }
+            td.negative { color: red; }
+        </style>
+    </head>
+    <body>
+        <h1>RSI/SMA Strategy Test Results Analysis</h1>
+        <p>Analysis generated on: 2025-06-09 23:49:47</p>
+
+        <h2>Summary Table</h2>
+        <table>
+            <tr>
+                <th>Scenario</th>
+                <th>Timeframe</th>
+                <th>Net Profit</th>
+                <th>Profit Factor</th>
+                <th>Win Rate</th>
+                <th>Total Trades</th>
+                <th>Max Drawdown</th>
+                <th>Expected Payoff</th>
+            </tr>
+    
+            <tr>
+                <td>scenario_1</td>
+                <td>h1</td>
+                <td class="numeric negative">-227.61</td>
+                <td class="numeric negative">0.96</td>
+                <td class="numeric positive">57.01%</td>
+                <td class="numeric">421</td>
+                <td class="numeric">748.34</td>
+                <td class="numeric">-0.54</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_1</td>
+                <td>h4</td>
+                <td class="numeric positive">491.91</td>
+                <td class="numeric positive">1.41</td>
+                <td class="numeric positive">59.78%</td>
+                <td class="numeric">92</td>
+                <td class="numeric">82.66</td>
+                <td class="numeric">5.35</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_1</td>
+                <td>m15</td>
+                <td class="numeric ">-1 437.45</td>
+                <td class="numeric ">0.93</td>
+                <td class="numeric ">56.21%</td>
+                <td class="numeric">1788</td>
+                <td class="numeric">N/A</td>
+                <td class="numeric">-0.80</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_1</td>
+                <td>m30</td>
+                <td class="numeric negative">-445.49</td>
+                <td class="numeric negative">0.96</td>
+                <td class="numeric positive">53.36%</td>
+                <td class="numeric">877</td>
+                <td class="numeric">658.46</td>
+                <td class="numeric">-0.51</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_10</td>
+                <td>h1</td>
+                <td class="numeric positive">54.42</td>
+                <td class="numeric positive">908.00</td>
+                <td class="numeric positive">100.00%</td>
+                <td class="numeric">1</td>
+                <td class="numeric">0.06</td>
+                <td class="numeric">54.48</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_10</td>
+                <td>h4</td>
+                <td class="numeric negative">-42.99</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00%</td>
+                <td class="numeric">1</td>
+                <td class="numeric">42.99</td>
+                <td class="numeric">-42.99</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_10</td>
+                <td>m15</td>
+                <td class="numeric negative">-40.03</td>
+                <td class="numeric negative">0.17</td>
+                <td class="numeric negative">50.00%</td>
+                <td class="numeric">2</td>
+                <td class="numeric">40.03</td>
+                <td class="numeric">-20.02</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_10</td>
+                <td>m30</td>
+                <td class="numeric positive">103.40</td>
+                <td class="numeric positive">345.67</td>
+                <td class="numeric positive">100.00%</td>
+                <td class="numeric">1</td>
+                <td class="numeric">0.30</td>
+                <td class="numeric">103.70</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_11</td>
+                <td>h1</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00%</td>
+                <td class="numeric">0</td>
+                <td class="numeric">0.00</td>
+                <td class="numeric">0.00</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_11</td>
+                <td>h4</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00%</td>
+                <td class="numeric">0</td>
+                <td class="numeric">0.00</td>
+                <td class="numeric">0.00</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_11</td>
+                <td>m15</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00%</td>
+                <td class="numeric">0</td>
+                <td class="numeric">0.00</td>
+                <td class="numeric">0.00</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_11</td>
+                <td>m30</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00%</td>
+                <td class="numeric">0</td>
+                <td class="numeric">0.00</td>
+                <td class="numeric">0.00</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_12</td>
+                <td>h1</td>
+                <td class="numeric positive">13.14</td>
+                <td class="numeric positive">2.40</td>
+                <td class="numeric negative">50.00%</td>
+                <td class="numeric">2</td>
+                <td class="numeric">9.39</td>
+                <td class="numeric">6.57</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_12</td>
+                <td>h4</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00%</td>
+                <td class="numeric">0</td>
+                <td class="numeric">0.00</td>
+                <td class="numeric">0.00</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_12</td>
+                <td>m15</td>
+                <td class="numeric negative">-35.28</td>
+                <td class="numeric negative">0.73</td>
+                <td class="numeric positive">72.73%</td>
+                <td class="numeric">11</td>
+                <td class="numeric">35.28</td>
+                <td class="numeric">-3.21</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_12</td>
+                <td>m30</td>
+                <td class="numeric negative">-5.95</td>
+                <td class="numeric negative">0.93</td>
+                <td class="numeric negative">25.00%</td>
+                <td class="numeric">4</td>
+                <td class="numeric">7.88</td>
+                <td class="numeric">-1.49</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_13</td>
+                <td>h1</td>
+                <td class="numeric positive">62.07</td>
+                <td class="numeric positive">2.16</td>
+                <td class="numeric positive">75.00%</td>
+                <td class="numeric">4</td>
+                <td class="numeric">53.25</td>
+                <td class="numeric">15.52</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_13</td>
+                <td>h4</td>
+                <td class="numeric negative">-14.61</td>
+                <td class="numeric negative">0.66</td>
+                <td class="numeric negative">50.00%</td>
+                <td class="numeric">2</td>
+                <td class="numeric">43.02</td>
+                <td class="numeric">-7.31</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_13</td>
+                <td>m15</td>
+                <td class="numeric negative">-430.05</td>
+                <td class="numeric negative">0.05</td>
+                <td class="numeric negative">21.43%</td>
+                <td class="numeric">14</td>
+                <td class="numeric">430.05</td>
+                <td class="numeric">-30.72</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_13</td>
+                <td>m30</td>
+                <td class="numeric positive">77.53</td>
+                <td class="numeric positive">1.46</td>
+                <td class="numeric positive">54.55%</td>
+                <td class="numeric">11</td>
+                <td class="numeric">101.39</td>
+                <td class="numeric">7.05</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_2</td>
+                <td>h1</td>
+                <td class="numeric negative">-751.86</td>
+                <td class="numeric negative">0.83</td>
+                <td class="numeric positive">54.91%</td>
+                <td class="numeric">326</td>
+                <td class="numeric">N/A</td>
+                <td class="numeric">-2.31</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_2</td>
+                <td>h4</td>
+                <td class="numeric positive">4.79</td>
+                <td class="numeric negative">1.00</td>
+                <td class="numeric positive">56.25%</td>
+                <td class="numeric">80</td>
+                <td class="numeric">119.23</td>
+                <td class="numeric">0.06</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_2</td>
+                <td>m15</td>
+                <td class="numeric ">-1 763.06</td>
+                <td class="numeric ">0.89</td>
+                <td class="numeric ">57.55%</td>
+                <td class="numeric">1418</td>
+                <td class="numeric">N/A</td>
+                <td class="numeric">-1.24</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_2</td>
+                <td>m30</td>
+                <td class="numeric negative">-665.94</td>
+                <td class="numeric negative">0.94</td>
+                <td class="numeric positive">54.79%</td>
+                <td class="numeric">699</td>
+                <td class="numeric">717.29</td>
+                <td class="numeric">-0.95</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_3</td>
+                <td>h1</td>
+                <td class="numeric positive">268.64</td>
+                <td class="numeric positive">1.08</td>
+                <td class="numeric positive">58.87%</td>
+                <td class="numeric">248</td>
+                <td class="numeric">236.16</td>
+                <td class="numeric">1.08</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_3</td>
+                <td>h4</td>
+                <td class="numeric positive">279.70</td>
+                <td class="numeric positive">1.44</td>
+                <td class="numeric positive">55.10%</td>
+                <td class="numeric">49</td>
+                <td class="numeric">33.87</td>
+                <td class="numeric">5.71</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_3</td>
+                <td>m15</td>
+                <td class="numeric negative">-82.08</td>
+                <td class="numeric negative">0.99</td>
+                <td class="numeric positive">51.79%</td>
+                <td class="numeric">1033</td>
+                <td class="numeric">680.23</td>
+                <td class="numeric">-0.08</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_3</td>
+                <td>m30</td>
+                <td class="numeric negative">-182.62</td>
+                <td class="numeric negative">0.97</td>
+                <td class="numeric positive">50.50%</td>
+                <td class="numeric">505</td>
+                <td class="numeric">495.42</td>
+                <td class="numeric">-0.36</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_4</td>
+                <td>h1</td>
+                <td class="numeric positive">24.73</td>
+                <td class="numeric positive">1.01</td>
+                <td class="numeric positive">56.68%</td>
+                <td class="numeric">247</td>
+                <td class="numeric">837.62</td>
+                <td class="numeric">0.10</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_4</td>
+                <td>h4</td>
+                <td class="numeric positive">268.87</td>
+                <td class="numeric positive">1.56</td>
+                <td class="numeric positive">61.36%</td>
+                <td class="numeric">44</td>
+                <td class="numeric">0.09</td>
+                <td class="numeric">6.11</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_4</td>
+                <td>m15</td>
+                <td class="numeric ">-1 121.24</td>
+                <td class="numeric ">0.91</td>
+                <td class="numeric ">54.61%</td>
+                <td class="numeric">1042</td>
+                <td class="numeric">N/A</td>
+                <td class="numeric">-1.08</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_4</td>
+                <td>m30</td>
+                <td class="numeric negative">-750.30</td>
+                <td class="numeric negative">0.90</td>
+                <td class="numeric positive">52.34%</td>
+                <td class="numeric">512</td>
+                <td class="numeric">823.80</td>
+                <td class="numeric">-1.47</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_5</td>
+                <td>h1</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00%</td>
+                <td class="numeric">0</td>
+                <td class="numeric">0.00</td>
+                <td class="numeric">0.00</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_5</td>
+                <td>h4</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00%</td>
+                <td class="numeric">0</td>
+                <td class="numeric">0.00</td>
+                <td class="numeric">0.00</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_5</td>
+                <td>m15</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00%</td>
+                <td class="numeric">0</td>
+                <td class="numeric">0.00</td>
+                <td class="numeric">0.00</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_5</td>
+                <td>m30</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00%</td>
+                <td class="numeric">0</td>
+                <td class="numeric">0.00</td>
+                <td class="numeric">0.00</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_6</td>
+                <td>h1</td>
+                <td class="numeric positive">18.03</td>
+                <td class="numeric positive">1.10</td>
+                <td class="numeric positive">73.33%</td>
+                <td class="numeric">15</td>
+                <td class="numeric">76.54</td>
+                <td class="numeric">1.20</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_6</td>
+                <td>h4</td>
+                <td class="numeric negative">-10.68</td>
+                <td class="numeric negative">0.87</td>
+                <td class="numeric positive">60.00%</td>
+                <td class="numeric">5</td>
+                <td class="numeric">43.05</td>
+                <td class="numeric">-2.14</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_6</td>
+                <td>m15</td>
+                <td class="numeric negative">-236.65</td>
+                <td class="numeric negative">0.72</td>
+                <td class="numeric positive">64.41%</td>
+                <td class="numeric">59</td>
+                <td class="numeric">281.69</td>
+                <td class="numeric">-4.01</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_6</td>
+                <td>m30</td>
+                <td class="numeric negative">-104.50</td>
+                <td class="numeric negative">0.76</td>
+                <td class="numeric negative">45.83%</td>
+                <td class="numeric">24</td>
+                <td class="numeric">104.50</td>
+                <td class="numeric">-4.35</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_7</td>
+                <td>h1</td>
+                <td class="numeric negative">-20.90</td>
+                <td class="numeric negative">0.60</td>
+                <td class="numeric negative">50.00%</td>
+                <td class="numeric">2</td>
+                <td class="numeric">20.90</td>
+                <td class="numeric">-10.45</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_7</td>
+                <td>h4</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00%</td>
+                <td class="numeric">0</td>
+                <td class="numeric">0.00</td>
+                <td class="numeric">0.00</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_7</td>
+                <td>m15</td>
+                <td class="numeric negative">-18.09</td>
+                <td class="numeric negative">0.86</td>
+                <td class="numeric positive">57.14%</td>
+                <td class="numeric">7</td>
+                <td class="numeric">26.49</td>
+                <td class="numeric">-2.58</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_7</td>
+                <td>m30</td>
+                <td class="numeric positive">24.02</td>
+                <td class="numeric positive">58.19</td>
+                <td class="numeric positive">100.00%</td>
+                <td class="numeric">2</td>
+                <td class="numeric">0.18</td>
+                <td class="numeric">12.22</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_8</td>
+                <td>h1</td>
+                <td class="numeric positive">10.15</td>
+                <td class="numeric positive">68.67</td>
+                <td class="numeric positive">100.00%</td>
+                <td class="numeric">1</td>
+                <td class="numeric">0.15</td>
+                <td class="numeric">10.30</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_8</td>
+                <td>h4</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00</td>
+                <td class="numeric negative">0.00%</td>
+                <td class="numeric">0</td>
+                <td class="numeric">0.00</td>
+                <td class="numeric">0.00</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_8</td>
+                <td>m15</td>
+                <td class="numeric negative">-30.55</td>
+                <td class="numeric negative">0.68</td>
+                <td class="numeric positive">57.14%</td>
+                <td class="numeric">7</td>
+                <td class="numeric">43.99</td>
+                <td class="numeric">-4.36</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_8</td>
+                <td>m30</td>
+                <td class="numeric positive">68.22</td>
+                <td class="numeric positive">1.59</td>
+                <td class="numeric negative">50.00%</td>
+                <td class="numeric">8</td>
+                <td class="numeric">112.16</td>
+                <td class="numeric">8.53</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_9</td>
+                <td>h1</td>
+                <td class="numeric negative">-115.94</td>
+                <td class="numeric negative">0.69</td>
+                <td class="numeric negative">47.37%</td>
+                <td class="numeric">19</td>
+                <td class="numeric">223.33</td>
+                <td class="numeric">-6.10</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_9</td>
+                <td>h4</td>
+                <td class="numeric positive">166.69</td>
+                <td class="numeric positive">464.03</td>
+                <td class="numeric positive">100.00%</td>
+                <td class="numeric">6</td>
+                <td class="numeric">0.15</td>
+                <td class="numeric">27.84</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_9</td>
+                <td>m15</td>
+                <td class="numeric positive">164.91</td>
+                <td class="numeric positive">1.18</td>
+                <td class="numeric positive">68.42%</td>
+                <td class="numeric">76</td>
+                <td class="numeric">52.03</td>
+                <td class="numeric">2.17</td>
+            </tr>
+            
+            <tr>
+                <td>scenario_9</td>
+                <td>m30</td>
+                <td class="numeric positive">249.00</td>
+                <td class="numeric positive">1.56</td>
+                <td class="numeric positive">67.65%</td>
+                <td class="numeric">34</td>
+                <td class="numeric">103.31</td>
+                <td class="numeric">7.32</td>
+            </tr>
+            
+        </table>
+
+        <h2>Scenario Analysis</h2>
+    
+        <div class="scenario">
+            <h3>scenario_1</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Sufficient sample size (877 trades) on m30</li>
+<li>Good win rate (59.8%) on h4</li>
+<li>Good win rate (56.2%) on m15</li>
+<li>Sufficient sample size (1788 trades) on m15</li>
+<li>Good win rate (57.0%) on h1</li>
+<li>Sufficient sample size (421 trades) on h1</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Low profit factor (0.96) on m30</li>
+<li>Low profit factor (0.93) on m15</li>
+<li>Low profit factor (0.96) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h3>scenario_10</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Strong profit factor (345.67) on m30</li>
+<li>Good win rate (100.0%) on m30</li>
+<li>Strong profit factor (908.00) on h1</li>
+<li>Good win rate (100.0%) on h1</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Insufficient sample size (1 trades) on m30</li>
+<li>Low profit factor (0.00) on h4</li>
+<li>Poor win rate (0.0%) on h4</li>
+<li>Insufficient sample size (1 trades) on h4</li>
+<li>Low profit factor (0.17) on m15</li>
+<li>Insufficient sample size (2 trades) on m15</li>
+<li>Insufficient sample size (1 trades) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h3>scenario_11</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>No significant strengths identified</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Low profit factor (0.00) on m30</li>
+<li>Poor win rate (0.0%) on m30</li>
+<li>Insufficient sample size (0 trades) on m30</li>
+<li>Low profit factor (0.00) on h4</li>
+<li>Poor win rate (0.0%) on h4</li>
+<li>Insufficient sample size (0 trades) on h4</li>
+<li>Low profit factor (0.00) on m15</li>
+<li>Poor win rate (0.0%) on m15</li>
+<li>Insufficient sample size (0 trades) on m15</li>
+<li>Low profit factor (0.00) on h1</li>
+<li>Poor win rate (0.0%) on h1</li>
+<li>Insufficient sample size (0 trades) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h3>scenario_12</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Good win rate (72.7%) on m15</li>
+<li>Strong profit factor (2.40) on h1</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Low profit factor (0.93) on m30</li>
+<li>Poor win rate (25.0%) on m30</li>
+<li>Insufficient sample size (4 trades) on m30</li>
+<li>Low profit factor (0.00) on h4</li>
+<li>Poor win rate (0.0%) on h4</li>
+<li>Insufficient sample size (0 trades) on h4</li>
+<li>Low profit factor (0.73) on m15</li>
+<li>Insufficient sample size (11 trades) on m15</li>
+<li>Insufficient sample size (2 trades) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h3>scenario_13</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Strong profit factor (2.16) on h1</li>
+<li>Good win rate (75.0%) on h1</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Insufficient sample size (11 trades) on m30</li>
+<li>Low profit factor (0.66) on h4</li>
+<li>Insufficient sample size (2 trades) on h4</li>
+<li>Low profit factor (0.05) on m15</li>
+<li>Poor win rate (21.4%) on m15</li>
+<li>Insufficient sample size (14 trades) on m15</li>
+<li>Insufficient sample size (4 trades) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h3>scenario_2</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Sufficient sample size (699 trades) on m30</li>
+<li>Good win rate (56.2%) on h4</li>
+<li>Good win rate (57.5%) on m15</li>
+<li>Sufficient sample size (1418 trades) on m15</li>
+<li>Sufficient sample size (326 trades) on h1</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Low profit factor (0.94) on m30</li>
+<li>Low profit factor (1.00) on h4</li>
+<li>Low profit factor (0.89) on m15</li>
+<li>Low profit factor (0.83) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h3>scenario_3</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Sufficient sample size (505 trades) on m30</li>
+<li>Good win rate (55.1%) on h4</li>
+<li>Sufficient sample size (1033 trades) on m15</li>
+<li>Good win rate (58.9%) on h1</li>
+<li>Sufficient sample size (248 trades) on h1</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Low profit factor (0.97) on m30</li>
+<li>Low profit factor (0.99) on m15</li>
+<li>Low profit factor (1.08) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h3>scenario_4</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Sufficient sample size (512 trades) on m30</li>
+<li>Strong profit factor (1.56) on h4</li>
+<li>Good win rate (61.4%) on h4</li>
+<li>Sufficient sample size (1042 trades) on m15</li>
+<li>Good win rate (56.7%) on h1</li>
+<li>Sufficient sample size (247 trades) on h1</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Low profit factor (0.90) on m30</li>
+<li>Low profit factor (0.91) on m15</li>
+<li>Low profit factor (1.01) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h3>scenario_5</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>No significant strengths identified</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Low profit factor (0.00) on m30</li>
+<li>Poor win rate (0.0%) on m30</li>
+<li>Insufficient sample size (0 trades) on m30</li>
+<li>Low profit factor (0.00) on h4</li>
+<li>Poor win rate (0.0%) on h4</li>
+<li>Insufficient sample size (0 trades) on h4</li>
+<li>Low profit factor (0.00) on m15</li>
+<li>Poor win rate (0.0%) on m15</li>
+<li>Insufficient sample size (0 trades) on m15</li>
+<li>Low profit factor (0.00) on h1</li>
+<li>Poor win rate (0.0%) on h1</li>
+<li>Insufficient sample size (0 trades) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h3>scenario_6</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Good win rate (60.0%) on h4</li>
+<li>Good win rate (64.4%) on m15</li>
+<li>Good win rate (73.3%) on h1</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Low profit factor (0.76) on m30</li>
+<li>Insufficient sample size (24 trades) on m30</li>
+<li>Low profit factor (0.87) on h4</li>
+<li>Insufficient sample size (5 trades) on h4</li>
+<li>Low profit factor (0.72) on m15</li>
+<li>Low profit factor (1.10) on h1</li>
+<li>Insufficient sample size (15 trades) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h3>scenario_7</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Strong profit factor (58.19) on m30</li>
+<li>Good win rate (100.0%) on m30</li>
+<li>Good win rate (57.1%) on m15</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Insufficient sample size (2 trades) on m30</li>
+<li>Low profit factor (0.00) on h4</li>
+<li>Poor win rate (0.0%) on h4</li>
+<li>Insufficient sample size (0 trades) on h4</li>
+<li>Low profit factor (0.86) on m15</li>
+<li>Insufficient sample size (7 trades) on m15</li>
+<li>Low profit factor (0.60) on h1</li>
+<li>Insufficient sample size (2 trades) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h3>scenario_8</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Strong profit factor (1.59) on m30</li>
+<li>Good win rate (57.1%) on m15</li>
+<li>Strong profit factor (68.67) on h1</li>
+<li>Good win rate (100.0%) on h1</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Insufficient sample size (8 trades) on m30</li>
+<li>Low profit factor (0.00) on h4</li>
+<li>Poor win rate (0.0%) on h4</li>
+<li>Insufficient sample size (0 trades) on h4</li>
+<li>Low profit factor (0.68) on m15</li>
+<li>Insufficient sample size (7 trades) on m15</li>
+<li>Insufficient sample size (1 trades) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="scenario">
+            <h3>scenario_9</h3>
+            <div class="pros-cons">
+                <div class="pros">
+                    <h4>Strengths</h4>
+                    <ul>
+                        <li>Strong profit factor (1.56) on m30</li>
+<li>Good win rate (67.7%) on m30</li>
+<li>Strong profit factor (464.03) on h4</li>
+<li>Good win rate (100.0%) on h4</li>
+<li>Good win rate (68.4%) on m15</li>
+                    </ul>
+                </div>
+                <div class="cons">
+                    <h4>Weaknesses</h4>
+                    <ul>
+                        <li>Insufficient sample size (6 trades) on h4</li>
+<li>Low profit factor (1.18) on m15</li>
+<li>Low profit factor (0.69) on h1</li>
+<li>Insufficient sample size (19 trades) on h1</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <h2>Overall Recommendations</h2>
+        <div class="recommendations">
+            <ul><li>Best overall performance: scenario_10 on h1 (PF: 908.00)</li><li>Best m30 performance: scenario_10 (PF: 345.67)</li><li>Best h4 performance: scenario_9 (PF: 464.03)</li><li>Best m15 performance: scenario_9 (PF: 1.18)</li><li>Best h1 performance: scenario_10 (PF: 908.00)</li></ul>
+        </div>
+
+        <h2>Suggested Improvements</h2>
+        <div class="recommendations">
+            <ul><li>Consider implementing dynamic stop-loss based on ATR for better risk management</li>
+<li>Add volume analysis to confirm entry signals</li>
+<li>Implement time-based filters for specific trading sessions</li>
+<li>Add correlation analysis with major currency pairs</li>
+<li>Consider adding price action confirmation (candlestick patterns)</li>
+<li>Implement position sizing based on account equity</li></ul>
+        </div>
+    </body>
+    </html>
+    

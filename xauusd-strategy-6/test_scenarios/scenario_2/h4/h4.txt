@@ -1,0 +1,20 @@
+BASE CONFIGURATION (Common to all scenarios)
+------------------------------------------
+RSI_Period = 14
+RSI_SmoothPeriod = 14
+MinRsiSpread = 2.0
+Trail_SL_Percent = 20.0
+UseTrailingStop = true
+
+SCENARIO 2: RSI Crossover with Zone Filter
+----------------------------------------
+Description: Only take trades in favorable RSI zones
+Configuration:
+- UseTrendFilter = false
+- UseRsiZoneFilter = true
+- BuyZoneThreshold = 50.0
+- SellZoneThreshold = 50.0
+- UseRsiTrendFilter = false
+Expected Behavior: Fewer signals than Scenario 1, focus on mean reversion
+
+Results:
