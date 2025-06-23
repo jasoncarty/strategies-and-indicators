@@ -33,6 +33,27 @@ struct StrategyTestResult
     int losing_trades;
     double win_rate;
     double sharpe_ratio;
+
+    // --- New Fields ---
+    double gross_profit;
+    double gross_loss;
+    double recovery_factor;
+    double expected_payoff;
+    double z_score;
+    int long_trades;
+    int short_trades;
+    int long_trades_won;
+    int short_trades_won;
+    double largest_profit;
+    double largest_loss;
+    double avg_profit;
+    double avg_loss;
+    int max_consecutive_wins;
+    int max_consecutive_losses;
+    int avg_consecutive_wins;
+    int avg_consecutive_losses;
+    // --- End New Fields ---
+
     string parameters;
 };
 
@@ -53,6 +74,7 @@ struct TradeData
     double swap;
     double commission;
     double net_profit;
+    string trading_conditions_json; // Holds the JSON string for trading conditions
 };
 
 //+------------------------------------------------------------------+
@@ -96,6 +118,27 @@ string CreateTestResultJSON(const StrategyTestResult &result, const TradeData &t
     json += "\"losing_trades\":" + IntegerToString(result.losing_trades) + ",";
     json += "\"win_rate\":" + DoubleToString(result.win_rate, 2) + ",";
     json += "\"sharpe_ratio\":" + DoubleToString(result.sharpe_ratio, 2) + ",";
+
+    // --- New Fields ---
+    json += "\"gross_profit\":" + DoubleToString(result.gross_profit, 2) + ",";
+    json += "\"gross_loss\":" + DoubleToString(result.gross_loss, 2) + ",";
+    json += "\"recovery_factor\":" + DoubleToString(result.recovery_factor, 2) + ",";
+    json += "\"expected_payoff\":" + DoubleToString(result.expected_payoff, 2) + ",";
+    json += "\"z_score\":" + DoubleToString(result.z_score, 2) + ",";
+    json += "\"long_trades\":" + IntegerToString(result.long_trades) + ",";
+    json += "\"short_trades\":" + IntegerToString(result.short_trades) + ",";
+    json += "\"long_trades_won\":" + IntegerToString(result.long_trades_won) + ",";
+    json += "\"short_trades_won\":" + IntegerToString(result.short_trades_won) + ",";
+    json += "\"largest_profit\":" + DoubleToString(result.largest_profit, 2) + ",";
+    json += "\"largest_loss\":" + DoubleToString(result.largest_loss, 2) + ",";
+    json += "\"avg_profit\":" + DoubleToString(result.avg_profit, 2) + ",";
+    json += "\"avg_loss\":" + DoubleToString(result.avg_loss, 2) + ",";
+    json += "\"max_consecutive_wins\":" + IntegerToString(result.max_consecutive_wins) + ",";
+    json += "\"max_consecutive_losses\":" + IntegerToString(result.max_consecutive_losses) + ",";
+    json += "\"avg_consecutive_wins\":" + IntegerToString(result.avg_consecutive_wins) + ",";
+    json += "\"avg_consecutive_losses\":" + IntegerToString(result.avg_consecutive_losses) + ",";
+    // --- End New Fields ---
+
     json += "\"parameters\":" + result.parameters + ",";
 
     // Add trades array
@@ -116,6 +159,11 @@ string CreateTestResultJSON(const StrategyTestResult &result, const TradeData &t
         json += "\"swap\":" + DoubleToString(trades[i].swap, 2) + ",";
         json += "\"commission\":" + DoubleToString(trades[i].commission, 2) + ",";
         json += "\"net_profit\":" + DoubleToString(trades[i].net_profit, 2);
+        // Add the trading_conditions object, if it's not empty
+        if(trades[i].trading_conditions_json != "" && trades[i].trading_conditions_json != "{}")
+        {
+            json += ",\"trading_conditions\":" + trades[i].trading_conditions_json;
+        }
         json += "}";
     }
     json += "]";
@@ -272,6 +320,23 @@ bool ExtractAndSendTestResults(string strategy_name, string parameters = "{}")
     result.losing_trades = 0;       // Set to actual losing trades
     result.win_rate = 0;            // Set to actual win rate
     result.sharpe_ratio = 0;        // Set to actual Sharpe ratio
+    result.gross_profit = 0;         // Set to actual gross profit
+    result.gross_loss = 0;          // Set to actual gross loss
+    result.recovery_factor = 0;     // Set to actual recovery factor
+    result.expected_payoff = 0;     // Set to actual expected payoff
+    result.z_score = 0;             // Set to actual z-score
+    result.long_trades = 0;         // Set to actual long trades
+    result.short_trades = 0;        // Set to actual short trades
+    result.long_trades_won = 0;     // Set to actual long trades won
+    result.short_trades_won = 0;    // Set to actual short trades won
+    result.largest_profit = 0;       // Set to actual largest profit
+    result.largest_loss = 0;         // Set to actual largest loss
+    result.avg_profit = 0;           // Set to actual average profit
+    result.avg_loss = 0;            // Set to actual average loss
+    result.max_consecutive_wins = 0; // Set to actual max consecutive wins
+    result.max_consecutive_losses = 0; // Set to actual max consecutive losses
+    result.avg_consecutive_wins = 0; // Set to actual average consecutive wins
+    result.avg_consecutive_losses = 0; // Set to actual average consecutive losses
     result.parameters = parameters;
 
     TradeData trades[];

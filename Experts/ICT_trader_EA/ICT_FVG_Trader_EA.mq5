@@ -1,16 +1,21 @@
 //+------------------------------------------------------------------+
 //|                                                ICT_FVG_Trader_EA.mq5 |
-//|                                  Copyright 2024, Your Name           |
-//|                     https://github.com/yourusername/ICT_FVG_Trader  |
+//|                                  Copyright 2024, Jason Carty           |
+//|                     https://github.com/jason-carty/mt5-trader-ea  |
 //+------------------------------------------------------------------+
 
-#include "..\\WebServerAPI.mqh"
+#include "../WebServerAPI.mqh"
+#include <Trade/Trade.mqh>
+#include <Trade/PositionInfo.mqh>
+#include <Trade/SymbolInfo.mqh>
+#include <MovingAverages.mqh>
 
 #property copyright "Copyright 2024"
 #property version   "1.00"
 #property description "ICT Fair Value Gap and Imbalance Trading Expert Advisor"
 #property description "Implements ICT concepts for trading Fair Value Gaps (FVGs)"
 #property description "and volume imbalances with precise stop loss placement."
+#property link      "https://github.com/jason-carty/mt5-trader-ea"
 
 // Risk Management Parameters
 input group "Risk Management"
@@ -181,6 +186,78 @@ struct LowerTimeframeAnalysis
 };
 
 //+------------------------------------------------------------------+
+//| Struct for storing trading conditions                             |
+//+------------------------------------------------------------------+
+struct TradingConditions
+{
+    // Basic trade info
+    datetime entryTime;
+    ENUM_ORDER_TYPE orderType;
+    double entryPrice;
+    double stopLoss;
+    double targetPrice;
+    double lotSize;
+
+    // Market conditions at entry
+    double currentPrice;
+    double atrValue;
+    double volume;
+    double volumeRatio;
+
+    // ICT Strategy conditions
+    bool inKillZone;
+    string killZoneType;
+    bool hasMarketStructure;
+    bool marketStructureBullish;
+    bool hasLiquiditySweep;
+    datetime liquiditySweepTime;
+    double liquiditySweepLevel;
+
+    // FVG/Imbalance conditions
+    bool hasFVG;
+    string fvgType;  // "Bullish", "Bearish"
+    double fvgStart;
+    double fvgEnd;
+    bool fvgFilled;
+    datetime fvgTime;
+
+    // OTE conditions
+    bool hasOTE;
+    string oteType;  // "FVG", "Fib", "OrderBlock", "StdDev"
+    double oteLevel;
+    double oteStrength;
+
+    // Lower timeframe conditions
+    bool hasLTFBreak;
+    bool hasLTFConfirmation;
+    bool hasOTERetest;
+    string ltfBreakType;  // "Bullish", "Bearish"
+
+    // Fibonacci levels
+    bool nearFibLevel;
+    double fibLevel;
+    string fibType;  // "0.236", "0.382", "0.618", "0.786"
+
+    // Order block conditions
+    bool nearOrderBlock;
+    double orderBlockHigh;
+    double orderBlockLow;
+    bool orderBlockBullish;
+
+    // Volume conditions
+    bool volumeConfirmation;
+    double volumeRatioValue;
+
+    // Risk management
+    double riskAmount;
+    double riskPercent;
+    double rewardRiskRatio;
+
+    // Additional context
+    string additionalNotes;
+};
+
+//+------------------------------------------------------------------+
 //| Global variables                                                   |
 //+------------------------------------------------------------------+
 bool isTradeAllowed = false;
@@ -209,6 +286,9 @@ ENUM_TIMEFRAMES g_lockedLowerTimeframe = PERIOD_CURRENT;      // Locked lower ti
 bool g_cachedKillZoneStatus = true;      // Cached kill zone status (true = trading allowed)
 datetime g_lastKillZoneCheck = 0;        // Last time we checked kill zone status
 int g_lastKillZoneHour = -1;             // Last hour we checked (for hourly updates)
+
+// Global trade object
+CTrade trade;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                     |
@@ -480,8 +560,6 @@ void OnDeinit(const int reason)
    Print("Cleaned up ", ArraySize(g_foundImbalances), " stored imbalances");
    Print("Cleaned up all visualization objects");
 }
-
-// ... rest of the code from OrderFlowTracker_EA.mq5 ...
 
 //+------------------------------------------------------------------+
 //| Check for ICT volume imbalance                                    |
@@ -830,6 +908,22 @@ bool ModifyPosition(double newSL)
 //+------------------------------------------------------------------+
 void OpenPosition(ENUM_ORDER_TYPE orderType, double entryPrice, double stopLoss, double targetPrice, double lotSize)
 {
+   TradingConditions conditions = {};
+   OpenPosition(orderType, entryPrice, stopLoss, targetPrice, lotSize, conditions);
+}
+
+//+------------------------------------------------------------------+
+void OpenPosition(ENUM_ORDER_TYPE orderType, double entryPrice, double stopLoss, double targetPrice, double lotSize, TradingConditions &conditions)
+{
+   // Capture trading conditions if provided
+   if(conditions.entryTime == 0) // If conditions not provided, capture them now
+   {
+      conditions = CaptureTradingConditions(orderType, entryPrice, stopLoss, targetPrice, lotSize);
+   }
+
+   // Log the trading conditions
+   LogTradingConditions(conditions);
+
    MqlTradeRequest request = {};
    MqlTradeResult result = {};
 
@@ -875,6 +969,9 @@ void OpenPosition(ENUM_ORDER_TYPE orderType, double entryPrice, double stopLoss,
          Print("Lot Size: ", lotSize, " Risk: ", RiskPercent, "%");
          currentPositionTicket = result.order;
          initialStopLoss = stopLoss;
+
+         // Save trading conditions to file for later analysis
+         SaveTradingConditionsToFile(result.order, conditions);
       }
       else
       {
@@ -1911,7 +2008,7 @@ void OnTick()
                 {
                     Print("Buy signal confirmed at unfilled bullish FVG");
                     double entryPrice = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-                    double stopLoss = MathMin(recentBullish.gapStart, recentBullish.gapEnd) - (10 * _Point);  // Place SL below FVG
+                    double stopLoss = MathMin(recentBearish.gapStart, recentBearish.gapEnd) - (10 * _Point);  // Place SL below FVG
                     double targetPrice = CalculateTargetPrice(entryPrice, stopLoss, true);
                     double lotSize = CalculateLotSize(entryPrice, stopLoss);
 
@@ -3901,107 +3998,420 @@ bool CheckLTFOnlyEntryConditions(bool isBuy)
 //+------------------------------------------------------------------+
 double OnTester()
 {
-    Print("OnTester(): function started. Preparing to send results to web server...");
+    Print("OnTester(): function started. Preparing to send results...");
 
-    // --- 1. Get the main test results (WORKAROUND for older MT5 builds) ---
     StrategyTestResult result;
+
+    // --- Basic Test Information ---
     result.strategy_name = MQLInfoString(MQL_PROGRAM_NAME);
     result.symbol = _Symbol;
     result.timeframe = EnumToString(_Period);
-
     result.initial_deposit = TesterStatistics(STAT_INITIAL_DEPOSIT);
     result.profit = TesterStatistics(STAT_PROFIT);
-    result.final_balance = result.initial_deposit + result.profit; // Manual calculation
-
+    result.final_balance = result.initial_deposit + result.profit;
     result.profit_factor = TesterStatistics(STAT_PROFIT_FACTOR);
     result.max_drawdown = TesterStatistics(STAT_BALANCE_DD);
     result.total_trades = (int)TesterStatistics(STAT_TRADES);
-
-    double profit_trades = TesterStatistics(STAT_PROFIT_TRADES);
-    double total_trades = TesterStatistics(STAT_TRADES);
-
-    result.winning_trades = (int)profit_trades;
-    result.losing_trades = (int)(total_trades - profit_trades);
-
-    if(total_trades > 0)
-        result.win_rate = (profit_trades / total_trades) * 100.0;
+    result.winning_trades = (int)TesterStatistics(STAT_PROFIT_TRADES);
+    result.losing_trades = result.total_trades - result.winning_trades;
+    if(result.total_trades > 0)
+        result.win_rate = ((double)result.winning_trades / result.total_trades) * 100.0;
     else
         result.win_rate = 0;
-
     result.sharpe_ratio = TesterStatistics(STAT_SHARPE_RATIO);
 
-    // --- 2. Create a JSON string of the input parameters ---
-    string params_json = "{}";
-    result.parameters = params_json;
+    // -- Detailed Statistics
+    result.gross_profit = TesterStatistics(STAT_GROSS_PROFIT);
+    result.gross_loss = TesterStatistics(STAT_GROSS_LOSS);
+    result.recovery_factor = TesterStatistics(STAT_RECOVERY_FACTOR);
+    result.expected_payoff = TesterStatistics(STAT_EXPECTED_PAYOFF);
+    result.long_trades = (int)TesterStatistics(STAT_LONG_TRADES);
+    result.short_trades = (int)TesterStatistics(STAT_SHORT_TRADES);
+    result.long_trades_won = (int)TesterStatistics(STAT_PROFIT_LONGTRADES);
+    result.short_trades_won = (int)TesterStatistics(STAT_PROFIT_SHORTTRADES);
+    result.largest_profit = TesterStatistics(STAT_MAX_PROFITTRADE);
+    result.largest_loss = TesterStatistics(STAT_MAX_LOSSTRADE);
 
-    Print("OnTester(): Collected main results. Profit: ", result.profit);
+    // --- Performance Metrics ---
+    result.parameters = "{}"; // Placeholder
 
-    // --- 3. Extract all trade history (WORKAROUND for older MT5 builds) ---
     TradeData trades[];
-    if(HistorySelect(0, TimeCurrent())) // Select all available history
+    if(HistorySelect(0, TimeCurrent()))
     {
         uint total_deals = HistoryDealsTotal();
-        ArrayResize(trades, (int)total_deals);
-
-        datetime first_trade_time = 0;
-        datetime last_trade_time = 0;
+        int trade_count = 0;
 
         for(uint i = 0; i < total_deals; i++)
         {
             ulong ticket = HistoryDealGetTicket(i);
-            if(ticket > 0)
+            if(ticket > 0 && HistoryDealGetInteger(ticket, DEAL_MAGIC) == MagicNumber)
             {
-                datetime deal_time = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
-                if(i == 0) first_trade_time = deal_time;
-                if(deal_time > last_trade_time) last_trade_time = deal_time;
+                if(HistoryDealGetInteger(ticket, DEAL_ENTRY) == DEAL_ENTRY_OUT) continue;
 
-                trades[i].ticket = (int)ticket;
-                trades[i].symbol = HistoryDealGetString(ticket, DEAL_SYMBOL);
+                ArrayResize(trades, trade_count + 1);
 
-                ENUM_DEAL_TYPE deal_type = (ENUM_DEAL_TYPE)HistoryDealGetInteger(ticket, DEAL_TYPE);
-                if(deal_type == DEAL_TYPE_BUY)
-                    trades[i].type = "BUY";
-                else if(deal_type == DEAL_TYPE_SELL)
-                    trades[i].type = "SELL";
-                else
-                    trades[i].type = "OTHER";
+                trades[trade_count].ticket = (int)ticket;
+                trades[trade_count].symbol = HistoryDealGetString(ticket, DEAL_SYMBOL);
+                trades[trade_count].type = (HistoryDealGetInteger(ticket, DEAL_TYPE) == DEAL_TYPE_BUY) ? "BUY" : "SELL";
+                trades[trade_count].volume = HistoryDealGetDouble(ticket, DEAL_VOLUME);
+                trades[trade_count].open_price = HistoryDealGetDouble(ticket, DEAL_PRICE);
+                trades[trade_count].open_time = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
 
-                trades[i].volume = HistoryDealGetDouble(ticket, DEAL_VOLUME);
-                trades[i].open_price = HistoryDealGetDouble(ticket, DEAL_PRICE);
-                trades[i].close_price = 0;
-                trades[i].open_time = deal_time;
-                trades[i].close_time = deal_time;
-                trades[i].profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
-                trades[i].swap = HistoryDealGetDouble(ticket, DEAL_SWAP);
-                trades[i].commission = HistoryDealGetDouble(ticket, DEAL_COMMISSION);
-                trades[i].net_profit = trades[i].profit + trades[i].swap + trades[i].commission;
+                if(trade_count == 0) result.start_date = trades[trade_count].open_time;
+                result.end_date = trades[trade_count].open_time; // Will be updated by last trade
+
+                double close_price = 0;
+                datetime close_time = 0;
+                double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+                double swap = HistoryDealGetDouble(ticket, DEAL_SWAP);
+                double commission = HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+
+                for(uint j = i + 1; j < total_deals; j++)
+                {
+                    ulong close_ticket = HistoryDealGetTicket(j);
+                    if(HistoryDealGetInteger(close_ticket, DEAL_POSITION_ID) == ticket)
+                    {
+                        close_price = HistoryDealGetDouble(close_ticket, DEAL_PRICE);
+                        close_time = (datetime)HistoryDealGetInteger(close_ticket, DEAL_TIME);
+                        profit += HistoryDealGetDouble(close_ticket, DEAL_PROFIT);
+                        swap += HistoryDealGetDouble(close_ticket, DEAL_SWAP);
+                        commission += HistoryDealGetDouble(close_ticket, DEAL_COMMISSION);
+                        if(close_time > result.end_date) result.end_date = close_time;
+                        break;
+                    }
+                }
+                trades[trade_count].close_price = close_price;
+                trades[trade_count].close_time = close_time;
+                trades[trade_count].profit = profit;
+                trades[trade_count].swap = swap;
+                trades[trade_count].commission = commission;
+                trades[trade_count].net_profit = profit + swap + commission;
+
+                // --- NEW: Read and embed trading conditions ---
+                string conditions_filename = "trading_conditions_" + (string)ticket + ".json";
+                int file_handle = FileOpen(conditions_filename, FILE_READ|FILE_TXT);
+                if(file_handle != INVALID_HANDLE)
+                {
+                    string conditions_json = "";
+                    while(!FileIsEnding(file_handle))
+                    {
+                       conditions_json += FileReadString(file_handle);
+                    }
+                    FileClose(file_handle);
+
+                    // This is a bit of a hack, but we embed the JSON string directly
+                    trades[trade_count].trading_conditions_json = conditions_json;
+                }
+
+                trade_count++;
             }
         }
 
-        // Use first and last trade times as an approximation for test date range
-        result.start_date = first_trade_time;
-        result.end_date = last_trade_time;
+        // --- Calculate average profit, average loss, average/max consecutive wins/losses ---
+        double totalProfit = 0, totalLoss = 0;
+        int countProfit = 0, countLoss = 0;
+        int maxConsecWins = 0, maxConsecLosses = 0;
+        int winStreak = 0, lossStreak = 0;
+        int winStreaks = 0, lossStreaks = 0;
+        int sumWinStreaks = 0, sumLossStreaks = 0;
 
-        Print("OnTester(): Extracted ", (string)total_deals, " trades from history.");
-    }
-    else
-    {
-        Print("OnTester(): Could not select history. No trades will be sent.");
-        ArrayResize(trades, 0);
+        for(int i = 0; i < ArraySize(trades); i++) {
+            double profit = trades[i].net_profit;
+            if(profit > 0) {
+                totalProfit += profit;
+                countProfit++;
+                winStreak++;
+                if(lossStreak > 0) {
+                    sumLossStreaks += lossStreak;
+                    if(lossStreak > maxConsecLosses) maxConsecLosses = lossStreak;
+                    lossStreaks++;
+                    lossStreak = 0;
+                }
+            } else if(profit < 0) {
+                totalLoss += profit;
+                countLoss++;
+                lossStreak++;
+                if(winStreak > 0) {
+                    sumWinStreaks += winStreak;
+                    if(winStreak > maxConsecWins) maxConsecWins = winStreak;
+                    winStreaks++;
+                    winStreak = 0;
+                }
+            } else {
+                // Flat trade, treat as streak break
+                if(winStreak > 0) {
+                    sumWinStreaks += winStreak;
+                    if(winStreak > maxConsecWins) maxConsecWins = winStreak;
+                    winStreaks++;
+                    winStreak = 0;
+                }
+                if(lossStreak > 0) {
+                    sumLossStreaks += lossStreak;
+                    if(lossStreak > maxConsecLosses) maxConsecLosses = lossStreak;
+                    lossStreaks++;
+                    lossStreak = 0;
+                }
+            }
+        }
+        // Finalize any streaks at the end
+        if(winStreak > 0) {
+            sumWinStreaks += winStreak;
+            if(winStreak > maxConsecWins) maxConsecWins = winStreak;
+            winStreaks++;
+        }
+        if(lossStreak > 0) {
+            sumLossStreaks += lossStreak;
+            if(lossStreak > maxConsecLosses) maxConsecLosses = lossStreak;
+            lossStreaks++;
+        }
+
+        double avgProfit = countProfit > 0 ? totalProfit / countProfit : 0;
+        double avgLoss = countLoss > 0 ? totalLoss / countLoss : 0;
+        double avgConsecWins = winStreaks > 0 ? double(sumWinStreaks) / winStreaks : 0;
+        double avgConsecLosses = lossStreaks > 0 ? double(sumLossStreaks) / lossStreaks : 0;
+
+        result.avg_profit = avgProfit;
+        result.avg_loss = avgLoss;
+        result.max_consecutive_wins = maxConsecWins;
+        result.max_consecutive_losses = maxConsecLosses;
+        result.avg_consecutive_wins = avgConsecWins;
+        result.avg_consecutive_losses = avgConsecLosses;
     }
 
-    // --- 4. Save all results to a file ---
-    Print("OnTester(): Saving results to file...");
-    bool success = SaveTestResultsToFile(result, trades);
+    SaveTestResultsToFile(result, trades);
 
-    if(success)
-    {
-        Print("OnTester(): SUCCESS! Results saved to file.");
-    }
-    else
-    {
-        Print("OnTester(): FAILED to save results file.");
-    }
+    return TesterStatistics(STAT_PROFIT);
+}
 
-    return 0.0;
+//+------------------------------------------------------------------+
+//| Capture current trading conditions                                |
+//+------------------------------------------------------------------+
+TradingConditions CaptureTradingConditions(ENUM_ORDER_TYPE orderType, double entryPrice, double stopLoss, double targetPrice, double lotSize)
+{
+   TradingConditions conditions = {};
+
+   // Basic trade info
+   conditions.entryTime = TimeCurrent();
+   conditions.orderType = orderType;
+   conditions.entryPrice = entryPrice;
+   conditions.stopLoss = stopLoss;
+   conditions.targetPrice = targetPrice;
+   conditions.lotSize = lotSize;
+   conditions.currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+   // Get ATR value
+   double atrBuffer[];
+   ArraySetAsSeries(atrBuffer, true);
+   int atrHandle = iATR(_Symbol, PERIOD_CURRENT, ATRPeriod);
+   if(atrHandle != INVALID_HANDLE && CopyBuffer(atrHandle, 0, 0, 1, atrBuffer) > 0)
+   {
+      conditions.atrValue = atrBuffer[0];
+   }
+
+   // Get volume data
+   long volumes[];
+   ArraySetAsSeries(volumes, true);
+   if(CopyTickVolume(_Symbol, PERIOD_CURRENT, 0, 20, volumes) > 0)
+   {
+      conditions.volume = (double)volumes[1]; // Last completed bar
+
+      // Calculate volume ratio
+      double avgVolume = 0;
+      for(int i = 2; i < 20; i++)
+      {
+         avgVolume += (double)volumes[i];
+      }
+      avgVolume /= 18.0;
+      conditions.volumeRatio = avgVolume > 0 ? conditions.volume / avgVolume : 0;
+   }
+
+   // ICT Strategy conditions
+   conditions.inKillZone = IsInKillZone();
+   conditions.killZoneType = GetCurrentKillZoneStatus();
+   conditions.hasMarketStructure = UseMarketStructureFilter;
+   conditions.marketStructureBullish = g_marketStructure.isBullish;
+   conditions.hasLiquiditySweep = g_marketStructure.hasLiquiditySweep;
+   conditions.liquiditySweepTime = g_marketStructure.sweepTime;
+   conditions.liquiditySweepLevel = g_marketStructure.sweepLevel;
+
+   // FVG conditions - find the most recent relevant FVG
+   ImbalanceInfo recentFVG = FindRecentImbalance(orderType == ORDER_TYPE_BUY ? false : true); // Opposite direction
+   conditions.hasFVG = recentFVG.exists;
+   if(conditions.hasFVG)
+   {
+      conditions.fvgType = recentFVG.isBullish ? "Bullish" : "Bearish";
+      conditions.fvgStart = recentFVG.gapStart;
+      conditions.fvgEnd = recentFVG.gapEnd;
+      conditions.fvgFilled = recentFVG.isFilled;
+      conditions.fvgTime = recentFVG.time;
+   }
+
+   // OTE conditions
+   conditions.hasOTE = ArraySize(g_otePoints) > 0;
+   if(conditions.hasOTE)
+   {
+      // Find the closest OTE point
+      double closestDistance = 999999;
+      for(int i = 0; i < ArraySize(g_otePoints); i++)
+      {
+         double distance = MathAbs(entryPrice - g_otePoints[i].level);
+         if(distance < closestDistance)
+         {
+            closestDistance = distance;
+            conditions.oteType = g_otePoints[i].type;
+            conditions.oteLevel = g_otePoints[i].level;
+            conditions.oteStrength = g_otePoints[i].strength;
+         }
+      }
+   }
+
+   // Lower timeframe conditions
+   conditions.hasLTFBreak = g_ltfAnalysis.hasStructureBreak;
+   conditions.hasLTFConfirmation = g_ltfAnalysis.hasConfirmationCandle;
+   conditions.hasOTERetest = g_ltfAnalysis.hasOTERetest;
+   conditions.ltfBreakType = g_ltfAnalysis.isBullishBreak ? "Bullish" : "Bearish";
+
+   // Fibonacci conditions
+   conditions.nearFibLevel = false;
+   for(int i = 0; i < ArraySize(g_fibLevels); i++)
+   {
+      double distance = MathAbs(entryPrice - g_fibLevels[i]) / _Point;
+      if(distance < 20) // Within 20 points
+      {
+         conditions.nearFibLevel = true;
+         conditions.fibLevel = g_fibLevels[i];
+         conditions.fibType = GetFibLevelName(g_fibLevels[i]);
+         break;
+      }
+   }
+
+   // Order block conditions
+   conditions.nearOrderBlock = false;
+   for(int i = 0; i < ArraySize(g_orderBlocks); i++)
+   {
+      if(g_orderBlocks[i].exists && g_orderBlocks[i].isActive)
+      {
+         if(entryPrice >= g_orderBlocks[i].low && entryPrice <= g_orderBlocks[i].high)
+         {
+            conditions.nearOrderBlock = true;
+            conditions.orderBlockHigh = g_orderBlocks[i].high;
+            conditions.orderBlockLow = g_orderBlocks[i].low;
+            conditions.orderBlockBullish = g_orderBlocks[i].isBullish;
+            break;
+         }
+      }
+   }
+
+   // Volume conditions
+   conditions.volumeConfirmation = CheckVolumeConfirmation(orderType == ORDER_TYPE_BUY);
+   conditions.volumeRatioValue = conditions.volumeRatio;
+
+   // Risk management
+   conditions.riskAmount = MathAbs(entryPrice - stopLoss) * lotSize * 100000; // Approximate risk in account currency
+   conditions.riskPercent = RiskPercent;
+   conditions.rewardRiskRatio = MathAbs(targetPrice - entryPrice) / MathAbs(entryPrice - stopLoss);
+
+   return conditions;
+}
+
+//+------------------------------------------------------------------+
+//| Get Fibonacci level name                                          |
+//+------------------------------------------------------------------+
+string GetFibLevelName(double level)
+{
+   if(MathAbs(level - 0.236) < 0.001) return "0.236";
+   if(MathAbs(level - 0.382) < 0.001) return "0.382";
+   if(MathAbs(level - 0.618) < 0.001) return "0.618";
+   if(MathAbs(level - 0.786) < 0.001) return "0.786";
+   return "Custom";
+}
+
+//+------------------------------------------------------------------+
+//| Log trading conditions to console                                 |
+//+------------------------------------------------------------------+
+void LogTradingConditions(const TradingConditions &conditions)
+{
+   Print("=== TRADING CONDITIONS LOG ===");
+   Print("Entry Time: ", TimeToString(conditions.entryTime));
+   Print("Order Type: ", EnumToString(conditions.orderType));
+   Print("Entry Price: ", DoubleToString(conditions.entryPrice, _Digits));
+   Print("Stop Loss: ", DoubleToString(conditions.stopLoss, _Digits));
+   Print("Target Price: ", DoubleToString(conditions.targetPrice, _Digits));
+   Print("Lot Size: ", DoubleToString(conditions.lotSize, 2));
+   Print("Current Price: ", DoubleToString(conditions.currentPrice, _Digits));
+   Print("ATR Value: ", DoubleToString(conditions.atrValue, _Digits));
+   Print("Volume: ", DoubleToString(conditions.volume, 0));
+   Print("Volume Ratio: ", DoubleToString(conditions.volumeRatio, 2));
+   Print("In Kill Zone: ", conditions.inKillZone ? "Yes" : "No");
+   Print("Kill Zone Type: ", conditions.killZoneType);
+   Print("Market Structure Bullish: ", conditions.marketStructureBullish ? "Yes" : "No");
+   Print("Has Liquidity Sweep: ", conditions.hasLiquiditySweep ? "Yes" : "No");
+   Print("Has FVG: ", conditions.hasFVG ? "Yes" : "No");
+   if(conditions.hasFVG)
+   {
+      Print("FVG Type: ", conditions.fvgType);
+      Print("FVG Filled: ", conditions.fvgFilled ? "Yes" : "No");
+   }
+   Print("Has OTE: ", conditions.hasOTE ? "Yes" : "No");
+   Print("Has LTF Break: ", conditions.hasLTFBreak ? "Yes" : "No");
+   Print("Has LTF Confirmation: ", conditions.hasLTFConfirmation ? "Yes" : "No");
+   Print("Near Fib Level: ", conditions.nearFibLevel ? "Yes" : "No");
+   Print("Near Order Block: ", conditions.nearOrderBlock ? "Yes" : "No");
+   Print("Volume Confirmation: ", conditions.volumeConfirmation ? "Yes" : "No");
+   Print("Risk Amount: ", DoubleToString(conditions.riskAmount, 2));
+   Print("Risk Percent: ", DoubleToString(conditions.riskPercent, 2));
+   Print("Reward/Risk Ratio: ", DoubleToString(conditions.rewardRiskRatio, 2));
+   Print("================================");
+}
+
+//+------------------------------------------------------------------+
+//| Save trading conditions to file                                   |
+//+------------------------------------------------------------------+
+void SaveTradingConditionsToFile(ulong ticket, const TradingConditions &conditions)
+{
+   string filename = "trading_conditions_" + IntegerToString(ticket) + ".json";
+   int fileHandle = FileOpen(filename, FILE_WRITE|FILE_TXT);
+
+   if(fileHandle != INVALID_HANDLE)
+   {
+      string json = "{";
+      json += "\"ticket\":" + IntegerToString(ticket) + ",";
+      json += "\"entryTime\":\"" + Api_DateTimeToString(conditions.entryTime) + "\",";
+      json += "\"orderType\":\"" + EnumToString(conditions.orderType) + "\",";
+      json += "\"entryPrice\":" + DoubleToString(conditions.entryPrice, _Digits) + ",";
+      json += "\"stopLoss\":" + DoubleToString(conditions.stopLoss, _Digits) + ",";
+      json += "\"targetPrice\":" + DoubleToString(conditions.targetPrice, _Digits) + ",";
+      json += "\"lotSize\":" + DoubleToString(conditions.lotSize, 2) + ",";
+      json += "\"currentPrice\":" + DoubleToString(conditions.currentPrice, _Digits) + ",";
+      json += "\"atrValue\":" + DoubleToString(conditions.atrValue, _Digits) + ",";
+      json += "\"volume\":" + DoubleToString(conditions.volume, 0) + ",";
+      json += "\"volumeRatio\":" + DoubleToString(conditions.volumeRatio, 2) + ",";
+      json += "\"inKillZone\":" + (conditions.inKillZone ? "true" : "false") + ",";
+      json += "\"killZoneType\":\"" + conditions.killZoneType + "\",";
+      json += "\"hasMarketStructure\":" + (conditions.hasMarketStructure ? "true" : "false") + ",";
+      json += "\"marketStructureBullish\":" + (conditions.marketStructureBullish ? "true" : "false") + ",";
+      json += "\"hasLiquiditySweep\":" + (conditions.hasLiquiditySweep ? "true" : "false") + ",";
+      json += "\"hasFVG\":" + (conditions.hasFVG ? "true" : "false") + ",";
+      json += "\"fvgType\":\"" + conditions.fvgType + "\",";
+      json += "\"fvgFilled\":" + (conditions.fvgFilled ? "true" : "false") + ",";
+      json += "\"hasOTE\":" + (conditions.hasOTE ? "true" : "false") + ",";
+      json += "\"oteType\":\"" + conditions.oteType + "\",";
+      json += "\"hasLTFBreak\":" + (conditions.hasLTFBreak ? "true" : "false") + ",";
+      json += "\"hasLTFConfirmation\":" + (conditions.hasLTFConfirmation ? "true" : "false") + ",";
+      json += "\"nearFibLevel\":" + (conditions.nearFibLevel ? "true" : "false") + ",";
+      json += "\"nearOrderBlock\":" + (conditions.nearOrderBlock ? "true" : "false") + ",";
+      json += "\"volumeConfirmation\":" + (conditions.volumeConfirmation ? "true" : "false") + ",";
+      json += "\"riskAmount\":" + DoubleToString(conditions.riskAmount, 2) + ",";
+      json += "\"riskPercent\":" + DoubleToString(conditions.riskPercent, 2) + ",";
+      json += "\"rewardRiskRatio\":" + DoubleToString(conditions.rewardRiskRatio, 2);
+      json += "}";
+
+      FileWriteString(fileHandle, json);
+      FileClose(fileHandle);
+      Print("Trading conditions saved to: ", filename);
+   }
+   else
+   {
+      Print("Failed to save trading conditions to file");
+   }
 }

@@ -31,6 +31,27 @@ class StrategyTest(db.Model):
     losing_trades = db.Column(db.Integer, nullable=False)
     win_rate = db.Column(db.Float, nullable=False)
     sharpe_ratio = db.Column(db.Float, nullable=True)
+
+    # --- New Fields ---
+    gross_profit = db.Column(db.Float, nullable=True)
+    gross_loss = db.Column(db.Float, nullable=True)
+    recovery_factor = db.Column(db.Float, nullable=True)
+    expected_payoff = db.Column(db.Float, nullable=True)
+    z_score = db.Column(db.Float, nullable=True)
+    long_trades = db.Column(db.Integer, nullable=True)
+    short_trades = db.Column(db.Integer, nullable=True)
+    long_trades_won = db.Column(db.Integer, nullable=True)
+    short_trades_won = db.Column(db.Integer, nullable=True)
+    largest_profit = db.Column(db.Float, nullable=True)
+    largest_loss = db.Column(db.Float, nullable=True)
+    avg_profit = db.Column(db.Float, nullable=True)
+    avg_loss = db.Column(db.Float, nullable=True)
+    max_consecutive_wins = db.Column(db.Integer, nullable=True)
+    max_consecutive_losses = db.Column(db.Integer, nullable=True)
+    avg_consecutive_wins = db.Column(db.Integer, nullable=True)
+    avg_consecutive_losses = db.Column(db.Integer, nullable=True)
+    # --- End New Fields ---
+
     test_date = db.Column(db.DateTime, default=datetime.utcnow)
     parameters = db.Column(db.Text, nullable=True)  # JSON string of strategy parameters
 
@@ -49,6 +70,76 @@ class Trade(db.Model):
     swap = db.Column(db.Float, nullable=False)
     commission = db.Column(db.Float, nullable=False)
     net_profit = db.Column(db.Float, nullable=False)
+
+class TradingConditions(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    trade_id = db.Column(db.Integer, db.ForeignKey('trade.id'), nullable=False)
+
+    # Basic trade info
+    entry_time = db.Column(db.DateTime, nullable=False)
+    order_type = db.Column(db.String(10), nullable=False)  # BUY/SELL
+    entry_price = db.Column(db.Float, nullable=False)
+    stop_loss = db.Column(db.Float, nullable=False)
+    target_price = db.Column(db.Float, nullable=False)
+    lot_size = db.Column(db.Float, nullable=False)
+    current_price = db.Column(db.Float, nullable=False)
+
+    # Market conditions
+    atr_value = db.Column(db.Float, nullable=True)
+    volume = db.Column(db.Float, nullable=True)
+    volume_ratio = db.Column(db.Float, nullable=True)
+
+    # ICT Strategy conditions
+    in_kill_zone = db.Column(db.Boolean, nullable=True)
+    kill_zone_type = db.Column(db.String(50), nullable=True)
+    has_market_structure = db.Column(db.Boolean, nullable=True)
+    market_structure_bullish = db.Column(db.Boolean, nullable=True)
+    has_liquidity_sweep = db.Column(db.Boolean, nullable=True)
+    liquidity_sweep_time = db.Column(db.DateTime, nullable=True)
+    liquidity_sweep_level = db.Column(db.Float, nullable=True)
+
+    # FVG conditions
+    has_fvg = db.Column(db.Boolean, nullable=True)
+    fvg_type = db.Column(db.String(20), nullable=True)  # Bullish/Bearish
+    fvg_start = db.Column(db.Float, nullable=True)
+    fvg_end = db.Column(db.Float, nullable=True)
+    fvg_filled = db.Column(db.Boolean, nullable=True)
+    fvg_time = db.Column(db.DateTime, nullable=True)
+
+    # OTE conditions
+    has_ote = db.Column(db.Boolean, nullable=True)
+    ote_type = db.Column(db.String(20), nullable=True)  # FVG/Fib/OrderBlock/StdDev
+    ote_level = db.Column(db.Float, nullable=True)
+    ote_strength = db.Column(db.Float, nullable=True)
+
+    # Lower timeframe conditions
+    has_ltf_break = db.Column(db.Boolean, nullable=True)
+    has_ltf_confirmation = db.Column(db.Boolean, nullable=True)
+    has_ote_retest = db.Column(db.Boolean, nullable=True)
+    ltf_break_type = db.Column(db.String(20), nullable=True)  # Bullish/Bearish
+
+    # Fibonacci conditions
+    near_fib_level = db.Column(db.Boolean, nullable=True)
+    fib_level = db.Column(db.Float, nullable=True)
+    fib_type = db.Column(db.String(10), nullable=True)  # 0.236, 0.382, etc.
+
+    # Order block conditions
+    near_order_block = db.Column(db.Boolean, nullable=True)
+    order_block_high = db.Column(db.Float, nullable=True)
+    order_block_low = db.Column(db.Float, nullable=True)
+    order_block_bullish = db.Column(db.Boolean, nullable=True)
+
+    # Volume conditions
+    volume_confirmation = db.Column(db.Boolean, nullable=True)
+    volume_ratio_value = db.Column(db.Float, nullable=True)
+
+    # Risk management
+    risk_amount = db.Column(db.Float, nullable=True)
+    risk_percent = db.Column(db.Float, nullable=True)
+    reward_risk_ratio = db.Column(db.Float, nullable=True)
+
+    # Additional context
+    additional_notes = db.Column(db.Text, nullable=True)
 
 # Routes
 @app.route('/')
@@ -95,6 +186,27 @@ def save_test():
             losing_trades=int(data['losing_trades']),
             win_rate=float(data['win_rate']),
             sharpe_ratio=float(data.get('sharpe_ratio', 0)),
+
+            # --- New Fields ---
+            gross_profit=float(data.get('gross_profit', 0)),
+            gross_loss=float(data.get('gross_loss', 0)),
+            recovery_factor=float(data.get('recovery_factor', 0)),
+            expected_payoff=float(data.get('expected_payoff', 0)),
+            z_score=float(data.get('z_score', 0)),
+            long_trades=int(data.get('long_trades', 0)),
+            short_trades=int(data.get('short_trades', 0)),
+            long_trades_won=int(data.get('long_trades_won', 0)),
+            short_trades_won=int(data.get('short_trades_won', 0)),
+            largest_profit=float(data.get('largest_profit', 0)),
+            largest_loss=float(data.get('largest_loss', 0)),
+            avg_profit=float(data.get('avg_profit', 0)),
+            avg_loss=float(data.get('avg_loss', 0)),
+            max_consecutive_wins=int(data.get('max_consecutive_wins', 0)),
+            max_consecutive_losses=int(data.get('max_consecutive_losses', 0)),
+            avg_consecutive_wins=int(data.get('avg_consecutive_wins', 0)),
+            avg_consecutive_losses=int(data.get('avg_consecutive_losses', 0)),
+            # --- End New Fields ---
+
             parameters=json.dumps(data.get('parameters', {}))
         )
 
@@ -120,6 +232,59 @@ def save_test():
                     net_profit=float(trade_data['net_profit'])
                 )
                 db.session.add(trade)
+                db.session.flush()  # Get the trade ID
+
+                # Save trading conditions if provided
+                if 'trading_conditions' in trade_data:
+                    conditions_data = trade_data['trading_conditions']
+                    conditions = TradingConditions(
+                        trade_id=trade.id,
+                        entry_time=datetime.fromisoformat(conditions_data.get('entryTime', trade_data['open_time'])),
+                        order_type=conditions_data.get('orderType', trade_data['type']),
+                        entry_price=float(conditions_data.get('entryPrice', trade_data['open_price'])),
+                        stop_loss=float(conditions_data.get('stopLoss', 0)),
+                        target_price=float(conditions_data.get('targetPrice', 0)),
+                        lot_size=float(conditions_data.get('lotSize', trade_data['volume'])),
+                        current_price=float(conditions_data.get('currentPrice', trade_data['open_price'])),
+                        atr_value=float(conditions_data.get('atrValue', 0)),
+                        volume=float(conditions_data.get('volume', 0)),
+                        volume_ratio=float(conditions_data.get('volumeRatio', 0)),
+                        in_kill_zone=conditions_data.get('inKillZone', False),
+                        kill_zone_type=conditions_data.get('killZoneType', ''),
+                        has_market_structure=conditions_data.get('hasMarketStructure', False),
+                        market_structure_bullish=conditions_data.get('marketStructureBullish', False),
+                        has_liquidity_sweep=conditions_data.get('hasLiquiditySweep', False),
+                        liquidity_sweep_time=datetime.fromisoformat(conditions_data['liquiditySweepTime']) if conditions_data.get('liquiditySweepTime') else None,
+                        liquidity_sweep_level=float(conditions_data.get('liquiditySweepLevel', 0)),
+                        has_fvg=conditions_data.get('hasFVG', False),
+                        fvg_type=conditions_data.get('fvgType', ''),
+                        fvg_start=float(conditions_data.get('fvgStart', 0)),
+                        fvg_end=float(conditions_data.get('fvgEnd', 0)),
+                        fvg_filled=conditions_data.get('fvgFilled', False),
+                        fvg_time=datetime.fromisoformat(conditions_data['fvgTime']) if conditions_data.get('fvgTime') else None,
+                        has_ote=conditions_data.get('hasOTE', False),
+                        ote_type=conditions_data.get('oteType', ''),
+                        ote_level=float(conditions_data.get('oteLevel', 0)),
+                        ote_strength=float(conditions_data.get('oteStrength', 0)),
+                        has_ltf_break=conditions_data.get('hasLTFBreak', False),
+                        has_ltf_confirmation=conditions_data.get('hasLTFConfirmation', False),
+                        has_ote_retest=conditions_data.get('hasOTERetest', False),
+                        ltf_break_type=conditions_data.get('ltfBreakType', ''),
+                        near_fib_level=conditions_data.get('nearFibLevel', False),
+                        fib_level=float(conditions_data.get('fibLevel', 0)),
+                        fib_type=conditions_data.get('fibType', ''),
+                        near_order_block=conditions_data.get('nearOrderBlock', False),
+                        order_block_high=float(conditions_data.get('orderBlockHigh', 0)),
+                        order_block_low=float(conditions_data.get('orderBlockLow', 0)),
+                        order_block_bullish=conditions_data.get('orderBlockBullish', False),
+                        volume_confirmation=conditions_data.get('volumeConfirmation', False),
+                        volume_ratio_value=float(conditions_data.get('volumeRatioValue', 0)),
+                        risk_amount=float(conditions_data.get('riskAmount', 0)),
+                        risk_percent=float(conditions_data.get('riskPercent', 0)),
+                        reward_risk_ratio=float(conditions_data.get('rewardRiskRatio', 0)),
+                        additional_notes=conditions_data.get('additionalNotes', '')
+                    )
+                    db.session.add(conditions)
 
             db.session.commit()
 
@@ -139,97 +304,76 @@ def save_test():
 def get_tests():
     try:
         tests = StrategyTest.query.order_by(StrategyTest.test_date.desc()).all()
-        result = []
-
-        for test in tests:
-            result.append({
-                "id": test.id,
-                "strategy_name": test.strategy_name,
-                "symbol": test.symbol,
-                "timeframe": test.timeframe,
-                "start_date": test.start_date.isoformat(),
-                "end_date": test.end_date.isoformat(),
-                "initial_deposit": test.initial_deposit,
-                "final_balance": test.final_balance,
-                "profit": test.profit,
-                "profit_factor": test.profit_factor,
-                "max_drawdown": test.max_drawdown,
-                "total_trades": test.total_trades,
-                "winning_trades": test.winning_trades,
-                "losing_trades": test.losing_trades,
-                "win_rate": test.win_rate,
-                "sharpe_ratio": test.sharpe_ratio,
-                "test_date": test.test_date.isoformat(),
-                "parameters": json.loads(test.parameters) if test.parameters else {}
-            })
-
-        return jsonify({
-            "success": True,
-            "tests": result,
-            "count": len(result)
-        })
-
+        return jsonify([{
+            'id': test.id,
+            'strategy_name': test.strategy_name,
+            'symbol': test.symbol,
+            'timeframe': test.timeframe,
+            'test_date': test.test_date.isoformat(),
+            'profit': test.profit,
+            'win_rate': test.win_rate,
+            'total_trades': test.total_trades
+        } for test in tests])
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 400
+        print(f"Error fetching tests: {e}")
+        return jsonify({"error": "Failed to fetch test results", "details": str(e)}), 500
 
 @app.route('/api/test/<int:test_id>', methods=['GET'])
-def get_test(test_id):
+def get_test_api(test_id):
     try:
-        test = StrategyTest.query.get_or_404(test_id)
-        trades = Trade.query.filter_by(strategy_test_id=test_id).all()
+        test = db.session.get(StrategyTest, test_id)
+        if not test:
+            return jsonify({"error": "Test not found"}), 404
 
-        test_data = {
-            "id": test.id,
-            "strategy_name": test.strategy_name,
-            "symbol": test.symbol,
-            "timeframe": test.timeframe,
-            "start_date": test.start_date.isoformat(),
-            "end_date": test.end_date.isoformat(),
-            "initial_deposit": test.initial_deposit,
-            "final_balance": test.final_balance,
-            "profit": test.profit,
-            "profit_factor": test.profit_factor,
-            "max_drawdown": test.max_drawdown,
-            "total_trades": test.total_trades,
-            "winning_trades": test.winning_trades,
-            "losing_trades": test.losing_trades,
-            "win_rate": test.win_rate,
-            "sharpe_ratio": test.sharpe_ratio,
-            "test_date": test.test_date.isoformat(),
-            "parameters": json.loads(test.parameters) if test.parameters else {},
-            "trades": []
-        }
+        # Convert the main test object to a dictionary
+        test_data = {c.name: getattr(test, c.name) for c in test.__table__.columns}
 
-        for trade in trades:
-            test_data["trades"].append({
-                "id": trade.id,
-                "ticket": trade.ticket,
-                "symbol": trade.symbol,
-                "type": trade.type,
-                "volume": trade.volume,
-                "open_price": trade.open_price,
-                "close_price": trade.close_price,
-                "open_time": trade.open_time.isoformat(),
-                "close_time": trade.close_time.isoformat(),
-                "profit": trade.profit,
-                "swap": trade.swap,
-                "commission": trade.commission,
-                "net_profit": trade.net_profit
-            })
+        # Manually format dates to ISO format string
+        test_data['start_date'] = test.start_date.isoformat()
+        test_data['end_date'] = test.end_date.isoformat()
+        test_data['test_date'] = test.test_date.isoformat()
 
-        return jsonify({
-            "success": True,
-            "test": test_data
-        })
+        # Query and serialize trades
+        trades_query = Trade.query.filter_by(strategy_test_id=test.id).all()
+        trades_list = []
+        for trade in trades_query:
+            trade_data = {c.name: getattr(trade, c.name) for c in trade.__table__.columns}
+
+            # Manually format dates to ISO format string
+            trade_data['open_time'] = trade.open_time.isoformat()
+            trade_data['close_time'] = trade.close_time.isoformat()
+
+            # Query and serialize trading conditions
+            conditions = TradingConditions.query.filter_by(trade_id=trade.id).first()
+            if conditions:
+                conditions_data = {c.name: getattr(conditions, c.name) for c in conditions.__table__.columns}
+                # Manually format dates to ISO format string
+                for key, value in conditions_data.items():
+                    if isinstance(value, datetime):
+                        conditions_data[key] = value.isoformat()
+                trade_data['trading_conditions'] = conditions_data
+            else:
+                trade_data['trading_conditions'] = None
+
+            trades_list.append(trade_data)
+
+        test_data['trades'] = trades_list
+        return jsonify(test_data)
 
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 400
+        print(f"Error fetching test {test_id}: {e}")
+        return jsonify({"error": "Failed to fetch test details", "details": str(e)}), 500
+
+@app.route('/test/<int:test_id>')
+def view_test_details(test_id):
+    test = db.session.get(StrategyTest, test_id)
+
+    if not test:
+            return jsonify({"error": "Test not found"}), 404
+    test_data = {c.name: getattr(test, c.name) for c in test.__table__.columns}
+
+    # This page will now be rendered empty and will fetch its own data via javascript
+    return render_template('test_details.html', test=test_data)
 
 @app.route('/api/test/<int:test_id>', methods=['DELETE'])
 def delete_test(test_id):
@@ -257,32 +401,52 @@ def delete_test(test_id):
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     try:
-        total_tests = StrategyTest.query.count()
-        profitable_tests = StrategyTest.query.filter(StrategyTest.profit > 0).count()
+        tests = StrategyTest.query.all()
+        total_tests = len(tests)
 
-        if total_tests > 0:
-            avg_profit = db.session.query(db.func.avg(StrategyTest.profit)).scalar()
-            avg_profit_factor = db.session.query(db.func.avg(StrategyTest.profit_factor)).scalar()
-            avg_win_rate = db.session.query(db.func.avg(StrategyTest.win_rate)).scalar()
-            avg_drawdown = db.session.query(db.func.avg(StrategyTest.max_drawdown)).scalar()
-        else:
-            avg_profit = avg_profit_factor = avg_win_rate = avg_drawdown = 0
+        if total_tests == 0:
+            return jsonify({
+                "success": True,
+                "stats": {
+                    "total_tests": 0,
+                    "total_profit": 0,
+                    "profitable_tests": 0,
+                    "success_rate": 0,
+                    "average_profit": 0,
+                    "average_profit_factor": 0,
+                    "average_win_rate": 0,
+                }
+            })
+
+        profitable_tests = sum(1 for test in tests if test.profit > 0)
+        success_rate = (profitable_tests / total_tests) * 100 if total_tests > 0 else 0
+
+        total_profit = sum(test.profit for test in tests)
+        average_profit = total_profit / total_tests
+
+        # Avoid division by zero for profit factor and win rate
+        total_profit_factor = sum(test.profit_factor for test in tests if test.profit_factor is not None)
+        average_profit_factor = total_profit_factor / total_tests if total_tests > 0 else 0
+
+        total_win_rate = sum(test.win_rate for test in tests if test.win_rate is not None)
+        average_win_rate = total_win_rate / total_tests if total_tests > 0 else 0
 
         return jsonify({
             "success": True,
             "stats": {
                 "total_tests": total_tests,
+                "total_profit": total_profit,
                 "profitable_tests": profitable_tests,
-                "success_rate": (profitable_tests / total_tests * 100) if total_tests > 0 else 0,
-                "average_profit": round(avg_profit, 2) if avg_profit else 0,
-                "average_profit_factor": round(avg_profit_factor, 2) if avg_profit_factor else 0,
-                "average_win_rate": round(avg_win_rate, 2) if avg_win_rate else 0,
-                "average_drawdown": round(avg_drawdown, 2) if avg_drawdown else 0
+                "success_rate": success_rate,
+                "average_profit": average_profit,
+                "average_profit_factor": average_profit_factor,
+                "average_win_rate": average_win_rate,
             }
         })
 
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 400
+        app.logger.error(f"Error in get_stats: {e}")
+        return jsonify({"success": False, "error": "Could not retrieve statistics."}), 500
+
+def model_to_dict(model_instance):
+    return {c.name: getattr(model_instance, c.name) for c in model_instance.__table__.columns}
