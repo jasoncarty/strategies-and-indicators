@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MT5 Strategy Tester Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            border-left: 4px solid #007bff;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            color: #666;
+            margin-top: 5px;
+        }
+        .tests-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .tests-table th, .tests-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        .tests-table th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+        }
+        .tests-table tr:hover {
+            background-color: #f5f5f5;
+        }
+        .profit-positive {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .profit-negative {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .btn {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .btn:hover {
+            background: #0056b3;
+        }
+        .btn-danger {
+            background: #dc3545;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .error {
+            color: #dc3545;
+            text-align: center;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MT5 Strategy Tester Dashboard</h1>
+
+        <div class="stats-grid" id="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="total-tests">-</div>
+                <div class="stat-label">Total Tests</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="profitable-tests">-</div>
+                <div class="stat-label">Profitable Tests</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="success-rate">-</div>
+                <div class="stat-label">Success Rate</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="avg-profit">-</div>
+                <div class="stat-label">Avg Profit</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="avg-profit-factor">-</div>
+                <div class="stat-label">Avg Profit Factor</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="avg-win-rate">-</div>
+                <div class="stat-label">Avg Win Rate</div>
+            </div>
+        </div>
+
+        <div>
+            <button class="btn" onclick="loadTests()">Refresh Tests</button>
+            <button class="btn" onclick="loadStats()">Refresh Stats</button>
+        </div>
+
+        <div id="tests-container">
+            <div class="loading">Loading tests...</div>
+        </div>
+    </div>
+
+    <script>
+        // Load data when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStats();
+            loadTests();
+        });
+
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('total-tests').textContent = data.stats.total_tests;
+                    document.getElementById('profitable-tests').textContent = data.stats.profitable_tests;
+                    document.getElementById('success-rate').textContent = data.stats.success_rate.toFixed(1) + '%';
+                    document.getElementById('avg-profit').textContent = '$' + data.stats.average_profit.toFixed(2);
+                    document.getElementById('avg-profit-factor').textContent = data.stats.average_profit_factor.toFixed(2);
+                    document.getElementById('avg-win-rate').textContent = data.stats.average_win_rate.toFixed(1) + '%';
+                }
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        async function loadTests() {
+            const container = document.getElementById('tests-container');
+            container.innerHTML = '<div class="loading">Loading tests...</div>';
+
+            try {
+                const response = await fetch('/api/tests');
+                const data = await response.json();
+
+                if (data.success) {
+                    if (data.tests.length === 0) {
+                        container.innerHTML = '<div class="loading">No tests found</div>';
+                        return;
+                    }
+
+                    let html = `
+                        <table class="tests-table">
+                            <thead>
+                                <tr>
+                                    <th>Strategy</th>
+                                    <th>Symbol</th>
+                                    <th>Timeframe</th>
+                                    <th>Profit</th>
+                                    <th>Profit Factor</th>
+                                    <th>Win Rate</th>
+                                    <th>Max DD</th>
+                                    <th>Trades</th>
+                                    <th>Test Date</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+
+                    data.tests.forEach(test => {
+                        const profitClass = test.profit >= 0 ? 'profit-positive' : 'profit-negative';
+                        const profitSign = test.profit >= 0 ? '+' : '';
+
+                        html += `
+                            <tr>
+                                <td>${test.strategy_name}</td>
+                                <td>${test.symbol}</td>
+                                <td>${test.timeframe}</td>
+                                <td class="${profitClass}">${profitSign}$${test.profit.toFixed(2)}</td>
+                                <td>${test.profit_factor.toFixed(2)}</td>
+                                <td>${test.win_rate.toFixed(1)}%</td>
+                                <td>${test.max_drawdown.toFixed(2)}%</td>
+                                <td>${test.total_trades}</td>
+                                <td>${new Date(test.test_date).toLocaleDateString()}</td>
+                                <td>
+                                    <button class="btn" onclick="viewTest(${test.id})">View</button>
+                                    <button class="btn btn-danger" onclick="deleteTest(${test.id})">Delete</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+
+                    html += '</tbody></table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="error">Error loading tests</div>';
+                }
+            } catch (error) {
+                console.error('Error loading tests:', error);
+                container.innerHTML = '<div class="error">Error loading tests</div>';
+            }
+        }
+
+        async function viewTest(testId) {
+            try {
+                const response = await fetch(`/api/test/${testId}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    const test = data.test;
+                    alert(`
+Strategy: ${test.strategy_name}
+Symbol: ${test.symbol}
+Timeframe: ${test.timeframe}
+Profit: $${test.profit.toFixed(2)}
+Profit Factor: ${test.profit_factor.toFixed(2)}
+Win Rate: ${test.win_rate.toFixed(1)}%
+Max Drawdown: ${test.max_drawdown.toFixed(2)}%
+Total Trades: ${test.total_trades}
+Trades: ${test.trades.length}
+                    `);
+                }
+            } catch (error) {
+                console.error('Error viewing test:', error);
+            }
+        }
+
+        async function deleteTest(testId) {
+            if (!confirm('Are you sure you want to delete this test?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/test/${testId}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    loadTests();
+                    loadStats();
+                } else {
+                    alert('Error deleting test');
+                }
+            } catch (error) {
+                console.error('Error deleting test:', error);
+                alert('Error deleting test');
+            }
+        }
+    </script>
+</body>
+</html>

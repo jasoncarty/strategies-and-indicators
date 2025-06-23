@@ -3,6 +3,9 @@
 //|                                  Copyright 2024, Your Name           |
 //|                     https://github.com/yourusername/ICT_FVG_Trader  |
 //+------------------------------------------------------------------+
+
+#include "..\\WebServerAPI.mqh"
+
 #property copyright "Copyright 2024"
 #property version   "1.00"
 #property description "ICT Fair Value Gap and Imbalance Trading Expert Advisor"
@@ -3891,4 +3894,114 @@ bool CheckLTFOnlyEntryConditions(bool isBuy)
 
     Print("LTF-Only Trade: All conditions met (", conditionsMet, "/", totalConditions, ")");
     return true;
+}
+
+//+------------------------------------------------------------------+
+//| Tester function - Runs automatically after a strategy test       |
+//+------------------------------------------------------------------+
+double OnTester()
+{
+    Print("OnTester(): function started. Preparing to send results to web server...");
+
+    // --- 1. Get the main test results (WORKAROUND for older MT5 builds) ---
+    StrategyTestResult result;
+    result.strategy_name = MQLInfoString(MQL_PROGRAM_NAME);
+    result.symbol = _Symbol;
+    result.timeframe = EnumToString(_Period);
+
+    result.initial_deposit = TesterStatistics(STAT_INITIAL_DEPOSIT);
+    result.profit = TesterStatistics(STAT_PROFIT);
+    result.final_balance = result.initial_deposit + result.profit; // Manual calculation
+
+    result.profit_factor = TesterStatistics(STAT_PROFIT_FACTOR);
+    result.max_drawdown = TesterStatistics(STAT_BALANCE_DD);
+    result.total_trades = (int)TesterStatistics(STAT_TRADES);
+
+    double profit_trades = TesterStatistics(STAT_PROFIT_TRADES);
+    double total_trades = TesterStatistics(STAT_TRADES);
+
+    result.winning_trades = (int)profit_trades;
+    result.losing_trades = (int)(total_trades - profit_trades);
+
+    if(total_trades > 0)
+        result.win_rate = (profit_trades / total_trades) * 100.0;
+    else
+        result.win_rate = 0;
+
+    result.sharpe_ratio = TesterStatistics(STAT_SHARPE_RATIO);
+
+    // --- 2. Create a JSON string of the input parameters ---
+    string params_json = "{}";
+    result.parameters = params_json;
+
+    Print("OnTester(): Collected main results. Profit: ", result.profit);
+
+    // --- 3. Extract all trade history (WORKAROUND for older MT5 builds) ---
+    TradeData trades[];
+    if(HistorySelect(0, TimeCurrent())) // Select all available history
+    {
+        uint total_deals = HistoryDealsTotal();
+        ArrayResize(trades, (int)total_deals);
+
+        datetime first_trade_time = 0;
+        datetime last_trade_time = 0;
+
+        for(uint i = 0; i < total_deals; i++)
+        {
+            ulong ticket = HistoryDealGetTicket(i);
+            if(ticket > 0)
+            {
+                datetime deal_time = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
+                if(i == 0) first_trade_time = deal_time;
+                if(deal_time > last_trade_time) last_trade_time = deal_time;
+
+                trades[i].ticket = (int)ticket;
+                trades[i].symbol = HistoryDealGetString(ticket, DEAL_SYMBOL);
+
+                ENUM_DEAL_TYPE deal_type = (ENUM_DEAL_TYPE)HistoryDealGetInteger(ticket, DEAL_TYPE);
+                if(deal_type == DEAL_TYPE_BUY)
+                    trades[i].type = "BUY";
+                else if(deal_type == DEAL_TYPE_SELL)
+                    trades[i].type = "SELL";
+                else
+                    trades[i].type = "OTHER";
+
+                trades[i].volume = HistoryDealGetDouble(ticket, DEAL_VOLUME);
+                trades[i].open_price = HistoryDealGetDouble(ticket, DEAL_PRICE);
+                trades[i].close_price = 0;
+                trades[i].open_time = deal_time;
+                trades[i].close_time = deal_time;
+                trades[i].profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+                trades[i].swap = HistoryDealGetDouble(ticket, DEAL_SWAP);
+                trades[i].commission = HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+                trades[i].net_profit = trades[i].profit + trades[i].swap + trades[i].commission;
+            }
+        }
+
+        // Use first and last trade times as an approximation for test date range
+        result.start_date = first_trade_time;
+        result.end_date = last_trade_time;
+
+        Print("OnTester(): Extracted ", (string)total_deals, " trades from history.");
+    }
+    else
+    {
+        Print("OnTester(): Could not select history. No trades will be sent.");
+        ArrayResize(trades, 0);
+    }
+
+    // --- 4. Save all results to a file ---
+    Print("OnTester(): Saving results to file...");
+    bool success = SaveTestResultsToFile(result, trades);
+
+    if(success)
+    {
+        Print("OnTester(): SUCCESS! Results saved to file.");
+    }
+    else
+    {
+        Print("OnTester(): FAILED to save results file.");
+    }
+
+    return 0.0;
 }
