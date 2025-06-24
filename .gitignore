@@ -10,3 +10,5 @@ __pycache__/
 # OS / Editor
 .DS_Store
 .vscode/
+
+webserver/instance
