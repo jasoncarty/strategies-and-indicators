@@ -52,6 +52,8 @@
             transition: background-color 0.3s;
         }
         .button:hover { background-color: #2980b9; }
+        .delete-btn { background-color: #e74c3c; }
+        .delete-btn:hover { background-color: #c0392b; }
         .profit-positive { color: #27ae60; font-weight: 500; }
         .profit-negative { color: #c0392b; font-weight: 500; }
         footer { text-align: center; margin-top: 20px; color: #777; font-size: 14px; }
@@ -148,7 +150,7 @@
                         const profitClass = test.profit >= 0 ? 'profit-positive' : 'profit-negative';
                         const testDate = new Date(test.test_date).toLocaleString();
                         tableHtml += `
-                            <tr>
+                            <tr data-test-id="${test.id}">
                                 <td>${test.id}</td>
                                 <td>${test.strategy_name}</td>
                                 <td>${test.symbol}</td>
@@ -157,7 +159,7 @@
                                 <td class="${profitClass}">$${test.profit.toFixed(2)}</td>
                                 <td>${test.win_rate.toFixed(2)}%</td>
                                 <td>${test.total_trades}</td>
-                                <td><a href="/test/${test.id}" class="button">View</a></td>
+                                <td><a href="/test/${test.id}" class="button">View</a> | <button onclick="deleteTest(${test.id})" class="button delete-btn">Delete</button></td>
                             </tr>
                         `;
                     });
@@ -169,6 +171,37 @@
                     tableBody.innerHTML = `<tr><td colspan="9" style="text-align:center;">Error loading test data: ${error.message}</td></tr>`;
                 });
         });
+
+        // Function to delete a test
+        function deleteTest(testId) {
+            if (confirm('Are you sure you want to delete this test? This action cannot be undone.')) {
+                fetch(`/api/test/${testId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Remove the row from the table
+                        const row = document.querySelector(`tr[data-test-id="${testId}"]`);
+                        if (row) {
+                            row.remove();
+                        }
+
+                        // Refresh the page to update stats and table
+                        location.reload();
+                    } else {
+                        alert('Error deleting test: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error deleting test: ' + error.message);
+                });
+            }
+        }
     </script>
 </body>
 </html>

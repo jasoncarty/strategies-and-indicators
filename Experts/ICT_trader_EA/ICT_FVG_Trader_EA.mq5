@@ -4004,6 +4004,7 @@ double OnTester()
 
     // --- Basic Test Information ---
     result.strategy_name = MQLInfoString(MQL_PROGRAM_NAME);
+    result.strategy_version = "1.00";  // Use the version from #property version
     result.symbol = _Symbol;
     result.timeframe = EnumToString(_Period);
     result.initial_deposit = TesterStatistics(STAT_INITIAL_DEPOSIT);
@@ -4032,8 +4033,76 @@ double OnTester()
     result.largest_profit = TesterStatistics(STAT_MAX_PROFITTRADE);
     result.largest_loss = TesterStatistics(STAT_MAX_LOSSTRADE);
 
-    // --- Performance Metrics ---
-    result.parameters = "{}"; // Placeholder
+    // --- Capture all input parameters as JSON ---
+    string parameters = "{";
+    parameters += "\"RiskPercent\":" + DoubleToString(RiskPercent, 2) + ",";
+    parameters += "\"RRRatio\":" + DoubleToString(RRRatio, 2) + ",";
+    parameters += "\"MinLotSize\":" + DoubleToString(MinLotSize, 2) + ",";
+    parameters += "\"MaxLotSize\":" + DoubleToString(MaxLotSize, 2) + ",";
+    parameters += "\"MaxPositions\":" + IntegerToString(MaxPositions) + ",";
+    parameters += "\"UseATRStopLoss\":" + (UseATRStopLoss ? "true" : "false") + ",";
+    parameters += "\"ATRMultiplier\":" + DoubleToString(ATRMultiplier, 2) + ",";
+    parameters += "\"ATRPeriod\":" + IntegerToString(ATRPeriod) + ",";
+    parameters += "\"UseTrailingStop\":" + (UseTrailingStop ? "true" : "false") + ",";
+    parameters += "\"TrailStartPercent\":" + DoubleToString(TrailStartPercent, 2) + ",";
+    parameters += "\"TrailDistancePercent\":" + DoubleToString(TrailDistancePercent, 2) + ",";
+    parameters += "\"ImbalanceConfirmationBars\":" + IntegerToString(ImbalanceConfirmationBars) + ",";
+    parameters += "\"MinImbalanceRatio\":" + DoubleToString(MinImbalanceRatio, 2) + ",";
+    parameters += "\"MinImbalanceVolume\":" + IntegerToString(MinImbalanceVolume) + ",";
+    parameters += "\"RequireStackedImbalance\":" + (RequireStackedImbalance ? "true" : "false") + ",";
+    parameters += "\"RequireVolumeConfirmation\":" + (RequireVolumeConfirmation ? "true" : "false") + ",";
+    parameters += "\"RequireConfirmation\":" + (RequireConfirmation ? "true" : "false") + ",";
+    parameters += "\"MagicNumber\":" + IntegerToString(MagicNumber) + ",";
+    parameters += "\"NewsBlockMinutesBefore\":" + IntegerToString(NewsBlockMinutesBefore) + ",";
+    parameters += "\"NewsBlockMinutesAfter\":" + IntegerToString(NewsBlockMinutesAfter) + ",";
+    parameters += "\"BlockHighImpactOnly\":" + (BlockHighImpactOnly ? "true" : "false") + ",";
+    parameters += "\"UseKillZones\":" + (UseKillZones ? "true" : "false") + ",";
+    parameters += "\"UseLondonKillZone\":" + (UseLondonKillZone ? "true" : "false") + ",";
+    parameters += "\"LondonKillZoneStart\":" + IntegerToString(LondonKillZoneStart) + ",";
+    parameters += "\"LondonKillZoneEnd\":" + IntegerToString(LondonKillZoneEnd) + ",";
+    parameters += "\"UseNewYorkKillZone\":" + (UseNewYorkKillZone ? "true" : "false") + ",";
+    parameters += "\"NewYorkKillZoneStart\":" + IntegerToString(NewYorkKillZoneStart) + ",";
+    parameters += "\"NewYorkKillZoneEnd\":" + IntegerToString(NewYorkKillZoneEnd) + ",";
+    parameters += "\"UseAsianKillZone\":" + (UseAsianKillZone ? "true" : "false") + ",";
+    parameters += "\"AsianKillZoneStart\":" + IntegerToString(AsianKillZoneStart) + ",";
+    parameters += "\"AsianKillZoneEnd\":" + IntegerToString(AsianKillZoneEnd) + ",";
+    parameters += "\"UseLondonOpenKillZone\":" + (UseLondonOpenKillZone ? "true" : "false") + ",";
+    parameters += "\"LondonOpenKillZoneStart\":" + IntegerToString(LondonOpenKillZoneStart) + ",";
+    parameters += "\"LondonOpenKillZoneEnd\":" + IntegerToString(LondonOpenKillZoneEnd) + ",";
+    parameters += "\"UseNewYorkOpenKillZone\":" + (UseNewYorkOpenKillZone ? "true" : "false") + ",";
+    parameters += "\"NewYorkOpenKillZoneStart\":" + IntegerToString(NewYorkOpenKillZoneStart) + ",";
+    parameters += "\"NewYorkOpenKillZoneEnd\":" + IntegerToString(NewYorkOpenKillZoneEnd) + ",";
+    parameters += "\"UseMarketStructureFilter\":" + (UseMarketStructureFilter ? "true" : "false") + ",";
+    parameters += "\"StructureTimeframe\":" + IntegerToString(StructureTimeframe) + ",";
+    parameters += "\"StructureLookback\":" + IntegerToString(StructureLookback) + ",";
+    parameters += "\"RequireLiquiditySweep\":" + (RequireLiquiditySweep ? "true" : "false") + ",";
+    parameters += "\"LiquiditySweepLookback\":" + IntegerToString(LiquiditySweepLookback) + ",";
+    parameters += "\"MinSweepDistance\":" + DoubleToString(MinSweepDistance, 2) + ",";
+    parameters += "\"UseOTEFilter\":" + (UseOTEFilter ? "true" : "false") + ",";
+    parameters += "\"UseFibonacciLevels\":" + (UseFibonacciLevels ? "true" : "false") + ",";
+    parameters += "\"FibLevel1\":" + DoubleToString(FibLevel1, 3) + ",";
+    parameters += "\"FibLevel2\":" + DoubleToString(FibLevel2, 3) + ",";
+    parameters += "\"FibLevel3\":" + DoubleToString(FibLevel3, 3) + ",";
+    parameters += "\"FibLevel4\":" + DoubleToString(FibLevel4, 3) + ",";
+    parameters += "\"UseOrderBlocks\":" + (UseOrderBlocks ? "true" : "false") + ",";
+    parameters += "\"OrderBlockLookback\":" + IntegerToString(OrderBlockLookback) + ",";
+    parameters += "\"OrderBlockMinSize\":" + DoubleToString(OrderBlockMinSize, 2) + ",";
+    parameters += "\"UseStandardDeviation\":" + (UseStandardDeviation ? "true" : "false") + ",";
+    parameters += "\"StdDevPeriod\":" + IntegerToString(StdDevPeriod) + ",";
+    parameters += "\"StdDevMultiplier\":" + DoubleToString(StdDevMultiplier, 2) + ",";
+    parameters += "\"UseLowerTimeframeTriggers\":" + (UseLowerTimeframeTriggers ? "true" : "false") + ",";
+    parameters += "\"LowerTimeframe\":" + IntegerToString(LowerTimeframe) + ",";
+    parameters += "\"LTFStructureLookback\":" + IntegerToString(LTFStructureLookback) + ",";
+    parameters += "\"RequireLTFConfirmation\":" + (RequireLTFConfirmation ? "true" : "false") + ",";
+    parameters += "\"RequireOTERetest\":" + (RequireOTERetest ? "true" : "false") + ",";
+    parameters += "\"OTERetestTolerance\":" + DoubleToString(OTERetestTolerance, 2) + ",";
+    parameters += "\"MinLTFConditions\":" + IntegerToString(MinLTFConditions) + ",";
+    parameters += "\"RequireStructureBreak\":" + (RequireStructureBreak ? "true" : "false") + ",";
+    parameters += "\"AllowLTFOnlyTrades\":" + (AllowLTFOnlyTrades ? "true" : "false") + ",";
+    parameters += "\"RequireMarketStructureForLTF\":" + (RequireMarketStructureForLTF ? "true" : "false");
+    parameters += "}";
+
+    result.parameters = parameters;
 
     TradeData trades[];
     if(HistorySelect(0, TimeCurrent()))
@@ -4174,8 +4243,8 @@ double OnTester()
         result.avg_loss = avgLoss;
         result.max_consecutive_wins = maxConsecWins;
         result.max_consecutive_losses = maxConsecLosses;
-        result.avg_consecutive_wins = avgConsecWins;
-        result.avg_consecutive_losses = avgConsecLosses;
+        result.avg_consecutive_wins = (int)MathRound(avgConsecWins);
+        result.avg_consecutive_losses = (int)MathRound(avgConsecLosses);
     }
 
     SaveTestResultsToFile(result, trades);

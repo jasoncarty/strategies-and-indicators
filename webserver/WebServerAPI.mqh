@@ -19,6 +19,7 @@
 struct StrategyTestResult
 {
     string strategy_name;
+    string strategy_version;
     string symbol;
     string timeframe;
     datetime start_date;
@@ -104,6 +105,7 @@ string CreateTestResultJSON(const StrategyTestResult &result, const TradeData &t
 {
     string json = "{";
     json += "\"strategy_name\":\"" + result.strategy_name + "\",";
+    json += "\"strategy_version\":\"" + result.strategy_version + "\",";
     json += "\"symbol\":\"" + result.symbol + "\",";
     json += "\"timeframe\":\"" + result.timeframe + "\",";
     json += "\"start_date\":\"" + Api_DateTimeToString(result.start_date) + "\",";

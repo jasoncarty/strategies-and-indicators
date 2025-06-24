@@ -17,6 +17,7 @@ db = SQLAlchemy(app)
 class StrategyTest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     strategy_name = db.Column(db.String(100), nullable=False)
+    strategy_version = db.Column(db.String(20), nullable=False)
     symbol = db.Column(db.String(20), nullable=False)
     timeframe = db.Column(db.String(10), nullable=False)
     start_date = db.Column(db.DateTime, nullable=False)
@@ -54,6 +55,14 @@ class StrategyTest(db.Model):
 
     test_date = db.Column(db.DateTime, default=datetime.utcnow)
     parameters = db.Column(db.Text, nullable=True)  # JSON string of strategy parameters
+
+    # Unique constraint to prevent duplicate test runs
+    __table_args__ = (
+        db.Index('idx_strategy_test_unique',
+                 'strategy_name', 'strategy_version', 'timeframe', 'start_date', 'end_date', 'parameters'),
+        db.UniqueConstraint('strategy_name', 'strategy_version', 'timeframe', 'start_date', 'end_date', 'parameters',
+                           name='uq_strategy_test_run'),
+    )
 
 class Trade(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -169,9 +178,28 @@ def save_test():
     try:
         data = request.get_json()
 
+        # Check if this test run already exists
+        existing_test = StrategyTest.query.filter_by(
+            strategy_name=data['strategy_name'],
+            strategy_version=data['strategy_version'],
+            timeframe=data['timeframe'],
+            start_date=datetime.fromisoformat(data['start_date']),
+            end_date=datetime.fromisoformat(data['end_date']),
+            parameters=json.dumps(data.get('parameters', {}))
+        ).first()
+
+        if existing_test:
+            return jsonify({
+                "success": False,
+                "error": "Duplicate test run detected",
+                "message": f"A test run with the same parameters already exists (ID: {existing_test.id})",
+                "existing_test_id": existing_test.id
+            }), 409  # Conflict status code
+
         # Create new strategy test
         test = StrategyTest(
             strategy_name=data['strategy_name'],
+            strategy_version=data['strategy_version'],
             symbol=data['symbol'],
             timeframe=data['timeframe'],
             start_date=datetime.fromisoformat(data['start_date']),
@@ -295,6 +323,7 @@ def save_test():
         }), 201
 
     except Exception as e:
+        db.session.rollback()
         return jsonify({
             "success": False,
             "error": str(e)
@@ -307,6 +336,7 @@ def get_tests():
         return jsonify([{
             'id': test.id,
             'strategy_name': test.strategy_name,
+            'strategy_version': test.strategy_version,
             'symbol': test.symbol,
             'timeframe': test.timeframe,
             'test_date': test.test_date.isoformat(),
