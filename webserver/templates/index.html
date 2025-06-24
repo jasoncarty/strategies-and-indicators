@@ -33,9 +33,90 @@
             font-weight: 500;
             color: #333;
         }
+
+        /* Scoring Controls */
+        .scoring-controls {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #e9ecef;
+        }
+        .controls-row {
+            display: flex;
+            gap: 20px;
+            align-items: end;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+
+        .button-cell {
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            padding: 17px 10px;
+        }
+
+        .button-cell .button {
+            padding: 4px 6px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .control-group label {
+            font-size: 12px;
+            font-weight: 500;
+            color: #555;
+        }
+        .control-group select, .control-group input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .filter-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .filter-btn:hover { background: #218838; }
+        .reset-btn {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .reset-btn:hover { background: #5a6268; }
+
+        /* Score Display */
+        .score-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-align: center;
+            min-width: 40px;
+        }
+        .score-excellent { background: #d4edda; color: #155724; }
+        .score-good { background: #d1ecf1; color: #0c5460; }
+        .score-acceptable { background: #fff3cd; color: #856404; }
+        .score-poor { background: #f8d7da; color: #721c24; }
+
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background-color: #f2f2f2; font-weight: 500; color: #555; }
+        th { background-color: #f2f2f2; font-weight: 500; color: #555; cursor: pointer; }
+        th:hover { background-color: #e9ecef; }
         tr:nth-child(even) { background-color: #f9f9f9; }
         tr:hover { background-color: #f1f1f1; }
         .button {
@@ -57,6 +138,27 @@
         .profit-positive { color: #27ae60; font-weight: 500; }
         .profit-negative { color: #c0392b; font-weight: 500; }
         footer { text-align: center; margin-top: 20px; color: #777; font-size: 14px; }
+
+        /* Score Breakdown Tooltip */
+        .score-breakdown {
+            position: relative;
+            cursor: help;
+        }
+        .score-breakdown:hover::after {
+            content: attr(data-breakdown);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
     </style>
 </head>
 <body>
@@ -67,22 +169,67 @@
             <!-- Stats will be loaded here by JavaScript -->
         </div>
 
+        <!-- Scoring Controls -->
+        <div class="scoring-controls">
+            <h3>Sorting & Filtering</h3>
+            <div class="controls-row">
+                <div class="control-group">
+                    <label>Sort By:</label>
+                    <select id="sortBy">
+                        <option value="score">Strategy Score</option>
+                        <option value="profit">Net Profit</option>
+                        <option value="win_rate">Win Rate</option>
+                        <option value="profit_factor">Profit Factor</option>
+                        <option value="recovery_factor">Recovery Factor</option>
+                        <option value="sharpe_ratio">Sharpe Ratio</option>
+                        <option value="drawdown">Max Drawdown</option>
+                        <option value="trades">Total Trades</option>
+                        <option value="date">Test Date</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Order:</label>
+                    <select id="sortOrder">
+                        <option value="desc">Descending</option>
+                        <option value="asc">Ascending</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Min Trades:</label>
+                    <input type="number" id="minTrades" placeholder="e.g., 20" min="0">
+                </div>
+                <div class="control-group">
+                    <label>Min Score:</label>
+                    <input type="number" id="minScore" placeholder="e.g., 50" min="0" max="100" step="0.1">
+                </div>
+                <div class="control-group">
+                    <button class="filter-btn" onclick="applyFilters()">Apply Filters</button>
+                </div>
+                <div class="control-group">
+                    <button class="reset-btn" onclick="resetFilters()">Reset</button>
+                </div>
+            </div>
+        </div>
+
         <table>
             <thead>
                 <tr>
-                    <th>ID</th>
+                    <th onclick="sortTable('score')">Score ⬇</th>
                     <th>Strategy</th>
                     <th>Symbol</th>
                     <th>Timeframe</th>
-                    <th>Test Date</th>
-                    <th>Net Profit</th>
-                    <th>Win Rate</th>
-                    <th>Total Trades</th>
+                    <th onclick="sortTable('profit')">Net Profit</th>
+                    <th onclick="sortTable('win_rate')">Win Rate</th>
+                    <th onclick="sortTable('profit_factor')">Profit Factor</th>
+                    <th onclick="sortTable('recovery_factor')">Recovery Factor</th>
+                    <th onclick="sortTable('sharpe_ratio')">Sharpe Ratio</th>
+                    <th onclick="sortTable('drawdown')">Max DD</th>
+                    <th onclick="sortTable('trades')">Trades</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="tests-table-body">
-                <tr><td colspan="9" style="text-align:center;">Loading test data...</td></tr>
+                <tr><td colspan="12" style="text-align:center;">Loading test data...</td></tr>
             </tbody>
         </table>
     </div>
@@ -92,6 +239,10 @@
     </footer>
 
     <script>
+        let currentData = [];
+        let currentSortBy = 'score';
+        let currentOrder = 'desc';
+
         document.addEventListener('DOMContentLoaded', function () {
             // Fetch and display overall stats
             fetch('/api/stats')
@@ -127,8 +278,21 @@
                     document.getElementById('stats-grid').innerHTML = '<p>Error loading summary stats.</p>';
                 });
 
-            // Fetch and display test results table
-            fetch('/api/tests')
+            // Load initial data
+            loadScoredTests();
+        });
+
+        function loadScoredTests() {
+            const sortBy = document.getElementById('sortBy').value;
+            const order = document.getElementById('sortOrder').value;
+            const minTrades = document.getElementById('minTrades').value;
+            const minScore = document.getElementById('minScore').value;
+
+            let url = `/api/tests/scored?sort_by=${sortBy}&order=${order}`;
+            if (minTrades) url += `&min_trades=${minTrades}`;
+            if (minScore) url += `&min_score=${minScore}`;
+
+            fetch(url)
                 .then(response => {
                     if (!response.ok) {
                         throw new Error(`HTTP error! status: ${response.status}`);
@@ -136,41 +300,112 @@
                     return response.json();
                 })
                 .then(data => {
-                    const tableBody = document.getElementById('tests-table-body');
-                    if (!data || data.length === 0) {
-                        tableBody.innerHTML = '<tr><td colspan="9" style="text-align:center;">No test results found. Run a test in MT5 to see data.</td></tr>';
-                        return;
+                    if (!data.success) {
+                        throw new Error(data.error || 'Unknown error');
                     }
 
-                    let tableHtml = '';
-                    // Sort data by ID descending to show latest tests first
-                    data.sort((a, b) => b.id - a.id);
+                    currentData = data.tests;
+                    currentSortBy = data.sort_by;
+                    currentOrder = data.order;
 
-                    data.forEach(test => {
-                        const profitClass = test.profit >= 0 ? 'profit-positive' : 'profit-negative';
-                        const testDate = new Date(test.test_date).toLocaleString();
-                        tableHtml += `
-                            <tr data-test-id="${test.id}">
-                                <td>${test.id}</td>
-                                <td>${test.strategy_name}</td>
-                                <td>${test.symbol}</td>
-                                <td>${test.timeframe}</td>
-                                <td>${testDate}</td>
-                                <td class="${profitClass}">$${test.profit.toFixed(2)}</td>
-                                <td>${test.win_rate.toFixed(2)}%</td>
-                                <td>${test.total_trades}</td>
-                                <td><a href="/test/${test.id}" class="button">View</a> | <button onclick="deleteTest(${test.id})" class="button delete-btn">Delete</button></td>
-                            </tr>
-                        `;
-                    });
-                    tableBody.innerHTML = tableHtml;
+                    displayTests(data.tests);
+                    updateSortHeaders();
                 })
                 .catch(error => {
                     console.error('Error fetching test data:', error);
                     const tableBody = document.getElementById('tests-table-body');
-                    tableBody.innerHTML = `<tr><td colspan="9" style="text-align:center;">Error loading test data: ${error.message}</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="12" style="text-align:center;">Error loading test data: ${error.message}</td></tr>`;
                 });
-        });
+        }
+
+        function displayTests(tests) {
+            const tableBody = document.getElementById('tests-table-body');
+
+            if (!tests || tests.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="12" style="text-align:center;">No test results found matching your criteria.</td></tr>';
+                return;
+            }
+
+            let tableHtml = '';
+            tests.forEach(test => {
+                const profitClass = test.profit >= 0 ? 'profit-positive' : 'profit-negative';
+                const testDate = new Date(test.test_date).toLocaleString();
+                const scoreClass = getScoreClass(test.score);
+                const breakdownText = formatScoreBreakdown(test.score_breakdown);
+
+                tableHtml += `
+                    <tr data-test-id="${test.id}">
+                        <td>
+                            <div class="score-badge ${scoreClass} score-breakdown" data-breakdown="${breakdownText}">
+                                ${test.score.toFixed(1)}
+                            </div>
+                        </td>
+                        <td>${test.strategy_name} v${test.strategy_version}</td>
+                        <td>${test.symbol}</td>
+                        <td>${test.timeframe}</td>
+                        <td class="${profitClass}">$${test.profit.toFixed(2)}</td>
+                        <td>${test.win_rate.toFixed(1)}%</td>
+                        <td>${test.profit_factor ? test.profit_factor.toFixed(2) : 'N/A'}</td>
+                        <td>${test.recovery_factor ? test.recovery_factor.toFixed(2) : 'N/A'}</td>
+                        <td>${test.sharpe_ratio ? test.sharpe_ratio.toFixed(2) : 'N/A'}</td>
+                        <td>${test.max_drawdown ? test.max_drawdown.toFixed(1) : 'N/A'}%</td>
+                        <td>${test.total_trades}</td>
+                        <td class="button-cell"><a href="/test/${test.id}" class="button">View</a> | <button onclick="deleteTest(${test.id})" class="button delete-btn">Delete</button></td>
+                    </tr>
+                `;
+            });
+            tableBody.innerHTML = tableHtml;
+        }
+
+        function getScoreClass(score) {
+            if (score >= 80) return 'score-excellent';
+            if (score >= 60) return 'score-good';
+            if (score >= 40) return 'score-acceptable';
+            return 'score-poor';
+        }
+
+        function formatScoreBreakdown(breakdown) {
+            if (!breakdown) return 'No breakdown available';
+
+            const parts = [];
+            for (const [metric, score] of Object.entries(breakdown)) {
+                const metricName = metric.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                parts.push(`${metricName}: ${score}`);
+            }
+            return parts.join('\n');
+        }
+
+        function updateSortHeaders() {
+            // Remove all sort indicators
+            document.querySelectorAll('th[onclick]').forEach(th => {
+                th.textContent = th.textContent.replace(/[⬆⬇]/g, '');
+            });
+
+            // Add sort indicator to current sort column
+            const sortColumn = document.querySelector(`th[onclick*="${currentSortBy}"]`);
+            if (sortColumn) {
+                const indicator = currentOrder === 'desc' ? '⬇' : '⬆';
+                sortColumn.textContent += ` ${indicator}`;
+            }
+        }
+
+        function sortTable(column) {
+            document.getElementById('sortBy').value = column;
+            document.getElementById('sortOrder').value = currentOrder === 'desc' ? 'asc' : 'desc';
+            loadScoredTests();
+        }
+
+        function applyFilters() {
+            loadScoredTests();
+        }
+
+        function resetFilters() {
+            document.getElementById('sortBy').value = 'score';
+            document.getElementById('sortOrder').value = 'desc';
+            document.getElementById('minTrades').value = '';
+            document.getElementById('minScore').value = '';
+            loadScoredTests();
+        }
 
         // Function to delete a test
         function deleteTest(testId) {
@@ -184,14 +419,8 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        // Remove the row from the table
-                        const row = document.querySelector(`tr[data-test-id="${testId}"]`);
-                        if (row) {
-                            row.remove();
-                        }
-
-                        // Refresh the page to update stats and table
-                        location.reload();
+                        // Refresh the data
+                        loadScoredTests();
                     } else {
                         alert('Error deleting test: ' + (data.error || 'Unknown error'));
                     }

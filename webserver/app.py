@@ -333,20 +333,153 @@ def save_test():
 def get_tests():
     try:
         tests = StrategyTest.query.order_by(StrategyTest.test_date.desc()).all()
-        return jsonify([{
-            'id': test.id,
-            'strategy_name': test.strategy_name,
-            'strategy_version': test.strategy_version,
-            'symbol': test.symbol,
-            'timeframe': test.timeframe,
-            'test_date': test.test_date.isoformat(),
-            'profit': test.profit,
-            'win_rate': test.win_rate,
-            'total_trades': test.total_trades
-        } for test in tests])
+
+        # Calculate scores for each test
+        scored_tests = []
+        for test in tests:
+            score_data = calculate_strategy_score(test)
+            scored_tests.append({
+                'id': test.id,
+                'strategy_name': test.strategy_name,
+                'strategy_version': test.strategy_version,
+                'symbol': test.symbol,
+                'timeframe': test.timeframe,
+                'test_date': test.test_date.isoformat(),
+                'profit': test.profit,
+                'win_rate': test.win_rate,
+                'total_trades': test.total_trades,
+                'score': score_data['total_score'],
+                'score_breakdown': score_data['breakdown']
+            })
+
+        # Sort by score (highest first)
+        scored_tests.sort(key=lambda x: x['score'], reverse=True)
+
+        return jsonify(scored_tests)
     except Exception as e:
         print(f"Error fetching tests: {e}")
         return jsonify({"error": "Failed to fetch test results", "details": str(e)}), 500
+
+def calculate_strategy_score(test):
+    """
+    Calculate a composite score for a strategy test based on multiple metrics.
+    Returns a score between 0-100 and a breakdown of individual component scores.
+    """
+    breakdown = {}
+    total_score = 0
+
+    # 1. Profit Factor (0-20 points)
+    # Excellent: >2.0, Good: 1.5-2.0, Acceptable: 1.2-1.5, Poor: <1.2
+    if test.profit_factor:
+        if test.profit_factor >= 2.0:
+            pf_score = 20
+        elif test.profit_factor >= 1.5:
+            pf_score = 15 + (test.profit_factor - 1.5) * 10
+        elif test.profit_factor >= 1.2:
+            pf_score = 10 + (test.profit_factor - 1.2) * 16.67
+        else:
+            pf_score = max(0, test.profit_factor * 8.33)
+        breakdown['profit_factor'] = round(pf_score, 2)
+        total_score += pf_score
+
+    # 2. Recovery Factor (0-15 points)
+    # Excellent: >3.0, Good: 2.0-3.0, Acceptable: 1.0-2.0, Poor: <1.0
+    if test.recovery_factor:
+        if test.recovery_factor >= 3.0:
+            rf_score = 15
+        elif test.recovery_factor >= 2.0:
+            rf_score = 10 + (test.recovery_factor - 2.0) * 5
+        elif test.recovery_factor >= 1.0:
+            rf_score = 5 + (test.recovery_factor - 1.0) * 5
+        else:
+            rf_score = max(0, test.recovery_factor * 5)
+        breakdown['recovery_factor'] = round(rf_score, 2)
+        total_score += rf_score
+
+    # 3. Win Rate (0-15 points)
+    # Excellent: >70%, Good: 60-70%, Acceptable: 50-60%, Poor: <50%
+    if test.win_rate:
+        if test.win_rate >= 70:
+            wr_score = 15
+        elif test.win_rate >= 60:
+            wr_score = 10 + (test.win_rate - 60) * 0.5
+        elif test.win_rate >= 50:
+            wr_score = 5 + (test.win_rate - 50) * 0.5
+        else:
+            wr_score = max(0, test.win_rate * 0.1)
+        breakdown['win_rate'] = round(wr_score, 2)
+        total_score += wr_score
+
+    # 4. Sharpe Ratio (0-15 points)
+    # Excellent: >2.0, Good: 1.0-2.0, Acceptable: 0.5-1.0, Poor: <0.5
+    if test.sharpe_ratio:
+        if test.sharpe_ratio >= 2.0:
+            sr_score = 15
+        elif test.sharpe_ratio >= 1.0:
+            sr_score = 10 + (test.sharpe_ratio - 1.0) * 5
+        elif test.sharpe_ratio >= 0.5:
+            sr_score = 5 + (test.sharpe_ratio - 0.5) * 10
+        else:
+            sr_score = max(0, test.sharpe_ratio * 10)
+        breakdown['sharpe_ratio'] = round(sr_score, 2)
+        total_score += sr_score
+
+    # 5. Max Drawdown (0-10 points) - Lower is better
+    # Excellent: <5%, Good: 5-10%, Acceptable: 10-20%, Poor: >20%
+    if test.max_drawdown:
+        if test.max_drawdown <= 5:
+            dd_score = 10
+        elif test.max_drawdown <= 10:
+            dd_score = 8 + (10 - test.max_drawdown) * 0.4
+        elif test.max_drawdown <= 20:
+            dd_score = 5 + (20 - test.max_drawdown) * 0.3
+        else:
+            dd_score = max(0, (50 - test.max_drawdown) * 0.1)
+        breakdown['max_drawdown'] = round(dd_score, 2)
+        total_score += dd_score
+
+    # 6. Consecutive Wins (0-8 points)
+    # Bonus for consistency
+    if test.max_consecutive_wins:
+        cw_score = min(8, test.max_consecutive_wins * 0.5)
+        breakdown['consecutive_wins'] = round(cw_score, 2)
+        total_score += cw_score
+
+    # 7. Consecutive Losses (0-7 points) - Lower is better
+    # Penalty for long losing streaks
+    if test.max_consecutive_losses:
+        cl_score = max(0, 7 - test.max_consecutive_losses * 0.5)
+        breakdown['consecutive_losses'] = round(cl_score, 2)
+        total_score += cl_score
+
+    # 8. Total Trades (0-5 points) - More trades = more statistical significance
+    # Bonus for sufficient sample size
+    if test.total_trades:
+        if test.total_trades >= 100:
+            tt_score = 5
+        elif test.total_trades >= 50:
+            tt_score = 3 + (test.total_trades - 50) * 0.04
+        elif test.total_trades >= 20:
+            tt_score = 1 + (test.total_trades - 20) * 0.067
+        else:
+            tt_score = test.total_trades * 0.05
+        breakdown['total_trades'] = round(tt_score, 2)
+        total_score += tt_score
+
+    # 9. Expected Payoff (0-5 points)
+    # Bonus for positive expected value
+    if test.expected_payoff:
+        if test.expected_payoff > 0:
+            ep_score = min(5, test.expected_payoff * 2)
+        else:
+            ep_score = 0
+        breakdown['expected_payoff'] = round(ep_score, 2)
+        total_score += ep_score
+
+    return {
+        'total_score': round(total_score, 2),
+        'breakdown': breakdown
+    }
 
 @app.route('/api/test/<int:test_id>', methods=['GET'])
 def get_test_api(test_id):
@@ -480,3 +613,89 @@ def get_stats():
 
 def model_to_dict(model_instance):
     return {c.name: getattr(model_instance, c.name) for c in model_instance.__table__.columns}
+
+@app.route('/api/tests/scored', methods=['GET'])
+def get_scored_tests():
+    """
+    Get all tests with detailed scoring information and sorting options.
+    Query parameters:
+    - sort_by: 'score', 'profit', 'win_rate', 'date', 'trades'
+    - order: 'asc' or 'desc'
+    - min_trades: minimum number of trades to include
+    - min_score: minimum score to include
+    """
+    try:
+        sort_by = request.args.get('sort_by', 'score')
+        order = request.args.get('order', 'desc')
+        min_trades = request.args.get('min_trades', type=int)
+        min_score = request.args.get('min_score', type=float)
+
+        # Build query
+        query = StrategyTest.query
+
+        # Apply filters
+        if min_trades:
+            query = query.filter(StrategyTest.total_trades >= min_trades)
+
+        tests = query.all()
+
+        # Calculate scores and apply score filter
+        scored_tests = []
+        for test in tests:
+            score_data = calculate_strategy_score(test)
+            if min_score and score_data['total_score'] < min_score:
+                continue
+
+            scored_tests.append({
+                'id': test.id,
+                'strategy_name': test.strategy_name,
+                'strategy_version': test.strategy_version,
+                'symbol': test.symbol,
+                'timeframe': test.timeframe,
+                'test_date': test.test_date.isoformat(),
+                'profit': test.profit,
+                'profit_factor': test.profit_factor,
+                'recovery_factor': test.recovery_factor,
+                'win_rate': test.win_rate,
+                'sharpe_ratio': test.sharpe_ratio,
+                'max_drawdown': test.max_drawdown,
+                'total_trades': test.total_trades,
+                'expected_payoff': test.expected_payoff,
+                'max_consecutive_wins': test.max_consecutive_wins,
+                'max_consecutive_losses': test.max_consecutive_losses,
+                'score': score_data['total_score'],
+                'score_breakdown': score_data['breakdown']
+            })
+
+        # Sort results
+        reverse = order.lower() == 'desc'
+        if sort_by == 'score':
+            scored_tests.sort(key=lambda x: x['score'], reverse=reverse)
+        elif sort_by == 'profit':
+            scored_tests.sort(key=lambda x: x['profit'], reverse=reverse)
+        elif sort_by == 'win_rate':
+            scored_tests.sort(key=lambda x: x['win_rate'], reverse=reverse)
+        elif sort_by == 'date':
+            scored_tests.sort(key=lambda x: x['test_date'], reverse=reverse)
+        elif sort_by == 'trades':
+            scored_tests.sort(key=lambda x: x['total_trades'], reverse=reverse)
+        elif sort_by == 'profit_factor':
+            scored_tests.sort(key=lambda x: x['profit_factor'] or 0, reverse=reverse)
+        elif sort_by == 'recovery_factor':
+            scored_tests.sort(key=lambda x: x['recovery_factor'] or 0, reverse=reverse)
+        elif sort_by == 'sharpe_ratio':
+            scored_tests.sort(key=lambda x: x['sharpe_ratio'] or 0, reverse=reverse)
+        elif sort_by == 'drawdown':
+            scored_tests.sort(key=lambda x: x['max_drawdown'] or 0, reverse=not reverse)  # Lower is better
+
+        return jsonify({
+            'success': True,
+            'tests': scored_tests,
+            'total_count': len(scored_tests),
+            'sort_by': sort_by,
+            'order': order
+        })
+
+    except Exception as e:
+        print(f"Error fetching scored tests: {e}")
+        return jsonify({"error": "Failed to fetch scored test results", "details": str(e)}), 500

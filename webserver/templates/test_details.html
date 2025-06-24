@@ -24,6 +24,95 @@
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
         th { background-color: #f8f9fa; font-weight: bold; }
         tr:hover { background-color: #f1f1f1; }
+        /* Score Breakdown Tooltip */
+        .score-breakdown {
+            position: relative;
+            cursor: help;
+        }
+        .score-breakdown:hover::after {
+            content: attr(data-breakdown);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        /* Parameters Section Styles */
+        .parameters-container {
+            margin: 20px 0;
+        }
+        .parameter-category {
+            margin-bottom: 15px;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .category-header {
+            background: #f8f9fa;
+            margin: 0;
+            padding: 15px 20px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            color: #495057;
+            border-bottom: 1px solid #e9ecef;
+            transition: background-color 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .category-header:hover {
+            background: #e9ecef;
+        }
+        .toggle-icon {
+            font-size: 12px;
+            transition: transform 0.2s;
+        }
+        .category-content {
+            padding: 20px;
+            background: white;
+        }
+        .parameter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+        }
+        .parameter-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #007bff;
+        }
+        .parameter-name {
+            font-weight: 500;
+            color: #495057;
+            flex: 1;
+        }
+        .parameter-value {
+            font-weight: 600;
+            color: #212529;
+            text-align: right;
+            min-width: 80px;
+        }
+        .value-true {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .value-false {
+            color: #dc3545;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -64,6 +153,13 @@
             <div class="stat-card">
                 <div class="stat-value">{{ "%.2f"|format(test.expected_payoff) }}</div>
                 <div class="stat-label">Expected Payoff</div>
+            </div>
+        </div>
+
+        <h2>Strategy Parameters</h2>
+        <div id="parameters-section">
+            <div style="text-align: center; padding: 20px;">
+                <p>Loading parameters...</p>
             </div>
         </div>
 
@@ -755,12 +851,115 @@
                         },
                         options: { plugins: { legend: { display: true } } }
                     });
+
+                    // Display Strategy Parameters
+                    displayStrategyParameters(test.parameters);
                 })
                 .catch(error => {
                     console.error('Error fetching or processing test data:', error);
                     container.innerHTML = `<h1>Error</h1><p>Could not load test data. Please check the console for details.</p><a href="/dashboard">&larr; Back to Dashboard</a>`;
                 });
         });
+
+        function displayStrategyParameters(parametersJson) {
+            const parametersSection = document.getElementById('parameters-section');
+
+            if (!parametersJson) {
+                parametersSection.innerHTML = '<p style="text-align: center; color: #666;">No parameters available for this test.</p>';
+                return;
+            }
+
+            try {
+                const params = JSON.parse(parametersJson);
+                let html = '<div class="parameters-container">';
+
+                // Group parameters by category
+                const categories = {
+                    'Risk Management': ['RiskPercent', 'RRRatio', 'MinLotSize', 'MaxLotSize', 'MaxPositions'],
+                    'Stop Loss Settings': ['UseATRStopLoss', 'ATRMultiplier', 'ATRPeriod', 'UseTrailingStop', 'TrailStartPercent', 'TrailDistancePercent'],
+                    'Imbalance Settings': ['ImbalanceConfirmationBars', 'MinImbalanceRatio', 'MinImbalanceVolume', 'RequireStackedImbalance', 'RequireVolumeConfirmation'],
+                    'Trading Settings': ['RequireConfirmation', 'MagicNumber'],
+                    'News Filter': ['NewsBlockMinutesBefore', 'NewsBlockMinutesAfter', 'BlockHighImpactOnly'],
+                    'ICT Kill Zone Settings': ['UseKillZones', 'UseLondonKillZone', 'LondonKillZoneStart', 'LondonKillZoneEnd', 'UseNewYorkKillZone', 'NewYorkKillZoneStart', 'NewYorkKillZoneEnd', 'UseAsianKillZone', 'AsianKillZoneStart', 'AsianKillZoneEnd', 'UseLondonOpenKillZone', 'LondonOpenKillZoneStart', 'LondonOpenKillZoneEnd', 'UseNewYorkOpenKillZone', 'NewYorkOpenKillZoneStart', 'NewYorkOpenKillZoneEnd'],
+                    'Market Structure & Bias': ['UseMarketStructureFilter', 'StructureTimeframe', 'StructureLookback', 'RequireLiquiditySweep', 'LiquiditySweepLookback', 'MinSweepDistance'],
+                    'Optimal Trade Entry (OTE) Settings': ['UseOTEFilter', 'UseFibonacciLevels', 'FibLevel1', 'FibLevel2', 'FibLevel3', 'FibLevel4', 'UseOrderBlocks', 'OrderBlockLookback', 'OrderBlockMinSize'],
+                    'Standard Deviation Settings': ['UseStandardDeviation', 'StdDevPeriod', 'StdDevMultiplier'],
+                    'Lower Timeframe Analysis': ['UseLowerTimeframeTriggers', 'LowerTimeframe', 'LTFStructureLookback', 'RequireLTFConfirmation', 'RequireOTERetest', 'OTERetestTolerance', 'MinLTFConditions', 'RequireStructureBreak', 'AllowLTFOnlyTrades', 'RequireMarketStructureForLTF']
+                };
+
+                for (const [category, paramNames] of Object.entries(categories)) {
+                    const categoryParams = {};
+                    let hasParams = false;
+
+                    // Collect parameters for this category
+                    for (const paramName of paramNames) {
+                        if (params.hasOwnProperty(paramName)) {
+                            categoryParams[paramName] = params[paramName];
+                            hasParams = true;
+                        }
+                    }
+
+                    if (hasParams) {
+                        html += `
+                            <div class="parameter-category">
+                                <h3 class="category-header" onclick="toggleCategory(this)">
+                                    ${category} <span class="toggle-icon">▼</span>
+                                </h3>
+                                <div class="category-content">
+                                    <div class="parameter-grid">
+                        `;
+
+                        for (const [paramName, paramValue] of Object.entries(categoryParams)) {
+                            const displayName = paramName.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                            const displayValue = formatParameterValue(paramValue);
+
+                            html += `
+                                <div class="parameter-item">
+                                    <div class="parameter-name">${displayName}</div>
+                                    <div class="parameter-value">${displayValue}</div>
+                                </div>
+                            `;
+                        }
+
+                        html += `
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+
+                html += '</div>';
+                parametersSection.innerHTML = html;
+
+            } catch (error) {
+                console.error('Error parsing parameters:', error);
+                parametersSection.innerHTML = '<p style="text-align: center; color: #666;">Error parsing parameters.</p>';
+            }
+        }
+
+        function formatParameterValue(value) {
+            if (typeof value === 'boolean') {
+                return value ? '<span class="value-true">✓</span>' : '<span class="value-false">✗</span>';
+            }
+            if (typeof value === 'number') {
+                return value.toFixed(2);
+            }
+            return value;
+        }
+
+        function toggleCategory(header) {
+            const content = header.nextElementSibling;
+            const icon = header.querySelector('.toggle-icon');
+
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                icon.textContent = '▼';
+            } else {
+                content.style.display = 'none';
+                icon.textContent = '▶';
+            }
+        }
     </script>
 </body>
 </html>
