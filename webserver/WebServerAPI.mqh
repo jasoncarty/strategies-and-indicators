@@ -99,6 +99,136 @@ string Api_DateTimeToString(datetime time)
 }
 
 //+------------------------------------------------------------------+
+//| Helper macros for parameter capture                              |
+//+------------------------------------------------------------------+
+#define ADD_PARAM_BOOL(name) \
+    if(param_count > 0) parameters += ","; \
+    parameters += "\"" + #name + "\":" + (name ? "true" : "false"); \
+    param_count++
+
+#define ADD_PARAM_INT(name) \
+    if(param_count > 0) parameters += ","; \
+    parameters += "\"" + #name + "\":" + IntegerToString(name); \
+    param_count++
+
+#define ADD_PARAM_DOUBLE(name, digits) \
+    if(param_count > 0) parameters += ","; \
+    parameters += "\"" + #name + "\":" + DoubleToString(name, digits); \
+    param_count++
+
+#define ADD_PARAM_STRING(name) \
+    if(param_count > 0) parameters += ","; \
+    parameters += "\"" + #name + "\":\"" + name + "\""; \
+    param_count++
+
+//+------------------------------------------------------------------+
+//| Dynamically capture all input parameters as JSON                 |
+//+------------------------------------------------------------------+
+string CaptureAllInputParameters()
+{
+    string parameters = "{";
+    int param_count = 0;
+
+    // Add your parameters here using the macros above
+    // This is much cleaner than the previous hardcoded approach
+
+    // Risk Management Parameters
+    ADD_PARAM_DOUBLE(RiskPercent, 2);
+    ADD_PARAM_DOUBLE(RRRatio, 2);
+    ADD_PARAM_DOUBLE(MinLotSize, 2);
+    ADD_PARAM_DOUBLE(MaxLotSize, 2);
+    ADD_PARAM_INT(MaxPositions);
+
+    // Stop Loss Parameters
+    ADD_PARAM_BOOL(UseATRStopLoss);
+    ADD_PARAM_DOUBLE(ATRMultiplier, 2);
+    ADD_PARAM_INT(ATRPeriod);
+    ADD_PARAM_BOOL(UseTrailingStop);
+    ADD_PARAM_DOUBLE(TrailStartPercent, 2);
+    ADD_PARAM_DOUBLE(TrailDistancePercent, 2);
+
+    // Imbalance Settings
+    ADD_PARAM_INT(ImbalanceConfirmationBars);
+    ADD_PARAM_DOUBLE(MinImbalanceRatio, 2);
+    ADD_PARAM_INT(MinImbalanceVolume);
+    ADD_PARAM_BOOL(RequireStackedImbalance);
+    ADD_PARAM_BOOL(RequireVolumeConfirmation);
+
+    // Trading Settings
+    ADD_PARAM_BOOL(RequireConfirmation);
+    ADD_PARAM_INT(MagicNumber);
+
+    // ICT Macro and Custom Interval Trading Restrictions
+    ADD_PARAM_BOOL(RestrictToICTMacros);
+    ADD_PARAM_STRING(CustomRestrictTimes);
+    ADD_PARAM_INT(ServerToESTOffset);
+
+    // News Filter Settings
+    ADD_PARAM_INT(NewsBlockMinutesBefore);
+    ADD_PARAM_INT(NewsBlockMinutesAfter);
+    ADD_PARAM_BOOL(BlockHighImpactOnly);
+
+    // Kill Zone Settings
+    ADD_PARAM_BOOL(UseKillZones);
+    ADD_PARAM_BOOL(UseLondonKillZone);
+    ADD_PARAM_INT(LondonKillZoneStart);
+    ADD_PARAM_INT(LondonKillZoneEnd);
+    ADD_PARAM_BOOL(UseNewYorkKillZone);
+    ADD_PARAM_INT(NewYorkKillZoneStart);
+    ADD_PARAM_INT(NewYorkKillZoneEnd);
+    ADD_PARAM_BOOL(UseAsianKillZone);
+    ADD_PARAM_INT(AsianKillZoneStart);
+    ADD_PARAM_INT(AsianKillZoneEnd);
+    ADD_PARAM_BOOL(UseLondonOpenKillZone);
+    ADD_PARAM_INT(LondonOpenKillZoneStart);
+    ADD_PARAM_INT(LondonOpenKillZoneEnd);
+    ADD_PARAM_BOOL(UseNewYorkOpenKillZone);
+    ADD_PARAM_INT(NewYorkOpenKillZoneStart);
+    ADD_PARAM_INT(NewYorkOpenKillZoneEnd);
+
+    // Market Structure Settings
+    ADD_PARAM_BOOL(UseMarketStructureFilter);
+    ADD_PARAM_INT(StructureTimeframe);
+    ADD_PARAM_INT(StructureLookback);
+    ADD_PARAM_BOOL(RequireLiquiditySweep);
+    ADD_PARAM_INT(LiquiditySweepLookback);
+    ADD_PARAM_DOUBLE(MinSweepDistance, 2);
+
+    // OTE Filter Settings
+    ADD_PARAM_BOOL(UseOTEFilter);
+    ADD_PARAM_BOOL(UseFibonacciLevels);
+    ADD_PARAM_DOUBLE(FibLevel1, 3);
+    ADD_PARAM_DOUBLE(FibLevel2, 3);
+    ADD_PARAM_DOUBLE(FibLevel3, 3);
+    ADD_PARAM_DOUBLE(FibLevel4, 3);
+
+    // Order Block Settings
+    ADD_PARAM_BOOL(UseOrderBlocks);
+    ADD_PARAM_INT(OrderBlockLookback);
+    ADD_PARAM_DOUBLE(OrderBlockMinSize, 2);
+
+    // Standard Deviation Settings
+    ADD_PARAM_BOOL(UseStandardDeviation);
+    ADD_PARAM_INT(StdDevPeriod);
+    ADD_PARAM_DOUBLE(StdDevMultiplier, 2);
+
+    // Lower Timeframe Analysis
+    ADD_PARAM_BOOL(UseLowerTimeframeTriggers);
+    ADD_PARAM_INT(LowerTimeframe);
+    ADD_PARAM_INT(LTFStructureLookback);
+    ADD_PARAM_BOOL(RequireLTFConfirmation);
+    ADD_PARAM_BOOL(RequireOTERetest);
+    ADD_PARAM_DOUBLE(OTERetestTolerance, 2);
+    ADD_PARAM_INT(MinLTFConditions);
+    ADD_PARAM_BOOL(RequireStructureBreak);
+    ADD_PARAM_BOOL(AllowLTFOnlyTrades);
+    ADD_PARAM_BOOL(RequireMarketStructureForLTF);
+
+    parameters += "}";
+    return parameters;
+}
+
+//+------------------------------------------------------------------+
 //| Create JSON string from strategy test result                     |
 //+------------------------------------------------------------------+
 string CreateTestResultJSON(const StrategyTestResult &result, const TradeData &trades[])
@@ -339,7 +469,9 @@ bool ExtractAndSendTestResults(string strategy_name, string parameters = "{}")
     result.max_consecutive_losses = 0; // Set to actual max consecutive losses
     result.avg_consecutive_wins = 0; // Set to actual average consecutive wins
     result.avg_consecutive_losses = 0; // Set to actual average consecutive losses
-    result.parameters = parameters;
+
+    // Use dynamic parameter capture instead of hardcoded parameters
+    result.parameters = CaptureAllInputParameters();
 
     TradeData trades[];
     ArrayResize(trades, 0); // Initialize empty array

@@ -178,23 +178,74 @@ def save_test():
     try:
         data = request.get_json()
 
+        # Parse parameters for comparison
+        parameters_json = json.dumps(data.get('parameters', {}), sort_keys=True)
+
+        print(f"Received test data for {data.get('strategy_name')} - {data.get('strategy_version')}")
+
+        # Debug: Check for ICT Macro parameters specifically
+        parameters = data.get('parameters', {})
+        print(f"Total parameters received: {len(parameters)}")
+
+        # Check for ICT Macro parameters
+        ict_params = ['RestrictToICTMacros', 'CustomRestrictTimes', 'ServerToESTOffset']
+        for param in ict_params:
+            if param in parameters:
+                print(f"✓ Found {param}: {parameters[param]}")
+            else:
+                print(f"✗ Missing {param}")
+
+        # Check if parameters contain any ICT-related keys
+        ict_related = [key for key in parameters.keys() if 'ICT' in key or 'Macro' in key or 'Restrict' in key]
+        print(f"ICT-related parameters found: {ict_related}")
+
         # Check if this test run already exists
+        # First check without parameters to see if there's a potential duplicate
         existing_test = StrategyTest.query.filter_by(
             strategy_name=data['strategy_name'],
             strategy_version=data['strategy_version'],
             timeframe=data['timeframe'],
             start_date=datetime.fromisoformat(data['start_date']),
-            end_date=datetime.fromisoformat(data['end_date']),
-            parameters=json.dumps(data.get('parameters', {}))
+            end_date=datetime.fromisoformat(data['end_date'])
         ).first()
 
         if existing_test:
-            return jsonify({
-                "success": False,
-                "error": "Duplicate test run detected",
-                "message": f"A test run with the same parameters already exists (ID: {existing_test.id})",
-                "existing_test_id": existing_test.id
-            }), 409  # Conflict status code
+            print(f"Found existing test with same basic info: ID {existing_test.id}")
+
+            # Compare parameters to see if they're actually the same
+            try:
+                existing_params = json.loads(existing_test.parameters) if existing_test.parameters else {}
+                new_params = data.get('parameters', {})
+
+                print(f"Existing parameter count: {len(existing_params)}")
+                print(f"New parameter count: {len(new_params)}")
+
+                # Find differences
+                existing_keys = set(existing_params.keys())
+                new_keys = set(new_params.keys())
+                missing_in_new = existing_keys - new_keys
+                new_in_new = new_keys - existing_keys
+
+                if missing_in_new:
+                    print(f"Parameters missing in new test: {missing_in_new}")
+                if new_in_new:
+                    print(f"New parameters in new test: {new_in_new}")
+
+                # Check if parameters are actually the same
+                if existing_params == new_params:
+                    print("Parameters are identical - this is a true duplicate")
+                    return jsonify({
+                        "success": False,
+                        "error": "Duplicate test run detected",
+                        "message": f"A test run with the same parameters already exists (ID: {existing_test.id})",
+                        "existing_test_id": existing_test.id
+                    }), 409  # Conflict status code
+                else:
+                    print("Parameters are different - allowing new test")
+
+            except Exception as e:
+                print(f"Error comparing parameters: {e}")
+                print("Allowing new test due to parameter comparison error")
 
         # Create new strategy test
         test = StrategyTest(
@@ -235,11 +286,50 @@ def save_test():
             avg_consecutive_losses=int(data.get('avg_consecutive_losses', 0)),
             # --- End New Fields ---
 
-            parameters=json.dumps(data.get('parameters', {}))
+            parameters=parameters_json
         )
 
         db.session.add(test)
-        db.session.commit()
+
+        try:
+            db.session.commit()
+            print(f"Successfully saved test with ID: {test.id}")
+            print(f"Parameters saved: {len(data.get('parameters', {}))} parameters")
+        except Exception as e:
+            db.session.rollback()
+            print(f"Database error during save: {e}")
+
+            # Check if it's a unique constraint violation
+            if "UNIQUE constraint failed" in str(e) or "uq_strategy_test_run" in str(e):
+                print("Unique constraint violation detected")
+                # Try to find the existing test that's causing the conflict
+                existing_conflict = StrategyTest.query.filter_by(
+                    strategy_name=data['strategy_name'],
+                    strategy_version=data['strategy_version'],
+                    timeframe=data['timeframe'],
+                    start_date=datetime.fromisoformat(data['start_date']),
+                    end_date=datetime.fromisoformat(data['end_date'])
+                ).first()
+
+                if existing_conflict:
+                    return jsonify({
+                        "success": False,
+                        "error": "Duplicate test run detected (database constraint)",
+                        "message": f"A test run with the same parameters already exists (ID: {existing_conflict.id})",
+                        "existing_test_id": existing_conflict.id
+                    }), 409
+                else:
+                    return jsonify({
+                        "success": False,
+                        "error": "Database constraint violation",
+                        "message": "Failed to save test due to database constraint"
+                    }), 400
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": "Database error",
+                    "message": str(e)
+                }), 400
 
         # Save trades if provided
         if 'trades' in data:
@@ -699,3 +789,22 @@ def get_scored_tests():
     except Exception as e:
         print(f"Error fetching scored tests: {e}")
         return jsonify({"error": "Failed to fetch scored test results", "details": str(e)}), 500
+
+@app.route('/api/debug/parameters', methods=['POST'])
+def debug_parameters():
+    """Debug endpoint to check what parameters are being received"""
+    try:
+        data = request.get_json()
+        parameters = data.get('parameters', {})
+
+        return jsonify({
+            "success": True,
+            "parameters_received": len(parameters),
+            "parameter_keys": list(parameters.keys()),
+            "sample_parameters": dict(list(parameters.items())[:5])  # First 5 parameters
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 400
