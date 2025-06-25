@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 20px; background-color: #f8f9fa; color: #333; }
-        .container { max-width: 1400px; margin: 0 auto; background: white; padding: 20px 40px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px 40px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
         h1, h2 { color: #2c3e50; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-top: 30px; }
         h1 { font-size: 2em; }
         .breadcrumb { margin-bottom: 20px; }
@@ -19,7 +19,10 @@
         .stat-label { color: #666; margin-top: 5px; font-size: 0.9em; }
         .profit-positive { color: #28a745; }
         .profit-negative { color: #dc3545; }
-        .chart-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 30px; margin-top: 30px; }
+        .chart-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 50px; margin-top: 30px; }
+        .chart-container.pie-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 50px 350px; margin-top: 30px; }
+        .chart-container.pie-charts canvas { margin-bottom: 50px; }
+        .pie-chart { padding: 0 150px; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
         th { background-color: #f8f9fa; font-weight: bold; }
@@ -77,17 +80,19 @@
             transition: transform 0.2s;
         }
         .category-content {
+            font-size: 14px;
             padding: 20px;
             background: white;
         }
         .parameter-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(150px, 219px));
             gap: 15px;
         }
         .parameter-item {
             display: flex;
             justify-content: space-between;
+            gap: 10px;
             align-items: center;
             padding: 10px 15px;
             background: #f8f9fa;
@@ -257,7 +262,7 @@
                 <h3>Trade Duration Distribution</h3>
                 <canvas id="tradeDurationChart"></canvas>
             </div>
-            <div>
+            <div class="pie-chart">
                 <h3>Win/Loss Distribution</h3>
                 <canvas id="winLossDistributionChart"></canvas>
             </div>
@@ -292,7 +297,7 @@
         </div>
 
         <h2>Trading Conditions Analysis</h2>
-        <div class="chart-container">
+        <div class="chart-container pie-charts">
             <div>
                 <h3>Kill Zone Performance</h3>
                 <canvas id="killZoneChartCount"></canvas>
@@ -316,7 +321,7 @@
         </div>
 
         <h2>ICT Strategy Conditions</h2>
-        <div class="chart-container">
+        <div class="chart-container pie-charts">
             <div>
                 <h3>OTE Point Performance</h3>
                 <canvas id="otePerformanceChartCount"></canvas>
@@ -884,7 +889,8 @@
                     'Market Structure & Bias': ['UseMarketStructureFilter', 'StructureTimeframe', 'StructureLookback', 'RequireLiquiditySweep', 'LiquiditySweepLookback', 'MinSweepDistance'],
                     'Optimal Trade Entry (OTE) Settings': ['UseOTEFilter', 'UseFibonacciLevels', 'FibLevel1', 'FibLevel2', 'FibLevel3', 'FibLevel4', 'UseOrderBlocks', 'OrderBlockLookback', 'OrderBlockMinSize'],
                     'Standard Deviation Settings': ['UseStandardDeviation', 'StdDevPeriod', 'StdDevMultiplier'],
-                    'Lower Timeframe Analysis': ['UseLowerTimeframeTriggers', 'LowerTimeframe', 'LTFStructureLookback', 'RequireLTFConfirmation', 'RequireOTERetest', 'OTERetestTolerance', 'MinLTFConditions', 'RequireStructureBreak', 'AllowLTFOnlyTrades', 'RequireMarketStructureForLTF']
+                    'Lower Timeframe Analysis': ['UseLowerTimeframeTriggers', 'LowerTimeframe', 'LTFStructureLookback', 'RequireLTFConfirmation', 'RequireOTERetest', 'OTERetestTolerance', 'MinLTFConditions', 'RequireStructureBreak', 'AllowLTFOnlyTrades', 'RequireMarketStructureForLTF'],
+                    'Trading Restrictions': ['RestrictToICTMacros', 'CustomRestrictTimes', 'ServerToESTOffset']
                 };
 
                 for (const [category, paramNames] of Object.entries(categories)) {

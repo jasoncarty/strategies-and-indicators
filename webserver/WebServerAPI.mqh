@@ -121,6 +121,11 @@ string Api_DateTimeToString(datetime time)
     parameters += "\"" + #name + "\":\"" + name + "\""; \
     param_count++
 
+#define ADD_PARAM_TIMEFRAME(name) \
+    if(param_count > 0) parameters += ","; \
+    parameters += "\"" + #name + "\":\"" + EnumToString(name) + "\""; \
+    param_count++
+
 //+------------------------------------------------------------------+
 //| Dynamically capture all input parameters as JSON                 |
 //+------------------------------------------------------------------+
@@ -188,7 +193,7 @@ string CaptureAllInputParameters()
 
     // Market Structure Settings
     ADD_PARAM_BOOL(UseMarketStructureFilter);
-    ADD_PARAM_INT(StructureTimeframe);
+    ADD_PARAM_TIMEFRAME(StructureTimeframe);
     ADD_PARAM_INT(StructureLookback);
     ADD_PARAM_BOOL(RequireLiquiditySweep);
     ADD_PARAM_INT(LiquiditySweepLookback);
@@ -214,7 +219,7 @@ string CaptureAllInputParameters()
 
     // Lower Timeframe Analysis
     ADD_PARAM_BOOL(UseLowerTimeframeTriggers);
-    ADD_PARAM_INT(LowerTimeframe);
+    ADD_PARAM_TIMEFRAME(LowerTimeframe);
     ADD_PARAM_INT(LTFStructureLookback);
     ADD_PARAM_BOOL(RequireLTFConfirmation);
     ADD_PARAM_BOOL(RequireOTERetest);
