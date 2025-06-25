@@ -11,7 +11,7 @@
 #include <MovingAverages.mqh>
 
 #property copyright "Copyright 2024"
-#property version   "1.00"
+#property version   "1.01"
 #property description "ICT Fair Value Gap and Imbalance Trading Expert Advisor"
 #property description "Implements ICT concepts for trading Fair Value Gaps (FVGs)"
 #property description "and volume imbalances with precise stop loss placement."
@@ -46,11 +46,6 @@ input bool   RequireVolumeConfirmation = true; // Require volume confirmation
 input group "Trading Settings"
 input bool   RequireConfirmation = true;  // Ask for confirmation before placing trades
 input int    MagicNumber = 123456;       // Magic number for order identification
-
-// News Filter Settings
-input int NewsBlockMinutesBefore = 30; // Minutes before news to block trading
-input int NewsBlockMinutesAfter  = 30; // Minutes after news to block trading
-input bool BlockHighImpactOnly   = true; // Only block for high-impact news
 
 // ICT Kill Zone Settings
 input group "ICT Kill Zone Settings"
@@ -107,6 +102,117 @@ input int    MinLTFConditions = 2;            // Minimum number of LTF condition
 input bool   RequireStructureBreak = true;    // Require LTF structure break
 input bool   AllowLTFOnlyTrades = false;      // Allow trades based purely on LTF signals (no FVG required)
 input bool   RequireMarketStructureForLTF = true; // Require market structure alignment for LTF-only trades
+
+input group "Trading Restrictions"
+input bool RestrictToICTMacros = true; // Only trade during ICT Macro times
+input string CustomRestrictTimes = ""; // e.g. "10:00-10:10,14:00-15:00" (24h, EST)
+input int ServerToESTOffset = -7;      // Hours to subtract from server time to get EST
+// News Filter Settings
+input int NewsBlockMinutesBefore = 30; // Minutes before news to block trading
+input int NewsBlockMinutesAfter  = 30; // Minutes after news to block trading
+input bool BlockHighImpactOnly   = true; // Only block for high-impact news
+
+struct TimeInterval {
+   int startHour;
+   int startMinute;
+   int endHour;
+   int endMinute;
+};
+
+const TimeInterval ICTMacros[] = {
+   {2, 33, 3, 0},    // London Macro 1
+   {4, 3, 4, 30},    // London Macro 2
+   {8, 50, 9, 10},   // NY AM Macro 1
+   {9, 50, 10, 10},  // NY AM Macro 2
+   {10, 50, 11, 10}, // NY AM Macro 3
+   {11, 50, 12, 10}, // NY Lunch Macro
+   {13, 10, 13, 40}, // NY PM Macro
+   {15, 15, 15, 45}  // NY Last Hour Macro
+};
+
+void GetESTTime(int &hour, int &minute) {
+    MqlDateTime now;
+    TimeToStruct(TimeCurrent(), now);
+    int estHour = now.hour + ServerToESTOffset;
+    if(estHour < 0) estHour += 24;
+    if(estHour >= 24) estHour -= 24;
+    hour = estHour;
+    minute = now.min;
+}
+
+int ParseCustomIntervals(const string intervalsStr, TimeInterval &intervals[]) {
+    int count = 0;
+    if(StringLen(intervalsStr) == 0) return 0;
+    string parts[];
+    int n = StringSplit(intervalsStr, ',', parts);
+    for(int i=0; i<n; i++) {
+        string times[];
+        if(StringSplit(parts[i], '-', times) == 2) {
+            int sh, sm, eh, em;
+            if(StringToTimeParts(times[0], sh, sm) && StringToTimeParts(times[1], eh, em)) {
+                ArrayResize(intervals, count+1);
+                intervals[count].startHour = sh;
+                intervals[count].startMinute = sm;
+                intervals[count].endHour = eh;
+                intervals[count].endMinute = em;
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+bool StringToTimeParts(const string t, int &h, int &m) {
+    string parts[];
+    if(StringSplit(t, ':', parts) == 2) {
+        h = StringToInteger(parts[0]);
+        m = StringToInteger(parts[1]);
+        return true;
+    }
+    return false;
+}
+
+bool IsInInterval(int hour, int minute, const TimeInterval &interval) {
+    int start = interval.startHour*60 + interval.startMinute;
+    int end = interval.endHour*60 + interval.endMinute;
+    int now = hour*60 + minute;
+    return (now >= start && now < end);
+}
+
+bool IsInCustomBlock() {
+    TimeInterval intervals[];
+    int n = ParseCustomIntervals(CustomRestrictTimes, intervals);
+    int hour, minute;
+    GetESTTime(hour, minute);
+    for(int i=0; i<n; i++) {
+        if(IsInInterval(hour, minute, intervals[i])) return true;
+    }
+    return false;
+}
+
+bool IsInICTMacro() {
+    int hour, minute;
+    GetESTTime(hour, minute);
+    for(int i=0; i<ArraySize(ICTMacros); i++) {
+        if(IsInInterval(hour, minute, ICTMacros[i])) return true;
+    }
+    return false;
+}
+
+void CheckOffsetWarning() {
+    MqlDateTime now;
+    TimeToStruct(TimeCurrent(), now);
+    int estHour = now.hour + ServerToESTOffset;
+    if(estHour < 0) estHour += 24;
+    if(estHour >= 24) estHour -= 24;
+    datetime local = TimeLocal();
+    MqlDateTime localdt;
+    TimeToStruct(local, localdt);
+    int diff = now.hour - localdt.hour;
+    if(MathAbs(diff - ServerToESTOffset) > 1) {
+        Print("[WARNING] ServerToESTOffset may be incorrect. Server hour: ", now.hour, ", Local hour: ", localdt.hour, ", Offset: ", ServerToESTOffset);
+    }
+}
 
 //+------------------------------------------------------------------+
 //| Struct for storing imbalance information                          |
@@ -295,6 +401,9 @@ CTrade trade;
 //+------------------------------------------------------------------+
 int OnInit()
 {
+   // === Call this once at startup (e.g., in OnInit) ===
+   CheckOffsetWarning();
+
    // Verify inputs
    if(RiskPercent <= 0 || RiskPercent > 100)
    {
@@ -915,6 +1024,35 @@ void OpenPosition(ENUM_ORDER_TYPE orderType, double entryPrice, double stopLoss,
 //+------------------------------------------------------------------+
 void OpenPosition(ENUM_ORDER_TYPE orderType, double entryPrice, double stopLoss, double targetPrice, double lotSize, TradingConditions &conditions)
 {
+    // Debug logging for ICT Macro restrictions
+    if(RestrictToICTMacros || StringLen(CustomRestrictTimes) > 0) {
+        int hour, minute;
+        GetESTTime(hour, minute);
+        Print("=== ICT Macro Debug ===");
+        Print("Server Time: ", TimeToString(TimeCurrent()));
+        Print("EST Time: ", hour, ":", minute);
+        Print("RestrictToICTMacros: ", RestrictToICTMacros);
+        Print("CustomRestrictTimes: ", CustomRestrictTimes);
+        Print("IsInICTMacro(): ", IsInICTMacro());
+        Print("IsInCustomBlock(): ", IsInCustomBlock());
+        Print("======================");
+    }
+
+    // Check if we should restrict trading to ICT Macro time
+    if(RestrictToICTMacros) {
+        if(!IsInICTMacro()) {
+            Print("Trade blocked: Not in ICT Macro time.");
+            return;
+        }
+        if(IsInCustomBlock()) {
+            Print("Trade blocked: In custom restricted interval during ICT Macro.");
+            return;
+        }
+    } else if(IsInCustomBlock()) {
+        Print("Trade blocked: In custom restricted interval.");
+        return;
+    }
+
    // Capture trading conditions if provided
    if(conditions.entryTime == 0) // If conditions not provided, capture them now
    {
@@ -3989,6 +4127,21 @@ bool CheckLTFOnlyEntryConditions(bool isBuy)
         return false;
     }
 
+    // 3. OTE Point Check (same as regular entry conditions)
+    if(UseOTEFilter)
+    {
+        double current_price = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+        OTEPoint nearestOTE;
+        bool isNearOTE = IsPriceNearOTEPoint(current_price, isBuy, nearestOTE);
+
+        if(!isNearOTE)
+        {
+            Print("LTF-Only Trade: Price not near any OTE point - trade blocked");
+            return false;
+        }
+        Print("LTF-Only Trade: Price near OTE point: ", nearestOTE.type, " at ", nearestOTE.level);
+    }
+
     Print("LTF-Only Trade: All conditions met (", conditionsMet, "/", totalConditions, ")");
     return true;
 }
@@ -4004,14 +4157,14 @@ double OnTester()
 
     // --- Basic Test Information ---
     result.strategy_name = MQLInfoString(MQL_PROGRAM_NAME);
-    result.strategy_version = "1.00";  // Use the version from #property version
+    result.strategy_version = "1.01";  // Use the version from #property version
     result.symbol = _Symbol;
     result.timeframe = EnumToString(_Period);
     result.initial_deposit = TesterStatistics(STAT_INITIAL_DEPOSIT);
     result.profit = TesterStatistics(STAT_PROFIT);
     result.final_balance = result.initial_deposit + result.profit;
     result.profit_factor = TesterStatistics(STAT_PROFIT_FACTOR);
-    result.max_drawdown = TesterStatistics(STAT_BALANCE_DD);
+    result.max_drawdown = TesterStatistics(STAT_BALANCEDD_PERCENT);
     result.total_trades = (int)TesterStatistics(STAT_TRADES);
     result.winning_trades = (int)TesterStatistics(STAT_PROFIT_TRADES);
     result.losing_trades = result.total_trades - result.winning_trades;
@@ -4034,75 +4187,7 @@ double OnTester()
     result.largest_loss = TesterStatistics(STAT_MAX_LOSSTRADE);
 
     // --- Capture all input parameters as JSON ---
-    string parameters = "{";
-    parameters += "\"RiskPercent\":" + DoubleToString(RiskPercent, 2) + ",";
-    parameters += "\"RRRatio\":" + DoubleToString(RRRatio, 2) + ",";
-    parameters += "\"MinLotSize\":" + DoubleToString(MinLotSize, 2) + ",";
-    parameters += "\"MaxLotSize\":" + DoubleToString(MaxLotSize, 2) + ",";
-    parameters += "\"MaxPositions\":" + IntegerToString(MaxPositions) + ",";
-    parameters += "\"UseATRStopLoss\":" + (UseATRStopLoss ? "true" : "false") + ",";
-    parameters += "\"ATRMultiplier\":" + DoubleToString(ATRMultiplier, 2) + ",";
-    parameters += "\"ATRPeriod\":" + IntegerToString(ATRPeriod) + ",";
-    parameters += "\"UseTrailingStop\":" + (UseTrailingStop ? "true" : "false") + ",";
-    parameters += "\"TrailStartPercent\":" + DoubleToString(TrailStartPercent, 2) + ",";
-    parameters += "\"TrailDistancePercent\":" + DoubleToString(TrailDistancePercent, 2) + ",";
-    parameters += "\"ImbalanceConfirmationBars\":" + IntegerToString(ImbalanceConfirmationBars) + ",";
-    parameters += "\"MinImbalanceRatio\":" + DoubleToString(MinImbalanceRatio, 2) + ",";
-    parameters += "\"MinImbalanceVolume\":" + IntegerToString(MinImbalanceVolume) + ",";
-    parameters += "\"RequireStackedImbalance\":" + (RequireStackedImbalance ? "true" : "false") + ",";
-    parameters += "\"RequireVolumeConfirmation\":" + (RequireVolumeConfirmation ? "true" : "false") + ",";
-    parameters += "\"RequireConfirmation\":" + (RequireConfirmation ? "true" : "false") + ",";
-    parameters += "\"MagicNumber\":" + IntegerToString(MagicNumber) + ",";
-    parameters += "\"NewsBlockMinutesBefore\":" + IntegerToString(NewsBlockMinutesBefore) + ",";
-    parameters += "\"NewsBlockMinutesAfter\":" + IntegerToString(NewsBlockMinutesAfter) + ",";
-    parameters += "\"BlockHighImpactOnly\":" + (BlockHighImpactOnly ? "true" : "false") + ",";
-    parameters += "\"UseKillZones\":" + (UseKillZones ? "true" : "false") + ",";
-    parameters += "\"UseLondonKillZone\":" + (UseLondonKillZone ? "true" : "false") + ",";
-    parameters += "\"LondonKillZoneStart\":" + IntegerToString(LondonKillZoneStart) + ",";
-    parameters += "\"LondonKillZoneEnd\":" + IntegerToString(LondonKillZoneEnd) + ",";
-    parameters += "\"UseNewYorkKillZone\":" + (UseNewYorkKillZone ? "true" : "false") + ",";
-    parameters += "\"NewYorkKillZoneStart\":" + IntegerToString(NewYorkKillZoneStart) + ",";
-    parameters += "\"NewYorkKillZoneEnd\":" + IntegerToString(NewYorkKillZoneEnd) + ",";
-    parameters += "\"UseAsianKillZone\":" + (UseAsianKillZone ? "true" : "false") + ",";
-    parameters += "\"AsianKillZoneStart\":" + IntegerToString(AsianKillZoneStart) + ",";
-    parameters += "\"AsianKillZoneEnd\":" + IntegerToString(AsianKillZoneEnd) + ",";
-    parameters += "\"UseLondonOpenKillZone\":" + (UseLondonOpenKillZone ? "true" : "false") + ",";
-    parameters += "\"LondonOpenKillZoneStart\":" + IntegerToString(LondonOpenKillZoneStart) + ",";
-    parameters += "\"LondonOpenKillZoneEnd\":" + IntegerToString(LondonOpenKillZoneEnd) + ",";
-    parameters += "\"UseNewYorkOpenKillZone\":" + (UseNewYorkOpenKillZone ? "true" : "false") + ",";
-    parameters += "\"NewYorkOpenKillZoneStart\":" + IntegerToString(NewYorkOpenKillZoneStart) + ",";
-    parameters += "\"NewYorkOpenKillZoneEnd\":" + IntegerToString(NewYorkOpenKillZoneEnd) + ",";
-    parameters += "\"UseMarketStructureFilter\":" + (UseMarketStructureFilter ? "true" : "false") + ",";
-    parameters += "\"StructureTimeframe\":" + IntegerToString(StructureTimeframe) + ",";
-    parameters += "\"StructureLookback\":" + IntegerToString(StructureLookback) + ",";
-    parameters += "\"RequireLiquiditySweep\":" + (RequireLiquiditySweep ? "true" : "false") + ",";
-    parameters += "\"LiquiditySweepLookback\":" + IntegerToString(LiquiditySweepLookback) + ",";
-    parameters += "\"MinSweepDistance\":" + DoubleToString(MinSweepDistance, 2) + ",";
-    parameters += "\"UseOTEFilter\":" + (UseOTEFilter ? "true" : "false") + ",";
-    parameters += "\"UseFibonacciLevels\":" + (UseFibonacciLevels ? "true" : "false") + ",";
-    parameters += "\"FibLevel1\":" + DoubleToString(FibLevel1, 3) + ",";
-    parameters += "\"FibLevel2\":" + DoubleToString(FibLevel2, 3) + ",";
-    parameters += "\"FibLevel3\":" + DoubleToString(FibLevel3, 3) + ",";
-    parameters += "\"FibLevel4\":" + DoubleToString(FibLevel4, 3) + ",";
-    parameters += "\"UseOrderBlocks\":" + (UseOrderBlocks ? "true" : "false") + ",";
-    parameters += "\"OrderBlockLookback\":" + IntegerToString(OrderBlockLookback) + ",";
-    parameters += "\"OrderBlockMinSize\":" + DoubleToString(OrderBlockMinSize, 2) + ",";
-    parameters += "\"UseStandardDeviation\":" + (UseStandardDeviation ? "true" : "false") + ",";
-    parameters += "\"StdDevPeriod\":" + IntegerToString(StdDevPeriod) + ",";
-    parameters += "\"StdDevMultiplier\":" + DoubleToString(StdDevMultiplier, 2) + ",";
-    parameters += "\"UseLowerTimeframeTriggers\":" + (UseLowerTimeframeTriggers ? "true" : "false") + ",";
-    parameters += "\"LowerTimeframe\":" + IntegerToString(LowerTimeframe) + ",";
-    parameters += "\"LTFStructureLookback\":" + IntegerToString(LTFStructureLookback) + ",";
-    parameters += "\"RequireLTFConfirmation\":" + (RequireLTFConfirmation ? "true" : "false") + ",";
-    parameters += "\"RequireOTERetest\":" + (RequireOTERetest ? "true" : "false") + ",";
-    parameters += "\"OTERetestTolerance\":" + DoubleToString(OTERetestTolerance, 2) + ",";
-    parameters += "\"MinLTFConditions\":" + IntegerToString(MinLTFConditions) + ",";
-    parameters += "\"RequireStructureBreak\":" + (RequireStructureBreak ? "true" : "false") + ",";
-    parameters += "\"AllowLTFOnlyTrades\":" + (AllowLTFOnlyTrades ? "true" : "false") + ",";
-    parameters += "\"RequireMarketStructureForLTF\":" + (RequireMarketStructureForLTF ? "true" : "false");
-    parameters += "}";
-
-    result.parameters = parameters;
+    result.parameters = CaptureAllInputParameters();
 
     TradeData trades[];
     if(HistorySelect(0, TimeCurrent()))
