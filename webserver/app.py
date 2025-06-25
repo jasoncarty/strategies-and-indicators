@@ -808,3 +808,11 @@ def debug_parameters():
             "success": False,
             "error": str(e)
         }), 400
+
+if __name__ == '__main__':
+    # Create database tables if they don't exist
+    with app.app_context():
+        db.create_all()
+
+    # Run the Flask app
+    app.run(debug=True, host='127.0.0.1', port=5000)

@@ -172,6 +172,9 @@
         <!-- Scoring Controls -->
         <div class="scoring-controls">
             <h3>Sorting & Filtering</h3>
+            <div style="font-size: 12px; color: #666; margin-bottom: 10px;">
+                💾 Filter settings are automatically saved to the URL and will persist when you refresh the page
+            </div>
             <div class="controls-row">
                 <div class="control-group">
                     <label>Sort By:</label>
@@ -243,7 +246,71 @@
         let currentSortBy = 'score';
         let currentOrder = 'desc';
 
+        // URL parameter management functions
+        function getUrlParameter(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+
+        function setUrlParameter(name, value) {
+            const url = new URL(window.location);
+            if (value && value !== '') {
+                url.searchParams.set(name, value);
+            } else {
+                url.searchParams.delete(name);
+            }
+            window.history.replaceState({}, '', url);
+        }
+
+        function updateUrlParameters() {
+            const sortBy = document.getElementById('sortBy').value;
+            const order = document.getElementById('sortOrder').value;
+            const minTrades = document.getElementById('minTrades').value;
+            const minScore = document.getElementById('minScore').value;
+
+            setUrlParameter('sort_by', sortBy);
+            setUrlParameter('order', order);
+            setUrlParameter('min_trades', minTrades);
+            setUrlParameter('min_score', minScore);
+        }
+
+        function loadFiltersFromUrl() {
+            const sortBy = getUrlParameter('sort_by') || 'score';
+            const order = getUrlParameter('order') || 'desc';
+            const minTrades = getUrlParameter('min_trades') || '';
+            const minScore = getUrlParameter('min_score') || '';
+
+            document.getElementById('sortBy').value = sortBy;
+            document.getElementById('sortOrder').value = order;
+            document.getElementById('minTrades').value = minTrades;
+            document.getElementById('minScore').value = minScore;
+
+            // Update current state
+            currentSortBy = sortBy;
+            currentOrder = order;
+        }
+
         document.addEventListener('DOMContentLoaded', function () {
+            // Load filters from URL parameters first
+            loadFiltersFromUrl();
+
+            // Add event listeners for real-time URL updates
+            document.getElementById('minTrades').addEventListener('input', function() {
+                setUrlParameter('min_trades', this.value);
+            });
+
+            document.getElementById('minScore').addEventListener('input', function() {
+                setUrlParameter('min_score', this.value);
+            });
+
+            document.getElementById('sortBy').addEventListener('change', function() {
+                setUrlParameter('sort_by', this.value);
+            });
+
+            document.getElementById('sortOrder').addEventListener('change', function() {
+                setUrlParameter('order', this.value);
+            });
+
             // Fetch and display overall stats
             fetch('/api/stats')
                 .then(response => response.json())
@@ -392,10 +459,12 @@
         function sortTable(column) {
             document.getElementById('sortBy').value = column;
             document.getElementById('sortOrder').value = currentOrder === 'desc' ? 'asc' : 'desc';
+            updateUrlParameters();
             loadScoredTests();
         }
 
         function applyFilters() {
+            updateUrlParameters();
             loadScoredTests();
         }
 
@@ -404,6 +473,12 @@
             document.getElementById('sortOrder').value = 'desc';
             document.getElementById('minTrades').value = '';
             document.getElementById('minScore').value = '';
+
+            // Clear URL parameters
+            const url = new URL(window.location);
+            url.search = '';
+            window.history.replaceState({}, '', url);
+
             loadScoredTests();
         }
 

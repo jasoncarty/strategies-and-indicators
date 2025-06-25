@@ -7,6 +7,9 @@ import os
 import sys
 import subprocess
 import time
+import threading
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 def check_python_version():
     """Check if Python version is compatible"""
@@ -29,6 +32,59 @@ def install_requirements():
         print("✗ Failed to install packages")
         sys.exit(1)
 
+class SimpleServerFileHandler(FileSystemEventHandler):
+    """Simple file handler that just prints when server files change"""
+
+    def __init__(self):
+        self.last_restart_time = 0
+        self.restart_cooldown = 5  # seconds between restarts
+
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+
+        file_path = event.src_path
+        file_name = os.path.basename(file_path)
+
+        # Only watch specific files that should trigger restarts
+        watched_files = ['app.py']
+        watched_extensions = ['.html']
+        watched_dirs = ['templates']
+
+        # Check if this is a file we should watch
+        should_watch = False
+
+        if file_name in watched_files:
+            should_watch = True
+        elif any(file_path.endswith(ext) for ext in watched_extensions):
+            should_watch = True
+        elif any(dir_name in file_path for dir_name in watched_dirs):
+            should_watch = True
+
+        # Ignore files that would cause loops
+        ignore_files = ['enhanced_file_watcher.py', 'file_watcher.py', 'start_server.py']
+        if file_name in ignore_files:
+            should_watch = False
+
+        if should_watch:
+            current_time = time.time()
+            if current_time - self.last_restart_time > self.restart_cooldown:
+                print(f"🔄 Server file changed: {file_name}")
+                print("   - Please restart the server manually (Ctrl+C, then run again)")
+                print("   - Or use the enhanced_file_watcher.py for automatic restarts")
+                self.last_restart_time = current_time
+
+def start_file_watcher():
+    """Start a simple file watcher that just notifies of changes"""
+    print("👀 Starting simple file watcher (notifications only)...")
+
+    event_handler = SimpleServerFileHandler()
+    observer = Observer()
+    observer.schedule(event_handler, '.', recursive=True)
+    observer.start()
+
+    return observer
+
 def start_services():
     """Start the Flask web server and the file watcher"""
     print("--- Starting All Services ---")
@@ -40,34 +96,48 @@ def start_services():
         db.create_all()
         print("✓ Database initialized.")
 
-    # --- 2. Start File Watcher as a Background Process ---
+    # --- 2. Start Simple File Watcher ---
+    file_observer = start_file_watcher()
+
+    # --- 3. Start MT5 File Watcher in Background ---
     venv_python = os.path.join("venv", "bin", "python")
     if os.name == 'nt': # Windows
         venv_python = os.path.join("venv", "Scripts", "python.exe")
 
     try:
-        print("🚀 Launching file watcher in the background...")
-        watcher_process = subprocess.Popen([venv_python, "file_watcher.py"])
-        print("✓ File watcher is running.")
+        print("🚀 Launching MT5 file watcher in the background...")
+        mt5_watcher_process = subprocess.Popen([venv_python, "file_watcher.py"])
+        print("✓ MT5 file watcher is running.")
     except Exception as e:
-        print(f"❌ Failed to start file watcher: {e}")
-        return
+        print(f"❌ Failed to start MT5 file watcher: {e}")
+        mt5_watcher_process = None
 
-    # --- 3. Start Web Server in the Foreground ---
+    # --- 4. Start Web Server in the Foreground ---
     try:
         print("🚀 Launching web server...")
         print("   - Server will be available at: http://127.0.0.1:5000")
         print("   - Press Ctrl+C to stop ALL services.")
+        print("   - For automatic server restarts, use: python enhanced_file_watcher.py --server-only")
         print("-" * 50)
         app.run(debug=False, host='0.0.0.0', port=5000) # debug=False for cleaner logs
 
     finally:
         # This block will run when you press Ctrl+C
         print("\n--- Stopping All Services ---")
-        print("🛑 Stopping file watcher...")
-        watcher_process.terminate() # Terminate the background process
-        watcher_process.wait()
-        print("✓ File watcher stopped.")
+
+        # Stop file observer
+        print("🛑 Stopping file observer...")
+        file_observer.stop()
+        file_observer.join()
+        print("✓ File observer stopped.")
+
+        # Stop MT5 watcher
+        if mt5_watcher_process:
+            print("🛑 Stopping MT5 file watcher...")
+            mt5_watcher_process.terminate()
+            mt5_watcher_process.wait()
+            print("✓ MT5 file watcher stopped.")
+
         print("🛑 Web server stopped.")
 
 def main():
