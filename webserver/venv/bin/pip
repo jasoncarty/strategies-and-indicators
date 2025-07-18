@@ -1,4 +1,4 @@
-#!/Users/jasoncarty/code/private/mq5/strategies-and-indicators/webserver/venv/bin/python3
+#!/Users/jasoncarty/code/trading/strategies-and-indicators/webserver/venv/bin/python3.13
 # -*- coding: utf-8 -*-
 import re
 import sys

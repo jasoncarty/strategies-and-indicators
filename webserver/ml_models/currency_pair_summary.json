@@ -1,0 +1,63 @@
+{
+  "generated_at": "2025-07-16T13:31:42.212019",
+  "currency_pairs": {
+    "EURUSD": {
+      "description": "Major pair - London/NY session focus",
+      "volatility_multiplier": 1.0,
+      "spread_adjustment": 1.0,
+      "session_weight": 1.0,
+      "typical_spread": 1.0,
+      "session_hours": "London/NY",
+      "correlation_notes": "Correlates with GBP/USD, inverse to USD/CHF",
+      "parameter_file": "ml_model_params_EURUSD.txt"
+    },
+    "GBPUSD": {
+      "description": "Major pair - Higher volatility, London focus",
+      "volatility_multiplier": 1.2,
+      "spread_adjustment": 1.1,
+      "session_weight": 1.1,
+      "typical_spread": 1.2,
+      "session_hours": "London",
+      "correlation_notes": "Correlates with EUR/USD, sensitive to UK news",
+      "parameter_file": "ml_model_params_GBPUSD.txt"
+    },
+    "USDJPY": {
+      "description": "Major pair - Lower volatility, Asian focus",
+      "volatility_multiplier": 0.8,
+      "spread_adjustment": 0.9,
+      "session_weight": 0.9,
+      "typical_spread": 0.9,
+      "session_hours": "Asian",
+      "correlation_notes": "Safe haven pair, inverse to risk sentiment",
+      "parameter_file": "ml_model_params_USDJPY.txt"
+    },
+    "GBPJPY": {
+      "description": "Cross pair - High volatility, London/Asian crossover",
+      "volatility_multiplier": 1.5,
+      "spread_adjustment": 1.3,
+      "session_weight": 1.2,
+      "typical_spread": 2.0,
+      "session_hours": "London/Asian",
+      "correlation_notes": "High volatility, GBP/JPY = GBP/USD \u00d7 USD/JPY",
+      "parameter_file": "ml_model_params_GBPJPY.txt"
+    },
+    "XAUUSD": {
+      "description": "Commodity - Very high volatility, all sessions",
+      "volatility_multiplier": 1.8,
+      "spread_adjustment": 1.5,
+      "session_weight": 1.3,
+      "typical_spread": 3.0,
+      "session_hours": "All",
+      "correlation_notes": "Safe haven, inverse to USD strength",
+      "parameter_file": "ml_model_params_XAUUSD.txt"
+    }
+  },
+  "parameter_files": [
+    "ml_models/ml_model_params_EURUSD.txt",
+    "ml_models/ml_model_params_GBPUSD.txt",
+    "ml_models/ml_model_params_USDJPY.txt",
+    "ml_models/ml_model_params_GBPJPY.txt",
+    "ml_models/ml_model_params_XAUUSD.txt",
+    "ml_models/ml_model_params_simple.txt"
+  ]
+}

@@ -809,10 +809,209 @@ def debug_parameters():
             "error": str(e)
         }), 400
 
+@app.route('/ml-diagnostics')
+def ml_diagnostics_page():
+    """ML Diagnostics page"""
+    return render_template('ml_diagnostics.html')
+
+@app.route('/api/ml/diagnostics', methods=['POST'])
+def run_ml_diagnostics():
+    """Run ML diagnostics on trading data"""
+    try:
+        # Import the diagnostic tool
+        from ml_diagnostic_tool import TradingEADiagnostic
+        
+        # Run diagnostics using db.engine
+        diagnostic = TradingEADiagnostic(db.engine)
+        results = diagnostic.generate_diagnostic_report()
+        
+        if not results:
+            return jsonify({
+                "success": False,
+                "error": "No trading data available for analysis"
+            }), 400
+        
+        # Extract key metrics for the API response
+        feature_df = results['feature_df']
+        
+        # Overall performance
+        total_trades = len(feature_df)
+        win_rate = (feature_df['target'].sum() / total_trades) * 100 if total_trades > 0 else 0
+        avg_profit = feature_df['profit'].mean()
+        anomaly_rate = (feature_df['is_anomaly'].sum() / total_trades) * 100 if total_trades > 0 else 0
+        
+        # Feature importance
+        importance_df = results['importance_df']
+        feature_importance = []
+        if importance_df is not None:
+            for _, row in importance_df.head(10).iterrows():
+                feature_importance.append({
+                    'name': row['feature'],
+                    'importance': row['importance']
+                })
+        
+        # Clusters
+        cluster_analysis = results['cluster_analysis']
+        clusters = []
+        if cluster_analysis is not None:
+            for cluster_id in cluster_analysis.index:
+                cluster_data = cluster_analysis.loc[cluster_id]
+                clusters.append({
+                    'id': cluster_id,
+                    'trade_count': int(cluster_data[('target', 'count')]),
+                    'win_rate': cluster_data[('target', 'mean')] * 100,
+                    'avg_profit': cluster_data[('profit', 'mean')]
+                })
+        
+        # Model performance
+        prediction_results = results['prediction_results']
+        model_performance = None
+        if prediction_results is not None:
+            model_performance = {
+                'accuracy': prediction_results['accuracy'],
+                'auc_score': prediction_results['auc_score']
+            }
+        
+        # Symbol analysis
+        symbol_analysis = results['symbol_analysis']
+        symbols = []
+        if symbol_analysis is not None:
+            for symbol, data in symbol_analysis.items():
+                symbols.append({
+                    'symbol': symbol,
+                    'trade_count': data['trade_count'],
+                    'win_rate': data['win_rate'],
+                    'avg_profit': data['avg_profit'],
+                    'total_profit': data['total_profit'],
+                    'profit_factor': data['profit_factor']
+                })
+        
+        # Timeframe analysis
+        timeframe_analysis = results['timeframe_analysis']
+        timeframes = []
+        if timeframe_analysis is not None:
+            for timeframe, data in timeframe_analysis.items():
+                timeframes.append({
+                    'timeframe': timeframe,
+                    'trade_count': data['trade_count'],
+                    'win_rate': data['win_rate'],
+                    'avg_profit': data['avg_profit'],
+                    'total_profit': data['total_profit'],
+                    'profit_factor': data['profit_factor']
+                })
+        
+        # Parameter analysis
+        parameter_analysis = results['parameter_analysis']
+        parameters = []
+        if parameter_analysis is not None:
+            for param, data in parameter_analysis.items():
+                parameters.append({
+                    'parameter': param,
+                    'trade_count': data['trade_count'],
+                    'win_rate': data['win_rate'],
+                    'avg_profit': data['avg_profit'],
+                    'total_profit': data['total_profit']
+                })
+        
+        # Weighted analysis
+        weighted_analysis = results['weighted_analysis']
+        weighted_scores = None
+        if weighted_analysis is not None:
+            weighted_scores = {
+                'overall_score': weighted_analysis['overall_score'],
+                'symbol_scores': weighted_analysis['symbol_scores'],
+                'timeframe_scores': weighted_analysis['timeframe_scores']
+            }
+        
+        # Generate recommendations
+        recommendations = []
+        if win_rate < 50:
+            recommendations.append("Low win rate detected. Consider tightening entry criteria.")
+        
+        # Check kill zone effectiveness (if column exists)
+        if 'in_kill_zone' in feature_df.columns:
+            kill_zone_trades = feature_df[feature_df['in_kill_zone'] == 1]
+            if len(kill_zone_trades) > 0:
+                kill_zone_win_rate = (kill_zone_trades['target'].sum() / len(kill_zone_trades)) * 100
+                if kill_zone_win_rate < win_rate:
+                    recommendations.append("Kill zone trades underperforming. Review kill zone timing.")
+        
+        # Check FVG effectiveness (if column exists)
+        if 'has_fvg' in feature_df.columns:
+            fvg_trades = feature_df[feature_df['has_fvg'] == 1]
+            if len(fvg_trades) > 0:
+                fvg_win_rate = (fvg_trades['target'].sum() / len(fvg_trades)) * 100
+                if fvg_win_rate < win_rate:
+                    recommendations.append("FVG trades underperforming. Review FVG detection logic.")
+        
+        # Check volume analysis (if volume data exists)
+        if 'volume' in feature_df.columns:
+            high_volume_trades = feature_df[feature_df['volume'] > feature_df['volume'].median()]
+            if len(high_volume_trades) > 0:
+                volume_win_rate = (high_volume_trades['target'].sum() / len(high_volume_trades)) * 100
+                if volume_win_rate > win_rate:
+                    recommendations.append("High volume trades are effective. Consider volume-based filtering.")
+        
+        # Check risk management (if lot_size data exists)
+        if 'lot_size' in feature_df.columns:
+            high_lot_trades = feature_df[feature_df['lot_size'] > feature_df['lot_size'].median()]
+            if len(high_lot_trades) > 0:
+                high_lot_win_rate = (high_lot_trades['target'].sum() / len(high_lot_trades)) * 100
+                if high_lot_win_rate < win_rate:
+                    recommendations.append("High lot size trades underperforming. Consider reducing position sizes.")
+        
+        if not recommendations:
+            recommendations.append("No major issues detected. Strategy appears to be working well.")
+        
+        return jsonify({
+            "success": True,
+            "results": {
+                "total_trades": total_trades,
+                "win_rate": win_rate,
+                "avg_profit": avg_profit,
+                "anomaly_rate": anomaly_rate,
+                "feature_importance": feature_importance,
+                "clusters": clusters,
+                "model_performance": model_performance,
+                "symbols": symbols,
+                "timeframes": timeframes,
+                "parameters": parameters,
+                "weighted_scores": weighted_scores,
+                "recommendations": recommendations
+            }
+        })
+        
+    except Exception as e:
+        app.logger.error(f"Error in ML diagnostics: {e}")
+        return jsonify({
+            "success": False,
+            "error": f"Error running ML diagnostics: {str(e)}"
+        }), 500
+
+@app.route('/api/debug/table_counts')
+def debug_table_counts():
+    try:
+        test_count = db.session.query(StrategyTest).count()
+        trade_count = db.session.query(Trade).count()
+        tc_count = db.session.query(TradingConditions).count()
+        return jsonify({
+            "success": True,
+            "counts": {
+                "strategy_test": test_count,
+                "trade": trade_count,
+                "trading_conditions": tc_count
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
 if __name__ == '__main__':
     # Create database tables if they don't exist
     with app.app_context():
         db.create_all()
 
     # Run the Flask app
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    app.run(debug=True, host='127.0.0.1', port=5001)

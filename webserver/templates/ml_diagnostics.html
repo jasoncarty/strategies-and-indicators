@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ML Diagnostics - ICT FVG Trader EA</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .diagnostic-card {
+            border-left: 4px solid #007bff;
+            margin-bottom: 20px;
+        }
+        .anomaly-card {
+            border-left: 4px solid #dc3545;
+        }
+        .success-card {
+            border-left: 4px solid #28a745;
+        }
+        .warning-card {
+            border-left: 4px solid #ffc107;
+        }
+        .feature-importance {
+            background: linear-gradient(90deg, #007bff, #28a745);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 5px 0;
+        }
+        .loading {
+            display: none;
+        }
+        .result-section {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <h1 class="mb-4">
+                    <i class="fas fa-brain"></i> ML Diagnostics for ICT FVG Trader EA
+                </h1>
+                
+                <!-- Control Panel -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-cogs"></i> Diagnostic Controls</h5>
+                    </div>
+                    <div class="card-body">
+                        <button id="runDiagnostics" class="btn btn-primary">
+                            <i class="fas fa-play"></i> Run ML Diagnostics
+                        </button>
+                        <button id="clearResults" class="btn btn-secondary ms-2">
+                            <i class="fas fa-trash"></i> Clear Results
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Loading Indicator -->
+                <div id="loading" class="loading text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Running ML diagnostics... This may take a few minutes.</p>
+                </div>
+
+                <!-- Results Section -->
+                <div id="results" class="result-section">
+                    <!-- Overall Performance -->
+                    <div class="card diagnostic-card mb-4">
+                        <div class="card-header">
+                            <h5><i class="fas fa-chart-line"></i> Overall Performance</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <h3 id="totalTrades">-</h3>
+                                        <p class="text-muted">Total Trades</p>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <h3 id="winRate">-</h3>
+                                        <p class="text-muted">Win Rate</p>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <h3 id="avgProfit">-</h3>
+                                        <p class="text-muted">Avg Profit</p>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="text-center">
+                                        <h3 id="anomalyRate">-</h3>
+                                        <p class="text-muted">Anomaly Rate</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Feature Importance -->
+                    <div class="card diagnostic-card mb-4">
+                        <div class="card-header">
+                            <h5><i class="fas fa-star"></i> Feature Importance</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="featureImportance">
+                                <p class="text-muted">Run diagnostics to see feature importance analysis.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Trading Pattern Clusters -->
+                    <div class="card diagnostic-card mb-4">
+                        <div class="card-header">
+                            <h5><i class="fas fa-layer-group"></i> Trading Pattern Clusters</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="clusters">
+                                <p class="text-muted">Run diagnostics to see trading pattern clusters.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Prediction Model Performance -->
+                    <div class="card diagnostic-card mb-4">
+                        <div class="card-header">
+                            <h5><i class="fas fa-crystal-ball"></i> Prediction Model Performance</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="modelPerformance">
+                                <p class="text-muted">Run diagnostics to see prediction model performance.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recommendations -->
+                    <div class="card diagnostic-card mb-4">
+                        <div class="card-header">
+                            <h5><i class="fas fa-lightbulb"></i> AI Recommendations</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="recommendations">
+                                <p class="text-muted">Run diagnostics to see AI-generated recommendations.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-chart-line"></i> Model Performance</h5>
+                                </div>
+                                <div class="card-body" id="modelPerformance">
+                                    <!-- Model performance will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-lightbulb"></i> Recommendations</h5>
+                                </div>
+                                <div class="card-body" id="recommendations">
+                                    <!-- Recommendations will be populated here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Symbol Analysis -->
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-coins"></i> Performance by Symbol</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-striped" id="symbolTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>Symbol</th>
+                                                    <th>Trade Count</th>
+                                                    <th>Win Rate</th>
+                                                    <th>Avg Profit</th>
+                                                    <th>Total Profit</th>
+                                                    <th>Profit Factor</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <!-- Symbol data will be populated here -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Timeframe Analysis -->
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-clock"></i> Performance by Timeframe</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-striped" id="timeframeTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>Timeframe</th>
+                                                    <th>Trade Count</th>
+                                                    <th>Win Rate</th>
+                                                    <th>Avg Profit</th>
+                                                    <th>Total Profit</th>
+                                                    <th>Profit Factor</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <!-- Timeframe data will be populated here -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Parameter Analysis -->
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-cogs"></i> Parameter Effectiveness</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-striped" id="parameterTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>Parameter</th>
+                                                    <th>Trade Count</th>
+                                                    <th>Win Rate</th>
+                                                    <th>Avg Profit</th>
+                                                    <th>Total Profit</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <!-- Parameter data will be populated here -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Weighted Performance Analysis -->
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="fas fa-star"></i> Weighted Performance Analysis</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="weightedAnalysis">
+                                        <!-- Weighted analysis will be populated here -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('runDiagnostics').addEventListener('click', function() {
+            runMLDiagnostics();
+        });
+
+        document.getElementById('clearResults').addEventListener('click', function() {
+            clearResults();
+        });
+
+        function runMLDiagnostics() {
+            const loading = document.getElementById('loading');
+            const results = document.getElementById('results');
+            const button = document.getElementById('runDiagnostics');
+            
+            // Show loading, hide results
+            loading.style.display = 'block';
+            results.style.display = 'none';
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running...';
+
+            // Make API call to run diagnostics
+            fetch('/api/ml/diagnostics', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayResults(data.results);
+                } else {
+                    alert('Error running diagnostics: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error running diagnostics. Please try again.');
+            })
+            .finally(() => {
+                loading.style.display = 'none';
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-play"></i> Run ML Diagnostics';
+            });
+        }
+
+        function displayResults(results) {
+            const resultsDiv = document.getElementById('results');
+            
+            // Update overall performance
+            document.getElementById('totalTrades').textContent = results.total_trades || '-';
+            document.getElementById('winRate').textContent = (results.win_rate || 0).toFixed(1) + '%';
+            document.getElementById('avgProfit').textContent = '$' + (results.avg_profit || 0).toFixed(2);
+            document.getElementById('anomalyRate').textContent = (results.anomaly_rate || 0).toFixed(1) + '%';
+
+            // Update feature importance
+            const featureDiv = document.getElementById('featureImportance');
+            if (results.feature_importance && results.feature_importance.length > 0) {
+                featureDiv.innerHTML = results.feature_importance.map(feature => 
+                    `<div class="feature-importance">
+                        <strong>${feature.name}</strong>: ${(feature.importance * 100).toFixed(1)}%
+                    </div>`
+                ).join('');
+            } else {
+                featureDiv.innerHTML = '<p class="text-muted">No feature importance data available.</p>';
+            }
+
+            // Update clusters
+            const clustersDiv = document.getElementById('clusters');
+            if (results.clusters && results.clusters.length > 0) {
+                clustersDiv.innerHTML = results.clusters.map(cluster => 
+                    `<div class="card mb-2">
+                        <div class="card-body">
+                            <h6>Cluster ${cluster.id}</h6>
+                            <p>Trades: ${cluster.trade_count} | Win Rate: ${cluster.win_rate.toFixed(1)}% | Avg Profit: $${cluster.avg_profit.toFixed(2)}</p>
+                        </div>
+                    </div>`
+                ).join('');
+            } else {
+                clustersDiv.innerHTML = '<p class="text-muted">No cluster data available.</p>';
+            }
+
+            // Populate model performance
+            if (results.model_performance) {
+                const modelHtml = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Accuracy:</strong> ${(results.model_performance.accuracy * 100).toFixed(1)}%
+                        </div>
+                        <div class="col-md-6">
+                            <strong>AUC Score:</strong> ${results.model_performance.auc_score.toFixed(3)}
+                        </div>
+                    </div>
+                `;
+                document.getElementById('modelPerformance').innerHTML = modelHtml;
+            }
+
+            // Populate recommendations
+            const recDiv = document.getElementById('recommendations');
+            if (results.recommendations && results.recommendations.length > 0) {
+                recDiv.innerHTML = results.recommendations.map(rec => 
+                    `<div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i> ${rec}
+                    </div>`
+                ).join('');
+            } else {
+                recDiv.innerHTML = '<p class="text-success"><i class="fas fa-check-circle"></i> No major issues detected. Strategy appears to be working well.</p>';
+            }
+
+            // Populate symbol table
+            if (results.symbols && results.symbols.length > 0) {
+                const symbolTbody = document.querySelector('#symbolTable tbody');
+                symbolTbody.innerHTML = results.symbols.map(symbol => `
+                    <tr>
+                        <td><strong>${symbol.symbol}</strong></td>
+                        <td>${symbol.trade_count}</td>
+                        <td><span class="badge ${symbol.win_rate >= 50 ? 'bg-success' : 'bg-warning'}">${symbol.win_rate.toFixed(1)}%</span></td>
+                        <td>$${symbol.avg_profit.toFixed(2)}</td>
+                        <td><span class="${symbol.total_profit >= 0 ? 'text-success' : 'text-danger'}">$${symbol.total_profit.toFixed(2)}</span></td>
+                        <td>${symbol.profit_factor.toFixed(2)}</td>
+                    </tr>
+                `).join('');
+            }
+
+            // Populate timeframe table
+            if (results.timeframes && results.timeframes.length > 0) {
+                const timeframeTbody = document.querySelector('#timeframeTable tbody');
+                timeframeTbody.innerHTML = results.timeframes.map(timeframe => `
+                    <tr>
+                        <td><strong>${timeframe.timeframe}</strong></td>
+                        <td>${timeframe.trade_count}</td>
+                        <td><span class="badge ${timeframe.win_rate >= 50 ? 'bg-success' : 'bg-warning'}">${timeframe.win_rate.toFixed(1)}%</span></td>
+                        <td>$${timeframe.avg_profit.toFixed(2)}</td>
+                        <td><span class="${timeframe.total_profit >= 0 ? 'text-success' : 'text-danger'}">$${timeframe.total_profit.toFixed(2)}</span></td>
+                        <td>${timeframe.profit_factor.toFixed(2)}</td>
+                    </tr>
+                `).join('');
+            }
+
+            // Populate parameter table
+            if (results.parameters && results.parameters.length > 0) {
+                const parameterTbody = document.querySelector('#parameterTable tbody');
+                parameterTbody.innerHTML = results.parameters.map(param => `
+                    <tr>
+                        <td><strong>${param.parameter}</strong></td>
+                        <td>${param.trade_count}</td>
+                        <td><span class="badge ${param.win_rate >= 50 ? 'bg-success' : 'bg-warning'}">${param.win_rate.toFixed(1)}%</span></td>
+                        <td>$${param.avg_profit.toFixed(2)}</td>
+                        <td><span class="${param.total_profit >= 0 ? 'text-success' : 'text-danger'}">$${param.total_profit.toFixed(2)}</span></td>
+                    </tr>
+                `).join('');
+            }
+
+            // Populate weighted analysis
+            if (results.weighted_scores) {
+                const weightedAnalysisDiv = document.getElementById('weightedAnalysis');
+                let weightedHtml = '';
+                
+                // Overall strategy score
+                if (results.weighted_scores.overall_score) {
+                    const overall = results.weighted_scores.overall_score;
+                    weightedHtml += `
+                        <div class="row mb-4">
+                            <div class="col-md-6">
+                                <h6>Overall Strategy Score</h6>
+                                <div class="d-flex align-items-center">
+                                    <div class="display-4 me-3 ${overall.grade.startsWith('A') ? 'text-success' : overall.grade.startsWith('B') ? 'text-warning' : 'text-danger'}">
+                                        ${overall.total_score}/100
+                                    </div>
+                                    <div class="badge bg-secondary fs-5">${overall.grade}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Score Breakdown</h6>
+                                <ul class="list-unstyled">
+                                    ${Object.entries(overall.breakdown).map(([metric, score]) => 
+                                        `<li><strong>${metric}:</strong> ${score} points</li>`
+                                    ).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Symbol rankings
+                if (results.weighted_scores.symbol_scores && results.weighted_scores.symbol_scores.length > 0) {
+                    weightedHtml += `
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <h6>Top Symbol Performers</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Rank</th>
+                                                <th>Symbol</th>
+                                                <th>Score</th>
+                                                <th>Grade</th>
+                                                <th>Win Rate</th>
+                                                <th>Avg Profit</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${results.weighted_scores.symbol_scores.slice(0, 5).map((symbol, index) => `
+                                                <tr>
+                                                    <td>${index + 1}</td>
+                                                    <td><strong>${symbol.symbol}</strong></td>
+                                                    <td><span class="badge ${symbol.grade.startsWith('A') ? 'bg-success' : symbol.grade.startsWith('B') ? 'bg-warning' : 'bg-danger'}">${symbol.score}/100</span></td>
+                                                    <td>${symbol.grade}</td>
+                                                    <td>${symbol.data.win_rate.toFixed(1)}%</td>
+                                                    <td>$${symbol.data.avg_profit.toFixed(2)}</td>
+                                                </tr>
+                                            `).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Timeframe rankings
+                if (results.weighted_scores.timeframe_scores && results.weighted_scores.timeframe_scores.length > 0) {
+                    weightedHtml += `
+                        <div class="row">
+                            <div class="col-12">
+                                <h6>Timeframe Performance Rankings</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Rank</th>
+                                                <th>Timeframe</th>
+                                                <th>Score</th>
+                                                <th>Grade</th>
+                                                <th>Win Rate</th>
+                                                <th>Avg Profit</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${results.weighted_scores.timeframe_scores.map((timeframe, index) => `
+                                                <tr>
+                                                    <td>${index + 1}</td>
+                                                    <td><strong>${timeframe.timeframe}</strong></td>
+                                                    <td><span class="badge ${timeframe.grade.startsWith('A') ? 'bg-success' : timeframe.grade.startsWith('B') ? 'bg-warning' : 'bg-danger'}">${timeframe.score}/100</span></td>
+                                                    <td>${timeframe.grade}</td>
+                                                    <td>${timeframe.data.win_rate.toFixed(1)}%</td>
+                                                    <td>$${timeframe.data.avg_profit.toFixed(2)}</td>
+                                                </tr>
+                                            `).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                weightedAnalysisDiv.innerHTML = weightedHtml;
+            }
+
+            // Show results
+            resultsDiv.style.display = 'block';
+        }
+
+        function clearResults() {
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('totalTrades').textContent = '-';
+            document.getElementById('winRate').textContent = '-';
+            document.getElementById('avgProfit').textContent = '-';
+            document.getElementById('anomalyRate').textContent = '-';
+            document.getElementById('featureImportance').innerHTML = '<p class="text-muted">Run diagnostics to see feature importance analysis.</p>';
+            document.getElementById('clusters').innerHTML = '<p class="text-muted">Run diagnostics to see trading pattern clusters.</p>';
+            document.getElementById('modelPerformance').innerHTML = '<p class="text-muted">Run diagnostics to see prediction model performance.</p>';
+            document.getElementById('recommendations').innerHTML = '<p class="text-muted">Run diagnostics to see AI-generated recommendations.</p>';
+            document.getElementById('symbolTable tbody').innerHTML = '';
+            document.getElementById('timeframeTable tbody').innerHTML = '';
+            document.getElementById('parameterTable tbody').innerHTML = '';
+            document.getElementById('weightedAnalysis').innerHTML = '';
+        }
+    </script>
+</body>
+</html> 

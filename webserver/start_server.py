@@ -115,11 +115,11 @@ def start_services():
     # --- 4. Start Web Server in the Foreground ---
     try:
         print("🚀 Launching web server...")
-        print("   - Server will be available at: http://127.0.0.1:5000")
+        print("   - Server will be available at: http://127.0.0.1:5001")
         print("   - Press Ctrl+C to stop ALL services.")
         print("   - For automatic server restarts, use: python enhanced_file_watcher.py --server-only")
         print("-" * 50)
-        app.run(debug=False, host='0.0.0.0', port=5000) # debug=False for cleaner logs
+        app.run(debug=False, host='0.0.0.0', port=5001) # debug=False for cleaner logs
 
     finally:
         # This block will run when you press Ctrl+C

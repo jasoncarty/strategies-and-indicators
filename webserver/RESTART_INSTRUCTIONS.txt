@@ -1,0 +1,31 @@
+
+🧹 CLEANUP COMPLETED - READY FOR FRESH START
+
+The corrupted ML training data has been removed. Here's what to do next:
+
+1. 🎯 RUN THE EA WITH CORRECTED DIRECTION RECORDING
+   - The EA now correctly records opening deal types (not closing)
+   - This will generate clean, properly labeled training data
+   - Run a Strategy Tester session to collect new data
+
+2. 📊 COLLECT FRESH TRAINING DATA
+   - Run the EA in Strategy Tester for at least 50-100 trades
+   - Ensure both buy and sell trades are generated
+   - The data will be saved with correct direction labels
+
+3. 🤖 RETRAIN THE ML MODEL
+   - Run: python strategy_tester_ml_trainer.py
+   - This will train on the fresh, correct data
+   - Generate new optimized parameters
+
+4. 🔄 UPDATE THE EA
+   - The new parameters will be automatically copied to MetaTrader
+   - Test the EA with the fresh ML model
+
+IMPORTANT NOTES:
+- All previous ML training data was corrupted due to wrong direction labels
+- The new data will have correct buy/sell labels based on opening deal types
+- This should result in much better ML model performance
+- The separate buy/sell models will now be trained on correctly labeled data
+
+Cleanup completed at: 2025-07-16 09:56:35

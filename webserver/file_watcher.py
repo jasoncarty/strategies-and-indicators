@@ -8,7 +8,7 @@ from watchdog.events import FileSystemEventHandler
 # --- Configuration ---
 # The path to the MQL5 'Files' directory you provided
 WATCH_PATH = '/Users/jasoncarty/Library/Application Support/net.metaquotes.wine.metatrader5/drive_c/users/user/AppData/Roaming/MetaQuotes/Terminal/Common/Files'
-SERVER_URL = "http://127.0.0.1:5000/api/test" # Use 127.0.0.1 for local server
+SERVER_URL = "http://127.0.0.1:5001/api/test" # Use 127.0.0.1 for local server
 # --- End Configuration ---
 
 
