@@ -10,6 +10,15 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    env:
+      TEST_DATABASE: test_breakout_analytics
+      TEST_DB_HOST: 127.0.0.1
+      TEST_DB_PORT: 3306
+      TEST_DB_USER: root
+      TEST_DB_PASSWORD: rootpassword
+      FLASK_RUN_PORT: 5001
+      ML_SERVICE_PORT: 5003
+
     strategy:
       matrix:
         python-version: ['3.11']
@@ -60,14 +69,6 @@ jobs:
         echo "MySQL is ready!"
 
     - name: Run all tests with CI test runner
-      env:
-        TEST_DATABASE: test_breakout_analytics
-        TEST_DB_HOST: 127.0.0.1
-        TEST_DB_PORT: 3306
-        TEST_DB_USER: root
-        TEST_DB_PASSWORD: rootpassword
-        FLASK_RUN_PORT: 5001
-        ML_SERVICE_PORT: 5003
       run: |
         python tests/ci_test_runner.py
 
