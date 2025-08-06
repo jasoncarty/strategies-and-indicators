@@ -11,4 +11,8 @@ __pycache__/
 .DS_Store
 .vscode/
 
+# Logs
+logs/
+ML_Webserver/logs/
+analytics/logs/
 webserver/instance/
