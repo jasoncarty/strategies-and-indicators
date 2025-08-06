@@ -26,7 +26,13 @@ def load_test_env():
             for line in f:
                 if '=' in line and not line.startswith('#'):
                     key, value = line.strip().split('=', 1)
-                    os.environ[key] = value
+                    # Only set environment variable if it doesn't already exist
+                    # This allows CI environment variables to take precedence
+                    if key not in os.environ:
+                        os.environ[key] = value
+                        print(f"📝 Set {key} from .env.test file")
+                    else:
+                        print(f"⏭️ Skipped {key} (already set in environment)")
         print(f"✅ Loaded test environment from {env_file}")
     else:
         print(f"⚠️ Test environment file not found: {env_file}")
