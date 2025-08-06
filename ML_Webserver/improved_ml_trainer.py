@@ -22,7 +22,19 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Import shared feature engineering utilities
-from feature_engineering_utils import FeatureEngineeringUtils
+try:
+    from feature_engineering_utils import FeatureEngineeringUtils
+except ImportError:
+    # Try relative import
+    try:
+        from .feature_engineering_utils import FeatureEngineeringUtils
+    except ImportError:
+        # Try absolute import from project root
+        import sys
+        from pathlib import Path
+        project_root = Path(__file__).parent.parent
+        sys.path.insert(0, str(project_root))
+        from ML_Webserver.feature_engineering_utils import FeatureEngineeringUtils
 
 class ImprovedMLTrainer:
     def _extract_symbol_from_path(self, file_path: Path) -> str:
