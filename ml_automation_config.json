@@ -1,0 +1,95 @@
+{
+  "symbols": {
+    "forex_majors": [
+      "EURUSD+", "GBPUSD+", "USDJPY+", "AUDUSD+", "USDCAD+", "NZDUSD+"
+    ],
+    "forex_minors": [
+      "EURGBP+", "EURJPY+", "GBPJPY+", "AUDCAD+", "AUDNZD+", "CADJPY+"
+    ],
+    "commodities": [
+      "XAUUSD+", "XAGUSD+", "OILUSD+"
+    ],
+    "crypto": [
+      "BTCUSD+", "ETHUSD+", "LTCUSD+", "XRPUSD+", "ADAUSD+", "DOTUSD+"
+    ],
+    "custom": []
+  },
+  "symbol_selection": {
+    "auto_detect_from_data": true,
+    "use_all_categories": false,
+    "categories_to_use": ["forex_majors", "commodities", "crypto"],
+    "exclude_symbols": [],
+    "include_symbols": [],
+    "max_symbols_per_category": 10,
+    "weekend_trading_symbols": ["crypto"],
+    "priority_symbols": ["EURUSD+", "XAUUSD+", "BTCUSD+"]
+  },
+  "timeframes": [
+    "M5", "M15", "M30", "H1", "H4"
+  ],
+  "timeframe_selection": {
+    "auto_detect_from_data": true,
+    "use_all_timeframes": false,
+    "timeframes_to_use": ["M15", "H1", "H4"],
+    "exclude_timeframes": [],
+    "include_timeframes": [],
+    "priority_timeframes": ["H1", "H4"]
+  },
+  "strategy_testing": {
+    "start_date": "2023.01.01",
+    "end_date": "2024.12.31",
+    "optimization": "genetic",
+    "initial_deposit": 10000,
+    "currency": "USD",
+    "ea_name": "SimpleBreakoutML_EA",
+    "dynamic_symbol_detection": true,
+    "test_all_symbols_found": true
+  },
+  "ml_training": {
+    "features_count": 29,
+    "feature_names": [
+      "rsi", "stoch_main", "stoch_signal", "macd_main", "macd_signal",
+      "bb_upper", "bb_lower", "adx", "williams_r", "cci", "momentum",
+      "volume_ratio", "price_change", "volatility", "force_index",
+      "spread", "session_hour", "is_news_time",
+      "rsi_regime", "stoch_regime", "volatility_regime",
+      "hour", "day_of_week", "month", "session",
+      "is_london_session", "is_ny_session", "is_asian_session", "is_session_overlap"
+    ],
+    "model_types": [
+      "buy_improved", "sell_improved", "combined_improved",
+      "buy_directional", "sell_directional", "combined_directional"
+    ],
+    "timeframe_specific": true,
+    "symbol_specific": true,
+    "dynamic_symbol_training": true,
+    "auto_detect_symbols_from_data": true,
+    "train_all_symbols_found": true
+  },
+  "deployment": {
+    "models_directory": "Models/BreakoutStrategy",
+    "params_directory": "BreakoutStrategy",
+    "feature_files_directory": "Models/BreakoutStrategy",
+    "dynamic_directory_creation": true,
+    "auto_create_symbol_directories": true
+  },
+  "monitoring": {
+    "check_interval_seconds": 300,
+    "data_file_pattern": "*_ML_Data.json",
+    "cache_file": "processed_files_cache.json",
+    "dynamic_symbol_monitoring": true,
+    "monitor_all_symbols_found": true
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "ml_automation.log",
+    "format": "%(asctime)s - %(levelname)s - %(message)s"
+  },
+  "automation": {
+    "dynamic_mode": true,
+    "auto_discover_symbols": true,
+    "auto_discover_timeframes": true,
+    "flexible_symbol_processing": true,
+    "configuration_notes": "This configuration supports both predefined symbol lists and dynamic symbol discovery from data files. Set 'dynamic_mode' to true for fully automatic symbol detection."
+  }
+}

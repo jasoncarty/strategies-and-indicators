@@ -1,0 +1,45 @@
+
+    🔄 ML RECOVERY PLAN
+    
+    Phase 1: Data Collection (2-4 weeks)
+    - Test EA on multiple symbols (EURUSD, GBPUSD, USDJPY, XAUUSD)
+    - Test on multiple timeframes (M5, M15, H1, H4, D1)
+    - Collect data from different market conditions
+    - Ensure no data leakage in collection
+    
+    Phase 2: Data Validation (1 week)
+    - Run data quality analysis
+    - Check for data leakage
+    - Validate feature quality
+    - Ensure temporal separation
+    
+    Phase 3: Conservative ML Training (1 week)
+    - Use improved ML trainer
+    - Implement time series validation
+    - Start with very conservative thresholds
+    - Test on out-of-sample data
+    
+    Phase 4: Gradual Re-enabling (2-4 weeks)
+    - Enable ML with very conservative settings
+    - Monitor performance closely
+    - Gradually adjust thresholds
+    - Keep fallback to non-ML mode
+    
+    Phase 5: Full ML Integration (ongoing)
+    - Optimize ML parameters
+    - Implement continuous monitoring
+    - Regular model retraining
+    - Performance tracking
+    
+    🎯 SUCCESS CRITERIA:
+    - Win rate > 50%
+    - Profit factor > 1.2
+    - Maximum drawdown < 10%
+    - Consistent performance across symbols
+    
+    ⚠️  STOP CRITERIA:
+    - Win rate < 40%
+    - Profit factor < 1.0
+    - Maximum drawdown > 15%
+    - Inconsistent performance
+    

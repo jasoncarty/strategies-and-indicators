@@ -1,0 +1,37 @@
+# ML Model Parameters for ETHUSD M30
+# Generated on: 2025-08-02 23:10:30
+
+# Model Performance Metrics
+BUY_MODEL_ACCURACY = 0.500
+BUY_MODEL_AUC = 0.944
+BUY_MODEL_SAMPLES = 24
+BUY_MODEL_FEATURES = 28
+
+SELL_MODEL_ACCURACY = 0.500
+SELL_MODEL_AUC = 0.964
+SELL_MODEL_SAMPLES = 29
+SELL_MODEL_FEATURES = 28
+
+COMBINED_MODEL_ACCURACY = 0.583
+COMBINED_MODEL_AUC = 0.998
+COMBINED_MODEL_SAMPLES = 53
+COMBINED_MODEL_FEATURES = 28
+
+# Top Features by Model
+BUY_TOP_FEATURES = ['momentum', 'bb_lower', 'macd_main', 'hour', 'volume_ratio', 'volatility', 'bb_upper', 'session_hour', 'day_of_week', 'rsi']
+BUY_FEATURE_IMPORTANCE = {'momentum': np.float64(0.06849315068493152), 'bb_lower': np.float64(0.05479452054794521), 'macd_main': np.float64(0.04794520547945206), 'hour': np.float64(0.04794520547945206), 'volume_ratio': np.float64(0.04109589041095891), 'volatility': np.float64(0.03424657534246576), 'bb_upper': np.float64(0.027397260273972605), 'session_hour': np.float64(0.027397260273972605), 'day_of_week': np.float64(0.027397260273972605), 'rsi': np.float64(0.020547945205479454)}
+
+SELL_TOP_FEATURES = ['day_of_week', 'cci', 'rsi', 'stoch_main', 'macd_main', 'williams_r', 'hour', 'volatility', 'session_hour', 'volume_ratio']
+SELL_FEATURE_IMPORTANCE = {'day_of_week': np.float64(0.0989010989010989), 'cci': np.float64(0.08465959328028298), 'rsi': np.float64(0.07992708862106611), 'stoch_main': np.float64(0.07692307692307693), 'macd_main': np.float64(0.06761915182967815), 'williams_r': np.float64(0.06593406593406594), 'hour': np.float64(0.06593406593406588), 'volatility': np.float64(0.054945054945054944), 'session_hour': np.float64(0.04812428950359985), 'volume_ratio': np.float64(0.046966875606493756)}
+
+COMBINED_TOP_FEATURES = ['volatility', 'momentum', 'day_of_week', 'stoch_main', 'month', 'bb_lower', 'rsi', 'williams_r', 'macd_main', 'cci']
+COMBINED_FEATURE_IMPORTANCE = {'volatility': np.float64(0.10071919529540291), 'momentum': np.float64(0.08351953157703451), 'day_of_week': np.float64(0.07438924765262002), 'stoch_main': np.float64(0.06944916826369642), 'month': np.float64(0.06196526552686807), 'bb_lower': np.float64(0.06030767011412195), 'rsi': np.float64(0.05920989379535113), 'williams_r': np.float64(0.055967525392355895), 'macd_main': np.float64(0.052735609516285815), 'cci': np.float64(0.04822725397672314)}
+
+# Symbol+Timeframe Specific Settings
+SYMBOL = ETHUSD
+TIMEFRAME = M30
+MODEL_COMBINATION = ['buy', 'sell', 'combined']
+
+# Recommended Thresholds
+CONFIDENCE_THRESHOLD = 0.8
+# Lower accuracy model - use higher confidence threshold

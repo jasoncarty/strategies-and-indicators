@@ -1,0 +1,37 @@
+# ML Model Parameters for XAUUSD+ M5
+# Generated on: 2025-08-02 23:10:30
+
+# Model Performance Metrics
+BUY_MODEL_ACCURACY = 0.652
+BUY_MODEL_AUC = 0.992
+BUY_MODEL_SAMPLES = 143
+BUY_MODEL_FEATURES = 28
+
+SELL_MODEL_ACCURACY = 0.512
+SELL_MODEL_AUC = 1.000
+SELL_MODEL_SAMPLES = 96
+SELL_MODEL_FEATURES = 28
+
+COMBINED_MODEL_ACCURACY = 0.585
+COMBINED_MODEL_AUC = 0.994
+COMBINED_MODEL_SAMPLES = 239
+COMBINED_MODEL_FEATURES = 28
+
+# Top Features by Model
+BUY_TOP_FEATURES = ['cci', 'session_hour', 'hour', 'volume_ratio', 'bb_lower', 'williams_r', 'rsi', 'stoch_main', 'bb_upper', 'month']
+BUY_FEATURE_IMPORTANCE = {'cci': np.float64(0.08592270316178005), 'session_hour': np.float64(0.07674001804880447), 'hour': np.float64(0.07433800719709306), 'volume_ratio': np.float64(0.07192061932629809), 'bb_lower': np.float64(0.07165198917666787), 'williams_r': np.float64(0.06966650616114851), 'rsi': np.float64(0.06372716026767986), 'stoch_main': np.float64(0.061371529208446865), 'bb_upper': np.float64(0.06009294711143147), 'month': np.float64(0.05766364991496822)}
+
+SELL_TOP_FEATURES = ['volatility', 'williams_r', 'cci', 'session_hour', 'macd_main', 'stoch_main', 'macd_signal', 'spread', 'hour', 'rsi']
+SELL_FEATURE_IMPORTANCE = {'volatility': np.float64(0.08984497136634413), 'williams_r': np.float64(0.07178998478384738), 'cci': np.float64(0.07013686435871103), 'session_hour': np.float64(0.06519749929550675), 'macd_main': np.float64(0.06313752255767088), 'stoch_main': np.float64(0.059609123890285685), 'macd_signal': np.float64(0.05910914260155754), 'spread': np.float64(0.05490891196948729), 'hour': np.float64(0.05080547521792422), 'rsi': np.float64(0.05009450937547901)}
+
+COMBINED_TOP_FEATURES = ['volume_ratio', 'session_hour', 'hour', 'cci', 'stoch_main', 'macd_main', 'williams_r', 'bb_upper', 'stoch_signal', 'momentum']
+COMBINED_FEATURE_IMPORTANCE = {'volume_ratio': np.float64(0.07643733644313636), 'session_hour': np.float64(0.07395698617152784), 'hour': np.float64(0.0736131528119796), 'cci': np.float64(0.06507839129635122), 'stoch_main': np.float64(0.06203255043942124), 'macd_main': np.float64(0.06175401906420156), 'williams_r': np.float64(0.06001930222042697), 'bb_upper': np.float64(0.056399393805693886), 'stoch_signal': np.float64(0.05573785578973554), 'momentum': np.float64(0.05491939148074439)}
+
+# Symbol+Timeframe Specific Settings
+SYMBOL = XAUUSD+
+TIMEFRAME = M5
+MODEL_COMBINATION = ['buy', 'sell', 'combined']
+
+# Recommended Thresholds
+CONFIDENCE_THRESHOLD = 0.7
+# Medium accuracy model - use moderate confidence threshold

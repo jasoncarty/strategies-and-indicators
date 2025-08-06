@@ -1,0 +1,29 @@
+# ML Model Parameters for BTCUSD H1
+# Generated on: 2025-08-02 23:10:30
+
+# Model Performance Metrics
+BUY_MODEL_ACCURACY = 0.533
+BUY_MODEL_AUC = 0.975
+BUY_MODEL_SAMPLES = 30
+BUY_MODEL_FEATURES = 28
+
+COMBINED_MODEL_ACCURACY = 0.525
+COMBINED_MODEL_AUC = 0.969
+COMBINED_MODEL_SAMPLES = 52
+COMBINED_MODEL_FEATURES = 28
+
+# Top Features by Model
+BUY_TOP_FEATURES = ['session_hour', 'volatility', 'hour', 'momentum', 'williams_r', 'volume_ratio', 'bb_upper', 'stoch_main', 'cci', 'macd_main']
+BUY_FEATURE_IMPORTANCE = {'session_hour': np.float64(0.06858300546013028), 'volatility': np.float64(0.06648706778185724), 'hour': np.float64(0.05047040306650764), 'momentum': np.float64(0.05035681830733898), 'williams_r': np.float64(0.043368444891997315), 'volume_ratio': np.float64(0.04306594927193727), 'bb_upper': np.float64(0.039460802616177154), 'stoch_main': np.float64(0.03822604968919973), 'cci': np.float64(0.0361517863148959), 'macd_main': np.float64(0.03319819351025983)}
+
+COMBINED_TOP_FEATURES = ['bb_lower', 'hour', 'momentum', 'cci', 'session_hour', 'volatility', 'bb_upper', 'stoch_regime', 'stoch_signal', 'macd_main']
+COMBINED_FEATURE_IMPORTANCE = {'bb_lower': np.float64(0.11356793218101102), 'hour': np.float64(0.09592775909601649), 'momentum': np.float64(0.09141734419915618), 'cci': np.float64(0.07257703264607832), 'session_hour': np.float64(0.058332084688634676), 'volatility': np.float64(0.05558931301228505), 'bb_upper': np.float64(0.055508940446565666), 'stoch_regime': np.float64(0.05286405717580038), 'stoch_signal': np.float64(0.05264774829879829), 'macd_main': np.float64(0.043805757698515066)}
+
+# Symbol+Timeframe Specific Settings
+SYMBOL = BTCUSD
+TIMEFRAME = H1
+MODEL_COMBINATION = ['buy', 'combined']
+
+# Recommended Thresholds
+CONFIDENCE_THRESHOLD = 0.8
+# Lower accuracy model - use higher confidence threshold

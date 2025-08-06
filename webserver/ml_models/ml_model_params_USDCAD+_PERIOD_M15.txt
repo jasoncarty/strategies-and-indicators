@@ -1,0 +1,37 @@
+# ML Model Parameters for USDCAD+ M15
+# Generated on: 2025-08-02 23:10:30
+
+# Model Performance Metrics
+BUY_MODEL_ACCURACY = 0.473
+BUY_MODEL_AUC = 0.976
+BUY_MODEL_SAMPLES = 69
+BUY_MODEL_FEATURES = 28
+
+SELL_MODEL_ACCURACY = 0.632
+SELL_MODEL_AUC = 0.994
+SELL_MODEL_SAMPLES = 154
+SELL_MODEL_FEATURES = 28
+
+COMBINED_MODEL_ACCURACY = 0.573
+COMBINED_MODEL_AUC = 0.993
+COMBINED_MODEL_SAMPLES = 223
+COMBINED_MODEL_FEATURES = 28
+
+# Top Features by Model
+BUY_TOP_FEATURES = ['cci', 'bb_lower', 'macd_signal', 'rsi', 'bb_upper', 'williams_r', 'volatility', 'session_hour', 'stoch_signal', 'hour']
+BUY_FEATURE_IMPORTANCE = {'cci': np.float64(0.10205287439701005), 'bb_lower': np.float64(0.07740207012666013), 'macd_signal': np.float64(0.07426195322321644), 'rsi': np.float64(0.0687632579256559), 'bb_upper': np.float64(0.06717132905040114), 'williams_r': np.float64(0.0663317462784629), 'volatility': np.float64(0.062384659630112846), 'session_hour': np.float64(0.060355210316506945), 'stoch_signal': np.float64(0.05970482345550391), 'hour': np.float64(0.052543603500233606)}
+
+SELL_TOP_FEATURES = ['rsi', 'williams_r', 'stoch_signal', 'stoch_main', 'cci', 'hour', 'momentum', 'bb_lower', 'session_hour', 'macd_signal']
+SELL_FEATURE_IMPORTANCE = {'rsi': np.float64(0.11713290578677707), 'williams_r': np.float64(0.0792326575147746), 'stoch_signal': np.float64(0.07456519464315284), 'stoch_main': np.float64(0.0693282286275542), 'cci': np.float64(0.0691172808852293), 'hour': np.float64(0.05922627005235551), 'momentum': np.float64(0.057688230784171145), 'bb_lower': np.float64(0.056160037485189315), 'session_hour': np.float64(0.051928378397554174), 'macd_signal': np.float64(0.04727470398145641)}
+
+COMBINED_TOP_FEATURES = ['rsi', 'cci', 'williams_r', 'momentum', 'bb_upper', 'macd_signal', 'stoch_main', 'bb_lower', 'volume_ratio', 'stoch_signal']
+COMBINED_FEATURE_IMPORTANCE = {'rsi': np.float64(0.08684721412596524), 'cci': np.float64(0.07348014893951507), 'williams_r': np.float64(0.07224395976454485), 'momentum': np.float64(0.07015201726276367), 'bb_upper': np.float64(0.0673505016473988), 'macd_signal': np.float64(0.06485038004676193), 'stoch_main': np.float64(0.06447423473633593), 'bb_lower': np.float64(0.06428409560852019), 'volume_ratio': np.float64(0.062185901341267336), 'stoch_signal': np.float64(0.051301586425791225)}
+
+# Symbol+Timeframe Specific Settings
+SYMBOL = USDCAD+
+TIMEFRAME = M15
+MODEL_COMBINATION = ['buy', 'sell', 'combined']
+
+# Recommended Thresholds
+CONFIDENCE_THRESHOLD = 0.7
+# Medium accuracy model - use moderate confidence threshold

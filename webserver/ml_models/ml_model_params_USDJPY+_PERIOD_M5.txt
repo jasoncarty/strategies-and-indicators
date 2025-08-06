@@ -1,0 +1,37 @@
+# ML Model Parameters for USDJPY+ M5
+# Generated on: 2025-08-02 23:10:30
+
+# Model Performance Metrics
+BUY_MODEL_ACCURACY = 0.527
+BUY_MODEL_AUC = 0.993
+BUY_MODEL_SAMPLES = 198
+BUY_MODEL_FEATURES = 28
+
+SELL_MODEL_ACCURACY = 0.562
+SELL_MODEL_AUC = 0.989
+SELL_MODEL_SAMPLES = 50
+SELL_MODEL_FEATURES = 28
+
+COMBINED_MODEL_ACCURACY = 0.561
+COMBINED_MODEL_AUC = 0.991
+COMBINED_MODEL_SAMPLES = 248
+COMBINED_MODEL_FEATURES = 28
+
+# Top Features by Model
+BUY_TOP_FEATURES = ['bb_lower', 'bb_upper', 'cci', 'macd_signal', 'momentum', 'macd_main', 'stoch_main', 'williams_r', 'rsi', 'stoch_signal']
+BUY_FEATURE_IMPORTANCE = {'bb_lower': np.float64(0.08568439573585453), 'bb_upper': np.float64(0.07922331542921524), 'cci': np.float64(0.0772026925806209), 'macd_signal': np.float64(0.07363969918717214), 'momentum': np.float64(0.06876145644849627), 'macd_main': np.float64(0.06499070837091439), 'stoch_main': np.float64(0.06463631776089135), 'williams_r': np.float64(0.06390422058288495), 'rsi': np.float64(0.05732742873964332), 'stoch_signal': np.float64(0.05665999585256816)}
+
+SELL_TOP_FEATURES = ['williams_r', 'bb_upper', 'volatility', 'volume_ratio', 'momentum', 'cci', 'month', 'bb_lower', 'stoch_main', 'session_hour']
+SELL_FEATURE_IMPORTANCE = {'williams_r': np.float64(0.1254989599014502), 'bb_upper': np.float64(0.07808736636931624), 'volatility': np.float64(0.075190430356879), 'volume_ratio': np.float64(0.07354206021058253), 'momentum': np.float64(0.06729635406703585), 'cci': np.float64(0.06668608063789677), 'month': np.float64(0.06644154727718687), 'bb_lower': np.float64(0.057835964260249714), 'stoch_main': np.float64(0.05298335997996812), 'session_hour': np.float64(0.04883511452831111)}
+
+COMBINED_TOP_FEATURES = ['momentum', 'bb_upper', 'bb_lower', 'stoch_main', 'cci', 'williams_r', 'rsi', 'macd_signal', 'macd_main', 'stoch_signal']
+COMBINED_FEATURE_IMPORTANCE = {'momentum': np.float64(0.08659276252070626), 'bb_upper': np.float64(0.08536480931621511), 'bb_lower': np.float64(0.07850666469812682), 'stoch_main': np.float64(0.07658250848613904), 'cci': np.float64(0.0762132684562921), 'williams_r': np.float64(0.07342934050333046), 'rsi': np.float64(0.0690838738169771), 'macd_signal': np.float64(0.055062011847914406), 'macd_main': np.float64(0.05385064876346375), 'stoch_signal': np.float64(0.05351827465508814)}
+
+# Symbol+Timeframe Specific Settings
+SYMBOL = USDJPY+
+TIMEFRAME = M5
+MODEL_COMBINATION = ['buy', 'sell', 'combined']
+
+# Recommended Thresholds
+CONFIDENCE_THRESHOLD = 0.8
+# Lower accuracy model - use higher confidence threshold

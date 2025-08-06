@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: breakout_analytics_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: breakout_root_2024
+      MYSQL_DATABASE: breakout_analytics
+      MYSQL_USER: breakout_user
+      MYSQL_PASSWORD: breakout_password_2024
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/migrations:/docker-entrypoint-initdb.d
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Optional: phpMyAdmin for database management (uncomment if needed)
+  # phpmyadmin:
+  #   image: phpmyadmin/phpmyadmin
+  #   container_name: breakout_analytics_phpmyadmin
+  #   restart: unless-stopped
+  #   environment:
+  #     PMA_HOST: mysql
+  #     PMA_PORT: 3306
+  #     PMA_USER: root
+  #     PMA_PASSWORD: breakout_root_2024
+  #   ports:
+  #     - "8080:80"
+  #   depends_on:
+  #     - mysql
+
+volumes:
+  mysql_data:
+    driver: local

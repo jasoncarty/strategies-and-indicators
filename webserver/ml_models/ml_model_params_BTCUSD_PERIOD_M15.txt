@@ -1,0 +1,37 @@
+# ML Model Parameters for BTCUSD M15
+# Generated on: 2025-08-02 23:10:30
+
+# Model Performance Metrics
+BUY_MODEL_ACCURACY = 0.589
+BUY_MODEL_AUC = 0.994
+BUY_MODEL_SAMPLES = 117
+BUY_MODEL_FEATURES = 28
+
+SELL_MODEL_ACCURACY = 0.562
+SELL_MODEL_AUC = 0.973
+SELL_MODEL_SAMPLES = 50
+SELL_MODEL_FEATURES = 28
+
+COMBINED_MODEL_ACCURACY = 0.570
+COMBINED_MODEL_AUC = 0.995
+COMBINED_MODEL_SAMPLES = 167
+COMBINED_MODEL_FEATURES = 28
+
+# Top Features by Model
+BUY_TOP_FEATURES = ['session_hour', 'cci', 'macd_main', 'hour', 'rsi', 'williams_r', 'momentum', 'volatility', 'bb_upper', 'bb_lower']
+BUY_FEATURE_IMPORTANCE = {'session_hour': np.float64(0.10213441751030797), 'cci': np.float64(0.07404850633545529), 'macd_main': np.float64(0.07387428794344361), 'hour': np.float64(0.07247032844282607), 'rsi': np.float64(0.0711884633920616), 'williams_r': np.float64(0.06664644742572584), 'momentum': np.float64(0.06454664302962541), 'volatility': np.float64(0.05905012983725474), 'bb_upper': np.float64(0.055689190988929285), 'bb_lower': np.float64(0.054582293672015)}
+
+SELL_TOP_FEATURES = ['momentum', 'volatility', 'rsi', 'williams_r', 'volume_ratio', 'month', 'session_hour', 'macd_main', 'spread', 'hour']
+SELL_FEATURE_IMPORTANCE = {'momentum': np.float64(0.07643514572586038), 'volatility': np.float64(0.07364957789315651), 'rsi': np.float64(0.06947525675501035), 'williams_r': np.float64(0.0680391751949912), 'volume_ratio': np.float64(0.060989270989026435), 'month': np.float64(0.04472891482099647), 'session_hour': np.float64(0.04186816322611751), 'macd_main': np.float64(0.039981754125790234), 'spread': np.float64(0.0321468232527029), 'hour': np.float64(0.03123237711230336)}
+
+COMBINED_TOP_FEATURES = ['volatility', 'momentum', 'cci', 'macd_signal', 'macd_main', 'bb_lower', 'bb_upper', 'rsi', 'session_hour', 'volume_ratio']
+COMBINED_FEATURE_IMPORTANCE = {'volatility': np.float64(0.07317505942236209), 'momentum': np.float64(0.06828528691271525), 'cci': np.float64(0.06725248965287241), 'macd_signal': np.float64(0.06451628685645175), 'macd_main': np.float64(0.06428802897482136), 'bb_lower': np.float64(0.06356200690939921), 'bb_upper': np.float64(0.05551691950782187), 'rsi': np.float64(0.055209647467166244), 'session_hour': np.float64(0.05458042665574454), 'volume_ratio': np.float64(0.053181122624559075)}
+
+# Symbol+Timeframe Specific Settings
+SYMBOL = BTCUSD
+TIMEFRAME = M15
+MODEL_COMBINATION = ['buy', 'sell', 'combined']
+
+# Recommended Thresholds
+CONFIDENCE_THRESHOLD = 0.8
+# Lower accuracy model - use higher confidence threshold

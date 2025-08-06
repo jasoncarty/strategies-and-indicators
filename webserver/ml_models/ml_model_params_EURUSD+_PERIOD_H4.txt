@@ -1,0 +1,21 @@
+# ML Model Parameters for EURUSD+ H4
+# Generated on: 2025-08-02 23:10:30
+
+# Model Performance Metrics
+COMBINED_MODEL_ACCURACY = 0.500
+COMBINED_MODEL_AUC = 0.941
+COMBINED_MODEL_SAMPLES = 26
+COMBINED_MODEL_FEATURES = 28
+
+# Top Features by Model
+COMBINED_TOP_FEATURES = ['rsi', 'volatility', 'williams_r', 'hour', 'stoch_regime', 'stoch_signal', 'month', 'cci', 'momentum', 'macd_signal']
+COMBINED_FEATURE_IMPORTANCE = {'rsi': np.float64(0.06666666666666667), 'volatility': np.float64(0.05695175520186982), 'williams_r': np.float64(0.05551060075528073), 'hour': np.float64(0.054459954878736595), 'stoch_regime': np.float64(0.04882609116320741), 'stoch_signal': np.float64(0.045623710878486344), 'month': np.float64(0.0443218336157535), 'cci': np.float64(0.042354455358892984), 'momentum': np.float64(0.03913024363433747), 'macd_signal': np.float64(0.038247292084583634)}
+
+# Symbol+Timeframe Specific Settings
+SYMBOL = EURUSD+
+TIMEFRAME = H4
+MODEL_COMBINATION = ['combined']
+
+# Recommended Thresholds
+CONFIDENCE_THRESHOLD = 0.8
+# Lower accuracy model - use higher confidence threshold

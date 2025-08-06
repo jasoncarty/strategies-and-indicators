@@ -28,7 +28,7 @@ def test_save_test():
     """Test saving a strategy test"""
     test_data = {
         "strategy_name": "Test Strategy",
-        "symbol": "EURUSD",
+        "symbol": "DYNAMIC_SYMBOL",
         "timeframe": "H1",
         "start_date": "2024-01-01T00:00:00",
         "end_date": "2024-12-31T23:59:59",
@@ -46,7 +46,7 @@ def test_save_test():
         "trades": [
             {
                 "ticket": 12345,
-                "symbol": "EURUSD",
+                "symbol": "DYNAMIC_SYMBOL",
                 "type": "BUY",
                 "volume": 0.1,
                 "open_price": 1.0850,
@@ -60,7 +60,7 @@ def test_save_test():
             },
             {
                 "ticket": 12346,
-                "symbol": "EURUSD",
+                "symbol": "DYNAMIC_SYMBOL",
                 "type": "SELL",
                 "volume": 0.1,
                 "open_price": 1.0870,

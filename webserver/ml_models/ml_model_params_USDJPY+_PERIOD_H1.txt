@@ -1,0 +1,21 @@
+# ML Model Parameters for USDJPY+ H1
+# Generated on: 2025-08-02 23:10:30
+
+# Model Performance Metrics
+BUY_MODEL_ACCURACY = 0.500
+BUY_MODEL_AUC = 0.899
+BUY_MODEL_SAMPLES = 24
+BUY_MODEL_FEATURES = 28
+
+# Top Features by Model
+BUY_TOP_FEATURES = ['rsi', 'stoch_signal', 'bb_lower', 'day_of_week', 'volume_ratio', 'cci', 'momentum', 'stoch_main', 'month', 'williams_r']
+BUY_FEATURE_IMPORTANCE = {'rsi': np.float64(0.05555555555555556), 'stoch_signal': np.float64(0.04784688995215311), 'bb_lower': np.float64(0.040404040404040414), 'day_of_week': np.float64(0.038159371492704826), 'volume_ratio': np.float64(0.03801169590643275), 'cci': np.float64(0.036834331397390015), 'momentum': np.float64(0.036551737110396346), 'stoch_main': np.float64(0.03181635297474965), 'month': np.float64(0.027497194163860844), 'williams_r': np.float64(0.025252525252525256)}
+
+# Symbol+Timeframe Specific Settings
+SYMBOL = USDJPY+
+TIMEFRAME = H1
+MODEL_COMBINATION = ['buy']
+
+# Recommended Thresholds
+CONFIDENCE_THRESHOLD = 0.8
+# Lower accuracy model - use higher confidence threshold

@@ -1,0 +1,37 @@
+# ML Model Parameters for EURUSD+ M30
+# Generated on: 2025-08-02 23:10:30
+
+# Model Performance Metrics
+BUY_MODEL_ACCURACY = 0.588
+BUY_MODEL_AUC = 1.000
+BUY_MODEL_SAMPLES = 105
+BUY_MODEL_FEATURES = 28
+
+SELL_MODEL_ACCURACY = 0.574
+SELL_MODEL_AUC = 0.999
+SELL_MODEL_SAMPLES = 142
+SELL_MODEL_FEATURES = 28
+
+COMBINED_MODEL_ACCURACY = 0.595
+COMBINED_MODEL_AUC = 0.999
+COMBINED_MODEL_SAMPLES = 247
+COMBINED_MODEL_FEATURES = 28
+
+# Top Features by Model
+BUY_TOP_FEATURES = ['volatility', 'rsi', 'stoch_signal', 'momentum', 'williams_r', 'bb_lower', 'month', 'cci', 'macd_signal', 'stoch_main']
+BUY_FEATURE_IMPORTANCE = {'volatility': np.float64(0.10989212258092004), 'rsi': np.float64(0.08775739163998755), 'stoch_signal': np.float64(0.07821140998326293), 'momentum': np.float64(0.0770447679659563), 'williams_r': np.float64(0.07560421486804494), 'bb_lower': np.float64(0.06257431118530488), 'month': np.float64(0.060629700863231564), 'cci': np.float64(0.05313152295270174), 'macd_signal': np.float64(0.05271235121529685), 'stoch_main': np.float64(0.049902145255549445)}
+
+SELL_TOP_FEATURES = ['cci', 'volume_ratio', 'momentum', 'stoch_signal', 'williams_r', 'bb_upper', 'rsi', 'macd_main', 'day_of_week', 'bb_lower']
+SELL_FEATURE_IMPORTANCE = {'cci': np.float64(0.07721113458063465), 'volume_ratio': np.float64(0.07279820800554514), 'momentum': np.float64(0.06926141515432323), 'stoch_signal': np.float64(0.06739689126201302), 'williams_r': np.float64(0.0672857671228704), 'bb_upper': np.float64(0.06673399211631581), 'rsi': np.float64(0.06635615748555136), 'macd_main': np.float64(0.06628025202991586), 'day_of_week': np.float64(0.05866510586565739), 'bb_lower': np.float64(0.05819480779907181)}
+
+COMBINED_TOP_FEATURES = ['volume_ratio', 'stoch_main', 'stoch_signal', 'cci', 'momentum', 'rsi', 'bb_lower', 'williams_r', 'bb_upper', 'volatility']
+COMBINED_FEATURE_IMPORTANCE = {'volume_ratio': np.float64(0.08206402872296188), 'stoch_main': np.float64(0.07927837303755933), 'stoch_signal': np.float64(0.07271372765921476), 'cci': np.float64(0.07250745750626449), 'momentum': np.float64(0.06717068740359808), 'rsi': np.float64(0.0643030043947532), 'bb_lower': np.float64(0.0631677726161574), 'williams_r': np.float64(0.061369301746903734), 'bb_upper': np.float64(0.05931829760190398), 'volatility': np.float64(0.05573876158299651)}
+
+# Symbol+Timeframe Specific Settings
+SYMBOL = EURUSD+
+TIMEFRAME = M30
+MODEL_COMBINATION = ['buy', 'sell', 'combined']
+
+# Recommended Thresholds
+CONFIDENCE_THRESHOLD = 0.8
+# Lower accuracy model - use higher confidence threshold

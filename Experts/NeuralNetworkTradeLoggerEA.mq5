@@ -91,13 +91,13 @@ bool LoadMLModel() {
 //--- Helper: Draw panel
 bool DrawPanel() {
     Print("DrawPanel called");
-    
+
     // Panel background
     if(!controlsDialog.Create(0, "ML Controls dialog", 0, 50, 50, 500, 400)) {
         Print("Failed to create controls dialog");
         return false;
     };
-    
+
     // TP label
     if(!tpLabel.Create(0, "TP Label", 0, 60, 30, 200, 50)) {
         Print("Failed to create TP Label");
@@ -105,7 +105,7 @@ bool DrawPanel() {
     }
     tpLabel.Text("Take profit price");
     tpLabel.Color(clrBlack);
-    
+
     // TP Input
     if(!tpInput.Create(0, "TP input", 0, 60, 70, 391, 110)) {
         Print("Failed to create TP input");
@@ -114,7 +114,7 @@ bool DrawPanel() {
     tpInput.Text("0.0");
     tpInput.Color(clrBlack);
     tpInput.ReadOnly(false);
-    
+
     // SL label
     if(!slLabel.Create(0, "SL Label", 0, 60, 120, 200, 130)) {
         Print("Failed to create SL Label");
@@ -122,7 +122,7 @@ bool DrawPanel() {
     }
     slLabel.Text("Stop loss price");
     slLabel.Color(clrBlack);
-    
+
     // SL input
     if(!slInput.Create(0, "SL input", 0, 60, 160, 391, 200)) {
         Print("Failed to create SL input");
@@ -131,7 +131,7 @@ bool DrawPanel() {
     slInput.Text("0.0");
     slInput.Color(clrBlack);
     slInput.ReadOnly(false);
-    
+
     // ML Prediction label
     if(!mlLabel.Create(0, "ML Label", 0, 60, 210, 200, 220)) {
         Print("Failed to create ML Label");
@@ -139,7 +139,7 @@ bool DrawPanel() {
     }
     mlLabel.Text("ML Prediction: Neutral");
     mlLabel.Color(clrBlue);
-    
+
     // Confidence label
     if(!confidenceLabel.Create(0, "Confidence Label", 0, 60, 240, 200, 250)) {
         Print("Failed to create Confidence Label");
@@ -147,7 +147,7 @@ bool DrawPanel() {
     }
     confidenceLabel.Text("Confidence: 0%");
     confidenceLabel.Color(clrPurple);
-    
+
     // ML Checkbox
     if(!mlCheckBox.Create(0, "ML Checkbox", 0, 60, 270, 200, 290)) {
         Print("Failed to create ML Checkbox");
@@ -155,7 +155,7 @@ bool DrawPanel() {
     }
     mlCheckBox.Text("Use ML Predictions");
     mlCheckBox.Checked(UseMLPredictions);
-    
+
     // Auto Trade Checkbox
     if(!autoTradeCheckBox.Create(0, "Auto Trade Checkbox", 0, 200, 270, 340, 290)) {
         Print("Failed to create Auto Trade Checkbox");
@@ -163,7 +163,7 @@ bool DrawPanel() {
     }
     autoTradeCheckBox.Text("Auto Trade");
     autoTradeCheckBox.Checked(AutoTradeMode);
-    
+
     // Buy button
     string buyBtnName = objPrefix + "BUY_BTN";
     if(!buyBtn.Create(0, buyBtnName, 0, 60, 300, 200, 340)) {
@@ -173,7 +173,7 @@ bool DrawPanel() {
     buyBtn.Text("BUY");
     buyBtn.Color(clrWhite);
     buyBtn.ColorBackground(clrGreen);
-    
+
     // Sell button
     string sellBtnName = objPrefix + "SELL_BTN";
     if(!sellBtn.Create(0, sellBtnName, 0, 251, 300, 391, 340)) {
@@ -183,7 +183,7 @@ bool DrawPanel() {
     sellBtn.Text("SELL");
     sellBtn.Color(clrWhite);
     sellBtn.ColorBackground(clrRed);
-    
+
     // ML Predict button
     string mlPredictBtnName = objPrefix + "ML_PREDICT_BTN";
     if(!mlPredictBtn.Create(0, mlPredictBtnName, 0, 60, 350, 391, 380)) {
@@ -225,7 +225,7 @@ void ReadInputs() {
 void UpdateMLDisplay() {
     string predictionText = "ML Prediction: ";
     string confidenceText = "Confidence: ";
-    
+
     if(mlDirection == "buy") {
         predictionText += "BUY";
         mlLabel.Color(clrGreen);
@@ -236,9 +236,9 @@ void UpdateMLDisplay() {
         predictionText += "NEUTRAL";
         mlLabel.Color(clrBlue);
     }
-    
+
     confidenceText += DoubleToString(mlConfidence * 100, 1) + "%";
-    
+
     mlLabel.Text(predictionText);
     confidenceLabel.Text(confidenceText);
 }
@@ -247,10 +247,10 @@ void UpdateMLDisplay() {
 void GetMLPredictionAndUpdate() {
     MLFeatures features;
     CollectMLFeatures(features);
-    
+
     mlPrediction = GetMLPrediction(features);
     mlConfidence = CalculateMLConfidence(features);
-    
+
     // Determine direction
     if(mlPrediction > 0.6) {
         mlDirection = "buy";
@@ -259,9 +259,9 @@ void GetMLPredictionAndUpdate() {
     } else {
         mlDirection = "neutral";
     }
-    
+
     UpdateMLDisplay();
-    
+
     Print("ML Prediction: ", mlPrediction, " (", mlDirection, ") Confidence: ", mlConfidence);
 }
 
@@ -269,7 +269,7 @@ void GetMLPredictionAndUpdate() {
 void CollectTradeContext(string dir, double lot, double sl, double tp, double entry) {
     MLFeatures features;
     CollectMLFeatures(features);
-    
+
     // Save to JSON with ML data
     string json = "{";
     json += "\"symbol\":\"" + _Symbol + "\",";
@@ -308,7 +308,7 @@ void CollectTradeContext(string dir, double lot, double sl, double tp, double en
     json += "\"session_hour\":" + IntegerToString(features.session_hour) + ",";
     json += "\"is_news_time\":" + (features.is_news_time ? "true" : "false") + ",";
     json += "\"timestamp\":" + IntegerToString(TimeCurrent()) + "}";
-    
+
     int handle = FileOpen(JsonFileName, FILE_READ|FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
     if(handle == INVALID_HANDLE) handle = FileOpen(JsonFileName, FILE_WRITE|FILE_TXT|FILE_ANSI|FILE_COMMON);
     if(handle != INVALID_HANDLE) {
@@ -321,7 +321,7 @@ void CollectTradeContext(string dir, double lot, double sl, double tp, double en
 //--- Helper: Check ML conditions for trading
 bool CheckMLConditions(string direction) {
     if(!UseMLPredictions) return true;
-    
+
     // Check if ML prediction agrees with trade direction
     if(direction == "buy" && mlDirection != "buy") {
         Print("ML prediction doesn't agree with BUY direction");
@@ -331,7 +331,7 @@ bool CheckMLConditions(string direction) {
         Print("ML prediction doesn't agree with SELL direction");
         return false;
     }
-    
+
     // Check confidence levels
     if(mlConfidence < MinPredictionConfidence) {
         Print("ML confidence too low: ", mlConfidence);
@@ -341,14 +341,14 @@ bool CheckMLConditions(string direction) {
         Print("ML confidence too high (possible overfitting): ", mlConfidence);
         return false;
     }
-    
+
     return true;
 }
 
 //--- Helper: Calculate ML-adjusted lot size
 double CalculateMLLotSize(double baseLot, double confidence) {
     if(!UseMLPositionSizing) return baseLot;
-    
+
     // Adjust lot size based on ML confidence
     double confidenceMultiplier = 0.5 + (confidence * 0.5); // 0.5x to 1.0x
     return baseLot * confidenceMultiplier;
@@ -357,10 +357,10 @@ double CalculateMLLotSize(double baseLot, double confidence) {
 //--- Helper: Calculate ML-adjusted stop loss
 double CalculateMLStopLoss(double baseSL, double entry, string direction) {
     if(!UseMLStopLoss) return baseSL;
-    
+
     // Adjust stop loss based on ML confidence
     double confidenceAdjustment = (1.0 - mlConfidence) * 0.5; // Tighter stops for higher confidence
-    
+
     if(direction == "buy") {
         return entry - (entry - baseSL) * (1.0 - confidenceAdjustment);
     } else {
@@ -372,33 +372,33 @@ double CalculateMLStopLoss(double baseSL, double entry, string direction) {
 void PlaceManualOrder(string dir) {
     Print("PlaceManualOrder called");
     ReadInputs();
-    
+
     // Get ML prediction first
     GetMLPredictionAndUpdate();
-    
+
     // Check ML conditions
     if(!CheckMLConditions(dir)) {
         Print("ML conditions not met for ", dir, " trade");
         return;
     }
-    
+
     double entry = (dir == "buy") ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double sl = StringToDouble(slInputValue);
     double tp = StringToDouble(tpInputValue);
-    
+
     // Apply ML adjustments
     sl = CalculateMLStopLoss(sl, entry, dir);
-    
+
     double stopDist = MathAbs(entry - sl);
     double baseLot = CalculateLotSize(userRiskPercent, stopDist, _Symbol);
     double lot = CalculateMLLotSize(baseLot, mlConfidence);
-    
+
     bool placed = false;
     if(dir == "buy")
         placed = PlaceBuyOrder(lot, sl, tp, 0, "MLBuy");
     else
         placed = PlaceSellOrder(lot, sl, tp, 0, "MLSell");
-    
+
     if(placed) {
         lastSL = sl; lastTP = tp; lastLot = lot; lastDir = dir;
         CollectTradeContext(dir, lot, sl, tp, entry);
@@ -418,10 +418,10 @@ bool IsNewBar() {
 //--- Helper: Auto trade based on ML
 void CheckAutoTrade() {
     if(!AutoTradeMode) return;
-    
+
     // Get ML prediction
     GetMLPredictionAndUpdate();
-    
+
     // Check if we should auto trade
     if(mlConfidence >= MinPredictionConfidence && mlConfidence <= MaxPredictionConfidence) {
         if(mlDirection == "buy" && mlPrediction > 0.7) {
@@ -452,13 +452,13 @@ void OnTick() {
         GetMLPredictionAndUpdate();
         mlPredictBtn.Pressed(false);
     };
-    
+
     // Check for new bar
     if(!IsNewBar()) return;
-    
+
     // Auto trade check
     CheckAutoTrade();
-    
+
     // Print trend log
     int smaHandle = iMA(_Symbol, PERIOD_D1, 50, 0, MODE_SMA, PRICE_CLOSE);
     string trendStr = "none";
@@ -473,11 +473,11 @@ void OnTick() {
         IndicatorRelease(smaHandle);
     }
     Print("[NNTL] Trend on candle close: ", trendStr);
-    
+
     // Detect and draw supply/demand zones
     FindSupplyDemandZones(_Symbol, _Period, 200, 2, demandZones, resistanceZones);
     DrawZones(_Symbol, _Period, demandZones, resistanceZones, clrGreen, clrRed, "NNTL_SD_ZONE_");
-    
+
     // Detect and draw S/R zones
     FindSRZones(_Symbol, _Period, SRLookbackBars, SRTolerance*_Point, SRMergeDistance, supportZones, resistanceZones);
     DrawSRZones(_Symbol, _Period, supportZones, resistanceZones, SRSupportColor, SRResistanceColor, SRLookbackBars, "NNTL_SR_ZONE_");
@@ -489,19 +489,20 @@ int OnInit() {
         Print("Failed to draw panel");
         return INIT_FAILED;
     };
-    
+
     // Load ML model
     if(!LoadMLModel()) {
         Print("Failed to load ML model");
         return INIT_FAILED;
     };
-    
+
     // Update EA input parameters based on ML training results
-    UpdateEAInputParameters("NeuralNetworkTradeLoggerEA");
-    
+    Print("🤖 Pure ML Mode: Using only ML model predictions");
+    Print("   No parameter files needed - models contain learned intelligence");
+
     ChartRedraw();
     Print("Neural Network Trade Logger EA initialized successfully");
-    
+
     return INIT_SUCCEEDED;
 }
 
@@ -511,4 +512,4 @@ void OnDeinit(const int reason) {
     Print("Neural Network Trade Logger EA deinitialized");
 }
 
-//+------------------------------------------------------------------+ 
+//+------------------------------------------------------------------+

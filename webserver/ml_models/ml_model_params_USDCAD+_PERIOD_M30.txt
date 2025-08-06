@@ -1,0 +1,37 @@
+# ML Model Parameters for USDCAD+ M30
+# Generated on: 2025-08-02 23:10:30
+
+# Model Performance Metrics
+BUY_MODEL_ACCURACY = 0.583
+BUY_MODEL_AUC = 0.997
+BUY_MODEL_SAMPLES = 56
+BUY_MODEL_FEATURES = 28
+
+SELL_MODEL_ACCURACY = 0.718
+SELL_MODEL_AUC = 0.996
+SELL_MODEL_SAMPLES = 102
+SELL_MODEL_FEATURES = 28
+
+COMBINED_MODEL_ACCURACY = 0.677
+COMBINED_MODEL_AUC = 0.996
+COMBINED_MODEL_SAMPLES = 158
+COMBINED_MODEL_FEATURES = 28
+
+# Top Features by Model
+BUY_TOP_FEATURES = ['williams_r', 'rsi', 'cci', 'hour', 'session_hour', 'month', 'stoch_signal', 'bb_upper', 'momentum', 'bb_lower']
+BUY_FEATURE_IMPORTANCE = {'williams_r': np.float64(0.07479286703586391), 'rsi': np.float64(0.06611638074911633), 'cci': np.float64(0.06029480922169264), 'hour': np.float64(0.0579500782598194), 'session_hour': np.float64(0.05621379861938769), 'month': np.float64(0.049494466242269025), 'stoch_signal': np.float64(0.04255256141279805), 'bb_upper': np.float64(0.03920164789804223), 'momentum': np.float64(0.03842975127489391), 'bb_lower': np.float64(0.03833214449276922)}
+
+SELL_TOP_FEATURES = ['williams_r', 'bb_lower', 'month', 'volume_ratio', 'session_hour', 'rsi', 'bb_upper', 'stoch_signal', 'momentum', 'cci']
+SELL_FEATURE_IMPORTANCE = {'williams_r': np.float64(0.08753776735572674), 'bb_lower': np.float64(0.08202783897317906), 'month': np.float64(0.07633067039090013), 'volume_ratio': np.float64(0.0708941116705501), 'session_hour': np.float64(0.06954233165969584), 'rsi': np.float64(0.06927755030290783), 'bb_upper': np.float64(0.06837115164314347), 'stoch_signal': np.float64(0.0615337494375703), 'momentum': np.float64(0.057465579434278255), 'cci': np.float64(0.05449377098248729)}
+
+COMBINED_TOP_FEATURES = ['volume_ratio', 'cci', 'momentum', 'bb_lower', 'bb_upper', 'hour', 'stoch_signal', 'rsi', 'stoch_main', 'month']
+COMBINED_FEATURE_IMPORTANCE = {'volume_ratio': np.float64(0.08547734442836438), 'cci': np.float64(0.0717615221230242), 'momentum': np.float64(0.06590392166319411), 'bb_lower': np.float64(0.06513895327091096), 'bb_upper': np.float64(0.06506754712066243), 'hour': np.float64(0.062175466305593965), 'stoch_signal': np.float64(0.06053593337081635), 'rsi': np.float64(0.057692787838028815), 'stoch_main': np.float64(0.052445093245746366), 'month': np.float64(0.05229037144361322)}
+
+# Symbol+Timeframe Specific Settings
+SYMBOL = USDCAD+
+TIMEFRAME = M30
+MODEL_COMBINATION = ['buy', 'sell', 'combined']
+
+# Recommended Thresholds
+CONFIDENCE_THRESHOLD = 0.6
+# High accuracy model - can use lower confidence threshold

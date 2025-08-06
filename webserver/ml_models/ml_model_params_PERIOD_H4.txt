@@ -1,0 +1,36 @@
+# Timeframe-specific ML parameters for PERIOD_H4
+# Generated on: 2025-07-24 21:07:27
+
+# Combined Model Parameters
+combined_min_prediction_threshold = 0.550
+combined_max_prediction_threshold = 0.450
+combined_min_confidence = 0.300
+combined_max_confidence = 0.850
+combined_avg_accuracy = 0.417
+combined_avg_auc = 0.954
+
+# General Parameters
+position_sizing_multiplier = 1.00
+stop_loss_adjustment = 1.00
+volume_ratio_threshold = 1.50
+optimal_sessions = all
+session_filtering_enabled = true
+london_session_weight = 1.00
+ny_session_weight = 1.00
+asian_session_weight = 1.00
+off_hours_session_weight = 0.50
+london_min_success_rate = 0.400
+ny_min_success_rate = 0.400
+asian_min_success_rate = 0.400
+
+# Top Features (for reference)
+# volatility: 0.073
+# stoch_regime: 0.071
+# williams_r: 0.063
+# macd_signal: 0.051
+# rsi: 0.049
+# stoch_signal: 0.038
+# bb_upper: 0.036
+# volume_ratio: 0.033
+# momentum: 0.032
+# day_of_week: 0.032

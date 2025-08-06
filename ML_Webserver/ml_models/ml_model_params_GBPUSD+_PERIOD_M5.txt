@@ -1,0 +1,37 @@
+# ML Model Parameters for GBPUSD+ M5
+# Generated on: 2025-08-02 23:10:30
+
+# Model Performance Metrics
+BUY_MODEL_ACCURACY = 0.453
+BUY_MODEL_AUC = 1.000
+BUY_MODEL_SAMPLES = 95
+BUY_MODEL_FEATURES = 28
+
+SELL_MODEL_ACCURACY = 0.538
+SELL_MODEL_AUC = 0.996
+SELL_MODEL_SAMPLES = 239
+SELL_MODEL_FEATURES = 28
+
+COMBINED_MODEL_ACCURACY = 0.531
+COMBINED_MODEL_AUC = 0.997
+COMBINED_MODEL_SAMPLES = 334
+COMBINED_MODEL_FEATURES = 28
+
+# Top Features by Model
+BUY_TOP_FEATURES = ['bb_lower', 'cci', 'williams_r', 'month', 'session_hour', 'bb_upper', 'rsi', 'volume_ratio', 'momentum', 'hour']
+BUY_FEATURE_IMPORTANCE = {'bb_lower': np.float64(0.07688682765225271), 'cci': np.float64(0.07662184091658283), 'williams_r': np.float64(0.07440895030618419), 'month': np.float64(0.07095256692583449), 'session_hour': np.float64(0.06978390173893156), 'bb_upper': np.float64(0.06973404439591013), 'rsi': np.float64(0.06919617636544925), 'volume_ratio': np.float64(0.0629000773722651), 'momentum': np.float64(0.053720696830970895), 'hour': np.float64(0.0511038640270685)}
+
+SELL_TOP_FEATURES = ['cci', 'stoch_signal', 'williams_r', 'volume_ratio', 'rsi', 'bb_upper', 'momentum', 'bb_lower', 'month', 'stoch_main']
+SELL_FEATURE_IMPORTANCE = {'cci': np.float64(0.10002917525425234), 'stoch_signal': np.float64(0.09327907172848451), 'williams_r': np.float64(0.08878089342148895), 'volume_ratio': np.float64(0.07208022992890457), 'rsi': np.float64(0.07135479180947461), 'bb_upper': np.float64(0.05938756156460273), 'momentum': np.float64(0.05701746327727605), 'bb_lower': np.float64(0.055231790248388736), 'month': np.float64(0.054039709922914424), 'stoch_main': np.float64(0.05391870845988035)}
+
+COMBINED_TOP_FEATURES = ['williams_r', 'cci', 'stoch_signal', 'bb_upper', 'rsi', 'stoch_main', 'volume_ratio', 'momentum', 'bb_lower', 'session_hour']
+COMBINED_FEATURE_IMPORTANCE = {'williams_r': np.float64(0.07939143731010298), 'cci': np.float64(0.07911635953977175), 'stoch_signal': np.float64(0.07627682362345084), 'bb_upper': np.float64(0.07093736569489778), 'rsi': np.float64(0.06960837965623251), 'stoch_main': np.float64(0.06273538840380226), 'volume_ratio': np.float64(0.0612702508735732), 'momentum': np.float64(0.054747026431961866), 'bb_lower': np.float64(0.05464341546994197), 'session_hour': np.float64(0.04974010488398527)}
+
+# Symbol+Timeframe Specific Settings
+SYMBOL = GBPUSD+
+TIMEFRAME = M5
+MODEL_COMBINATION = ['buy', 'sell', 'combined']
+
+# Recommended Thresholds
+CONFIDENCE_THRESHOLD = 0.8
+# Lower accuracy model - use higher confidence threshold

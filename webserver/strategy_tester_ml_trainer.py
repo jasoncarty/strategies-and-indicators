@@ -20,6 +20,27 @@ warnings.filterwarnings('ignore')
 from sklearn.linear_model import SGDClassifier
 
 class StrategyTesterMLTrainer:
+    def _extract_symbol_from_path(self, file_path: Path) -> str:
+        """Extract symbol from file path dynamically"""
+        # Try to extract from path structure: Models/BreakoutStrategy/SYMBOL/TIMEFRAME/
+        path_parts = file_path.parts
+        for i, part in enumerate(path_parts):
+            if part in ['Models', 'BreakoutStrategy'] and i + 1 < len(path_parts):
+                potential_symbol = path_parts[i + 1]
+                # Check if it looks like a symbol (6 characters, mostly letters)
+                if len(potential_symbol) == 6 and potential_symbol.isalpha():
+                    return potential_symbol
+
+        # Try to extract from filename
+        filename = file_path.name
+        # Look for patterns like buy_EURUSD_PERIOD_H1.pkl
+        symbol_match = re.search(r'[a-z]+_([A-Z]{6})_PERIOD_', filename)
+        if symbol_match:
+            return symbol_match.group(1)
+
+        # Default fallback
+        return "UNKNOWN_SYMBOL"
+
     def __init__(self, data_dir=None, models_dir='ml_models/', target_ea=None):
         """Initialize the ML trainer with data and models directories"""
         self.data_dir = data_dir or self._find_metatrader_directory()
@@ -1420,6 +1441,13 @@ class StrategyTesterMLTrainer:
                 'spread_adjustment': 1.5,      # High spread
                 'session_weight': 1.3,         # All sessions
                 'description': 'Commodity - Very high volatility, all sessions'
+            },
+            'XAUEUR': {
+                'name': 'XAUEUR',
+                'volatility_multiplier': 1.6,  # High volatility (similar to XAUUSD but EUR-based)
+                'spread_adjustment': 1.4,      # High spread
+                'session_weight': 1.2,         # European session focus
+                'description': 'Commodity - High volatility, European session focus'
             },
             'USDCAD': {
                 'name': 'USDCAD',

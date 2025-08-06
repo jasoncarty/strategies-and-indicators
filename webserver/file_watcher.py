@@ -13,6 +13,27 @@ SERVER_URL = "http://127.0.0.1:5001/api/test" # Use 127.0.0.1 for local server
 
 
 class JSONFileHandler(FileSystemEventHandler):
+    def _extract_symbol_from_path(self, file_path: Path) -> str:
+        """Extract symbol from file path dynamically"""
+        # Try to extract from path structure: Models/BreakoutStrategy/SYMBOL/TIMEFRAME/
+        path_parts = file_path.parts
+        for i, part in enumerate(path_parts):
+            if part in ['Models', 'BreakoutStrategy'] and i + 1 < len(path_parts):
+                potential_symbol = path_parts[i + 1]
+                # Check if it looks like a symbol (6 characters, mostly letters)
+                if len(potential_symbol) == 6 and potential_symbol.isalpha():
+                    return potential_symbol
+
+        # Try to extract from filename
+        filename = file_path.name
+        # Look for patterns like buy_EURUSD_PERIOD_H1.pkl
+        symbol_match = re.search(r'[a-z]+_([A-Z]{6})_PERIOD_', filename)
+        if symbol_match:
+            return symbol_match.group(1)
+
+        # Default fallback
+        return "UNKNOWN_SYMBOL"
+
     """
     Handles events for new .json files in the watched directory.
     """

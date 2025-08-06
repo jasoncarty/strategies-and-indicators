@@ -9,6 +9,27 @@ import pandas as pd
 from datetime import datetime
 
 class CurrencyPairOptimizer:
+    def _extract_symbol_from_path(self, file_path: Path) -> str:
+        """Extract symbol from file path dynamically"""
+        # Try to extract from path structure: Models/BreakoutStrategy/SYMBOL/TIMEFRAME/
+        path_parts = file_path.parts
+        for i, part in enumerate(path_parts):
+            if part in ['Models', 'BreakoutStrategy'] and i + 1 < len(path_parts):
+                potential_symbol = path_parts[i + 1]
+                # Check if it looks like a symbol (6 characters, mostly letters)
+                if len(potential_symbol) == 6 and potential_symbol.isalpha():
+                    return potential_symbol
+
+        # Try to extract from filename
+        filename = file_path.name
+        # Look for patterns like buy_EURUSD_PERIOD_H1.pkl
+        symbol_match = re.search(r'[a-z]+_([A-Z]{6})_PERIOD_', filename)
+        if symbol_match:
+            return symbol_match.group(1)
+
+        # Default fallback
+        return "UNKNOWN_SYMBOL"
+
     def __init__(self, models_dir='ml_models/'):
         self.models_dir = models_dir
         os.makedirs(models_dir, exist_ok=True)
