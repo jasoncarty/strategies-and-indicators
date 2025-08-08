@@ -1206,3 +1206,167 @@
 2025-08-06 13:23:37,462 - INFO - 📊 Retrieved 46 trades with features for ETHUSD M5
 2025-08-06 13:23:37,462 - INFO - 📊 ETHUSD_M5: Only 46 trades (need 50)
 2025-08-06 13:23:37,462 - INFO - 💤 Sleeping for 24 hours until next check
+2025-08-06 17:09:03,409 - INFO - 🚀 Live Retraining Service initialized
+2025-08-06 17:09:03,409 - INFO -    Analytics URL: http://127.0.0.1:5001
+2025-08-06 17:09:03,409 - INFO -    Models Directory: ml_models
+2025-08-06 17:09:03,409 - INFO -    Retraining Interval: 24 hours
+2025-08-06 17:09:03,409 - INFO -    Min Trades for Retraining: 50
+2025-08-06 17:09:03,409 - INFO -    Performance Threshold: 0.55
+2025-08-06 17:09:03,409 - INFO - 🔄 Starting retraining for TESTUSD M5 with 50 trades
+2025-08-06 17:09:03,410 - INFO - 💾 Backed up TESTUSD M5 models to /var/folders/97/n5x6kyks5llbdxsftrcmpmww0000gn/T/test_ml_models_prjo_rou/backups/20250806_170903
+2025-08-06 17:09:03,576 - INFO - 📊 Model expects 28 features
+2025-08-06 17:09:03,579 - INFO - 📊 TESTUSD M5 current accuracy: 1.000
+2025-08-06 17:09:03,579 - INFO - ✅ Retraining completed for TESTUSD M5
+2025-08-06 17:11:21,389 - INFO - 🚀 Live Retraining Service initialized
+2025-08-06 17:11:21,389 - INFO -    Analytics URL: http://127.0.0.1:5001
+2025-08-06 17:11:21,389 - INFO -    Models Directory: ml_models
+2025-08-06 17:11:21,389 - INFO -    Retraining Interval: 24 hours
+2025-08-06 17:11:21,389 - INFO -    Min Trades for Retraining: 50
+2025-08-06 17:11:21,389 - INFO -    Performance Threshold: 0.55
+2025-08-06 17:11:21,390 - INFO - 🔄 Starting retraining for TESTUSD M5 with 50 trades
+2025-08-06 17:11:21,390 - INFO - 💾 Backed up TESTUSD M5 models to /var/folders/97/n5x6kyks5llbdxsftrcmpmww0000gn/T/test_ml_models_laayyisv/backups/20250806_171121
+2025-08-06 17:11:21,556 - INFO - 📊 Model expects 28 features
+2025-08-06 17:11:21,558 - INFO - 📊 TESTUSD M5 current accuracy: 1.000
+2025-08-06 17:11:21,558 - INFO - ✅ Retraining completed for TESTUSD M5
+2025-08-06 17:12:58,495 - INFO - 🚀 Live Retraining Service initialized
+2025-08-06 17:12:58,495 - INFO -    Analytics URL: http://127.0.0.1:5001
+2025-08-06 17:12:58,495 - INFO -    Models Directory: ml_models
+2025-08-06 17:12:58,495 - INFO -    Retraining Interval: 24 hours
+2025-08-06 17:12:58,495 - INFO -    Min Trades for Retraining: 50
+2025-08-06 17:12:58,495 - INFO -    Performance Threshold: 0.55
+2025-08-06 17:12:58,495 - INFO - 🔄 Starting retraining for TESTUSD M5 with 50 trades
+2025-08-06 17:12:58,495 - INFO - 💾 Backed up TESTUSD M5 models to /var/folders/97/n5x6kyks5llbdxsftrcmpmww0000gn/T/test_ml_models_q2puztxk/backups/20250806_171258
+2025-08-06 17:12:58,652 - INFO - 📊 Model expects 28 features
+2025-08-06 17:12:58,654 - INFO - 📊 TESTUSD M5 current accuracy: 1.000
+2025-08-06 17:12:58,654 - INFO - ✅ Retraining completed for TESTUSD M5
+2025-08-06 17:13:55,332 - INFO - 🚀 Live Retraining Service initialized
+2025-08-06 17:13:55,333 - INFO -    Analytics URL: http://127.0.0.1:5001
+2025-08-06 17:13:55,333 - INFO -    Models Directory: ml_models
+2025-08-06 17:13:55,333 - INFO -    Retraining Interval: 24 hours
+2025-08-06 17:13:55,333 - INFO -    Min Trades for Retraining: 50
+2025-08-06 17:13:55,333 - INFO -    Performance Threshold: 0.55
+2025-08-06 17:13:55,333 - INFO - 🔄 Starting retraining for TESTUSD M5 with 50 trades
+2025-08-06 17:13:55,333 - INFO - 💾 Backed up TESTUSD M5 models to /var/folders/97/n5x6kyks5llbdxsftrcmpmww0000gn/T/test_ml_models_27n6_ni2/backups/20250806_171355
+2025-08-06 17:13:55,481 - INFO - 📊 Model expects 28 features
+2025-08-06 17:13:55,483 - INFO - 📊 TESTUSD M5 current accuracy: 1.000
+2025-08-06 17:13:55,483 - INFO - ✅ Retraining completed for TESTUSD M5
+2025-08-07 13:23:38,489 - INFO - 🔍 Checking for retraining opportunities...
+2025-08-07 13:23:38,515 - INFO - 📊 Retrieved 42 trades with features for XAUUSD+ H1
+2025-08-07 13:23:38,515 - INFO - 📊 XAUUSD+_H1: Only 42 trades (need 50)
+2025-08-07 13:23:38,525 - INFO - 📊 Retrieved 0 trades with features for XAUUSD+ M15
+2025-08-07 13:23:38,526 - INFO - 📊 XAUUSD+_M15: Only 0 trades (need 50)
+2025-08-07 13:23:38,535 - INFO - 📊 Retrieved 0 trades with features for XAUUSD+ M30
+2025-08-07 13:23:38,536 - INFO - 📊 XAUUSD+_M30: Only 0 trades (need 50)
+2025-08-07 13:23:38,549 - INFO - 📊 Retrieved 1 trades with features for XAUUSD+ M5
+2025-08-07 13:23:38,549 - INFO - 📊 XAUUSD+_M5: Only 1 trades (need 50)
+2025-08-07 13:23:38,563 - INFO - 📊 Retrieved 0 trades with features for EURUSD H1
+2025-08-07 13:23:38,564 - INFO - 📊 EURUSD_H1: Only 0 trades (need 50)
+2025-08-07 13:23:38,580 - INFO - 📊 Retrieved 0 trades with features for EURUSD M15
+2025-08-07 13:23:38,581 - INFO - 📊 EURUSD_M15: Only 0 trades (need 50)
+2025-08-07 13:23:38,592 - INFO - 📊 Retrieved 0 trades with features for EURUSD M30
+2025-08-07 13:23:38,592 - INFO - 📊 EURUSD_M30: Only 0 trades (need 50)
+2025-08-07 13:23:38,601 - INFO - 📊 Retrieved 0 trades with features for EURUSD M5
+2025-08-07 13:23:38,601 - INFO - 📊 EURUSD_M5: Only 0 trades (need 50)
+2025-08-07 13:23:38,612 - INFO - 📊 Retrieved 0 trades with features for GBPUSD+ H1
+2025-08-07 13:23:38,612 - INFO - 📊 GBPUSD+_H1: Only 0 trades (need 50)
+2025-08-07 13:23:38,620 - INFO - 📊 Retrieved 0 trades with features for GBPUSD+ M15
+2025-08-07 13:23:38,620 - INFO - 📊 GBPUSD+_M15: Only 0 trades (need 50)
+2025-08-07 13:23:38,630 - INFO - 📊 Retrieved 0 trades with features for GBPUSD+ M30
+2025-08-07 13:23:38,630 - INFO - 📊 GBPUSD+_M30: Only 0 trades (need 50)
+2025-08-07 13:23:38,637 - INFO - 📊 Retrieved 0 trades with features for GBPUSD+ M5
+2025-08-07 13:23:38,638 - INFO - 📊 GBPUSD+_M5: Only 0 trades (need 50)
+2025-08-07 13:23:38,644 - INFO - 📊 Retrieved 0 trades with features for USDJPY+ H1
+2025-08-07 13:23:38,644 - INFO - 📊 USDJPY+_H1: Only 0 trades (need 50)
+2025-08-07 13:23:38,649 - INFO - 📊 Retrieved 0 trades with features for USDJPY+ M15
+2025-08-07 13:23:38,650 - INFO - 📊 USDJPY+_M15: Only 0 trades (need 50)
+2025-08-07 13:23:38,657 - INFO - 📊 Retrieved 0 trades with features for USDJPY+ M30
+2025-08-07 13:23:38,657 - INFO - 📊 USDJPY+_M30: Only 0 trades (need 50)
+2025-08-07 13:23:38,665 - INFO - 📊 Retrieved 0 trades with features for USDJPY+ M5
+2025-08-07 13:23:38,665 - INFO - 📊 USDJPY+_M5: Only 0 trades (need 50)
+2025-08-07 13:23:38,674 - INFO - 📊 Retrieved 0 trades with features for USDCAD+ H1
+2025-08-07 13:23:38,674 - INFO - 📊 USDCAD+_H1: Only 0 trades (need 50)
+2025-08-07 13:23:38,682 - INFO - 📊 Retrieved 0 trades with features for USDCAD+ M15
+2025-08-07 13:23:38,683 - INFO - 📊 USDCAD+_M15: Only 0 trades (need 50)
+2025-08-07 13:23:38,688 - INFO - 📊 Retrieved 0 trades with features for USDCAD+ M30
+2025-08-07 13:23:38,688 - INFO - 📊 USDCAD+_M30: Only 0 trades (need 50)
+2025-08-07 13:23:38,696 - INFO - 📊 Retrieved 0 trades with features for USDCAD+ M5
+2025-08-07 13:23:38,696 - INFO - 📊 USDCAD+_M5: Only 0 trades (need 50)
+2025-08-07 13:23:38,703 - INFO - 📊 Retrieved 0 trades with features for BTCUSD H1
+2025-08-07 13:23:38,703 - INFO - 📊 BTCUSD_H1: Only 0 trades (need 50)
+2025-08-07 13:23:38,708 - INFO - 📊 Retrieved 0 trades with features for BTCUSD M15
+2025-08-07 13:23:38,709 - INFO - 📊 BTCUSD_M15: Only 0 trades (need 50)
+2025-08-07 13:23:38,714 - INFO - 📊 Retrieved 0 trades with features for BTCUSD M30
+2025-08-07 13:23:38,714 - INFO - 📊 BTCUSD_M30: Only 0 trades (need 50)
+2025-08-07 13:23:38,736 - INFO - 📊 Retrieved 167 trades with features for BTCUSD M5
+2025-08-07 13:23:38,754 - INFO - 📊 Model expects 28 features
+2025-08-07 13:23:38,760 - INFO - 📊 BTCUSD M5 current accuracy: 0.946
+2025-08-07 13:23:38,760 - INFO - ✅ BTCUSD_M5: Current performance 0.946 >= threshold 0.55
+2025-08-07 13:23:38,769 - INFO - 📊 Retrieved 0 trades with features for ETHUSD H1
+2025-08-07 13:23:38,769 - INFO - 📊 ETHUSD_H1: Only 0 trades (need 50)
+2025-08-07 13:23:38,775 - INFO - 📊 Retrieved 0 trades with features for ETHUSD M15
+2025-08-07 13:23:38,775 - INFO - 📊 ETHUSD_M15: Only 0 trades (need 50)
+2025-08-07 13:23:38,781 - INFO - 📊 Retrieved 1 trades with features for ETHUSD M30
+2025-08-07 13:23:38,781 - INFO - 📊 ETHUSD_M30: Only 1 trades (need 50)
+2025-08-07 13:23:38,790 - INFO - 📊 Retrieved 46 trades with features for ETHUSD M5
+2025-08-07 13:23:38,790 - INFO - 📊 ETHUSD_M5: Only 46 trades (need 50)
+2025-08-07 13:23:38,790 - INFO - 💤 Sleeping for 24 hours until next check
+2025-08-08 13:23:39,701 - INFO - 🔍 Checking for retraining opportunities...
+2025-08-08 13:23:39,722 - INFO - 📊 Retrieved 43 trades with features for XAUUSD+ H1
+2025-08-08 13:23:39,723 - INFO - 📊 XAUUSD+_H1: Only 43 trades (need 50)
+2025-08-08 13:23:39,733 - INFO - 📊 Retrieved 0 trades with features for XAUUSD+ M15
+2025-08-08 13:23:39,733 - INFO - 📊 XAUUSD+_M15: Only 0 trades (need 50)
+2025-08-08 13:23:39,743 - INFO - 📊 Retrieved 0 trades with features for XAUUSD+ M30
+2025-08-08 13:23:39,744 - INFO - 📊 XAUUSD+_M30: Only 0 trades (need 50)
+2025-08-08 13:23:39,758 - INFO - 📊 Retrieved 2 trades with features for XAUUSD+ M5
+2025-08-08 13:23:39,759 - INFO - 📊 XAUUSD+_M5: Only 2 trades (need 50)
+2025-08-08 13:23:39,770 - INFO - 📊 Retrieved 0 trades with features for EURUSD H1
+2025-08-08 13:23:39,770 - INFO - 📊 EURUSD_H1: Only 0 trades (need 50)
+2025-08-08 13:23:39,782 - INFO - 📊 Retrieved 0 trades with features for EURUSD M15
+2025-08-08 13:23:39,782 - INFO - 📊 EURUSD_M15: Only 0 trades (need 50)
+2025-08-08 13:23:39,789 - INFO - 📊 Retrieved 0 trades with features for EURUSD M30
+2025-08-08 13:23:39,789 - INFO - 📊 EURUSD_M30: Only 0 trades (need 50)
+2025-08-08 13:23:39,796 - INFO - 📊 Retrieved 0 trades with features for EURUSD M5
+2025-08-08 13:23:39,797 - INFO - 📊 EURUSD_M5: Only 0 trades (need 50)
+2025-08-08 13:23:39,805 - INFO - 📊 Retrieved 0 trades with features for GBPUSD+ H1
+2025-08-08 13:23:39,806 - INFO - 📊 GBPUSD+_H1: Only 0 trades (need 50)
+2025-08-08 13:23:39,814 - INFO - 📊 Retrieved 0 trades with features for GBPUSD+ M15
+2025-08-08 13:23:39,815 - INFO - 📊 GBPUSD+_M15: Only 0 trades (need 50)
+2025-08-08 13:23:39,822 - INFO - 📊 Retrieved 0 trades with features for GBPUSD+ M30
+2025-08-08 13:23:39,822 - INFO - 📊 GBPUSD+_M30: Only 0 trades (need 50)
+2025-08-08 13:23:39,829 - INFO - 📊 Retrieved 0 trades with features for GBPUSD+ M5
+2025-08-08 13:23:39,830 - INFO - 📊 GBPUSD+_M5: Only 0 trades (need 50)
+2025-08-08 13:23:39,837 - INFO - 📊 Retrieved 0 trades with features for USDJPY+ H1
+2025-08-08 13:23:39,838 - INFO - 📊 USDJPY+_H1: Only 0 trades (need 50)
+2025-08-08 13:23:39,846 - INFO - 📊 Retrieved 0 trades with features for USDJPY+ M15
+2025-08-08 13:23:39,846 - INFO - 📊 USDJPY+_M15: Only 0 trades (need 50)
+2025-08-08 13:23:39,855 - INFO - 📊 Retrieved 0 trades with features for USDJPY+ M30
+2025-08-08 13:23:39,855 - INFO - 📊 USDJPY+_M30: Only 0 trades (need 50)
+2025-08-08 13:23:39,863 - INFO - 📊 Retrieved 0 trades with features for USDJPY+ M5
+2025-08-08 13:23:39,863 - INFO - 📊 USDJPY+_M5: Only 0 trades (need 50)
+2025-08-08 13:23:39,870 - INFO - 📊 Retrieved 0 trades with features for USDCAD+ H1
+2025-08-08 13:23:39,870 - INFO - 📊 USDCAD+_H1: Only 0 trades (need 50)
+2025-08-08 13:23:39,877 - INFO - 📊 Retrieved 0 trades with features for USDCAD+ M15
+2025-08-08 13:23:39,877 - INFO - 📊 USDCAD+_M15: Only 0 trades (need 50)
+2025-08-08 13:23:39,883 - INFO - 📊 Retrieved 0 trades with features for USDCAD+ M30
+2025-08-08 13:23:39,883 - INFO - 📊 USDCAD+_M30: Only 0 trades (need 50)
+2025-08-08 13:23:39,890 - INFO - 📊 Retrieved 0 trades with features for USDCAD+ M5
+2025-08-08 13:23:39,890 - INFO - 📊 USDCAD+_M5: Only 0 trades (need 50)
+2025-08-08 13:23:39,897 - INFO - 📊 Retrieved 0 trades with features for BTCUSD H1
+2025-08-08 13:23:39,898 - INFO - 📊 BTCUSD_H1: Only 0 trades (need 50)
+2025-08-08 13:23:39,904 - INFO - 📊 Retrieved 0 trades with features for BTCUSD M15
+2025-08-08 13:23:39,905 - INFO - 📊 BTCUSD_M15: Only 0 trades (need 50)
+2025-08-08 13:23:39,911 - INFO - 📊 Retrieved 0 trades with features for BTCUSD M30
+2025-08-08 13:23:39,911 - INFO - 📊 BTCUSD_M30: Only 0 trades (need 50)
+2025-08-08 13:23:39,937 - INFO - 📊 Retrieved 167 trades with features for BTCUSD M5
+2025-08-08 13:23:39,951 - INFO - 📊 Model expects 28 features
+2025-08-08 13:23:39,954 - INFO - 📊 BTCUSD M5 current accuracy: 0.946
+2025-08-08 13:23:39,954 - INFO - ✅ BTCUSD_M5: Current performance 0.946 >= threshold 0.55
+2025-08-08 13:23:39,958 - INFO - 📊 Retrieved 0 trades with features for ETHUSD H1
+2025-08-08 13:23:39,958 - INFO - 📊 ETHUSD_H1: Only 0 trades (need 50)
+2025-08-08 13:23:39,962 - INFO - 📊 Retrieved 0 trades with features for ETHUSD M15
+2025-08-08 13:23:39,962 - INFO - 📊 ETHUSD_M15: Only 0 trades (need 50)
+2025-08-08 13:23:39,966 - INFO - 📊 Retrieved 1 trades with features for ETHUSD M30
+2025-08-08 13:23:39,966 - INFO - 📊 ETHUSD_M30: Only 1 trades (need 50)
+2025-08-08 13:23:39,971 - INFO - 📊 Retrieved 46 trades with features for ETHUSD M5
+2025-08-08 13:23:39,971 - INFO - 📊 ETHUSD_M5: Only 46 trades (need 50)
+2025-08-08 13:23:39,971 - INFO - 💤 Sleeping for 24 hours until next check
