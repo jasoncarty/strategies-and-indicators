@@ -82,7 +82,7 @@ class TestWebserverManager:
             print(f"❌ Failed to start analytics service: {e}")
             return False
 
-    def start_ml_service(self) -> bool:
+    def start_ml_service(self, test_models_dir: str = None) -> bool:
         """Start ML prediction service"""
         try:
             print(f"🚀 Starting ML service on port {self.ports['ml_service']}")
@@ -92,6 +92,11 @@ class TestWebserverManager:
             env['ML_SERVICE_PORT'] = str(self.ports['ml_service'])
             env['FLASK_ENV'] = 'testing'
             env['FLASK_DEBUG'] = '0'
+
+            # Set models directory if provided
+            if test_models_dir:
+                env['ML_MODELS_DIR'] = test_models_dir
+                print(f"📁 Using test models directory: {test_models_dir}")
 
             # Start ML service
             ml_dir = Path(__file__).parent.parent / 'ML_Webserver'

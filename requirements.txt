@@ -10,6 +10,7 @@ Flask-Testing==0.8.0
 # Database
 pymysql==1.1.0
 python-dotenv==1.0.0
+cryptography>=41.0.0
 
 # Data processing and ML
 numpy>=1.26.0

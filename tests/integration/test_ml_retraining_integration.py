@@ -397,35 +397,53 @@ class TestMLRetrainingIntegration(unittest.TestCase):
             # Restart ML service to load new models
             self.webserver_manager.stop_service('ml_service')
             time.sleep(2)
-            ml_started = self.webserver_manager.start_ml_service()
+            ml_started = self.webserver_manager.start_ml_service(str(self.test_models_dir))
             self.assertTrue(ml_started, "ML service should restart successfully")
 
             # Wait for service to be ready
             time.sleep(5)
 
-            # Test prediction with 28 features
+            # Debug: Check what models are loaded
+            try:
+                health_response = requests.get(f"{self.ml_service_url}/health", timeout=5)
+                if health_response.status_code == 200:
+                    health_data = health_response.json()
+                    print(f"🔍 ML Service Health Check:")
+                    print(f"   Models loaded: {health_data.get('models_loaded', 0)}")
+                    print(f"   Available models: {health_data.get('available_models', [])}")
+                else:
+                    print(f"❌ Health check failed: {health_response.status_code}")
+            except Exception as e:
+                print(f"❌ Health check error: {e}")
+
+            # Test prediction with 19 basic features (ML service will generate engineered features)
             prediction_request = {
                 'strategy': self.strategy,
                 'symbol': self.symbol,
                 'timeframe': self.timeframe,
                 'direction': 'buy',
-                # Include all 28 features
+                # Include only 19 basic features - ML service will generate engineered features
                 'rsi': 50.0, 'stoch_main': 50.0, 'stoch_signal': 50.0,
                 'macd_main': 0.0, 'macd_signal': 0.0, 'bb_upper': 50000.0,
                 'bb_lower': 49000.0, 'williams_r': 50.0, 'cci': 0.0,
                 'momentum': 100.0, 'force_index': 0.0, 'volume_ratio': 1.0,
                 'price_change': 0.001, 'volatility': 0.001, 'spread': 1.0,
                 'session_hour': 12, 'is_news_time': 0, 'day_of_week': 1,
-                'month': 7, 'rsi_regime': 1, 'stoch_regime': 1, 'volatility_regime': 1,
-                'hour': 12, 'session': 1, 'is_london_session': 1,
-                'is_ny_session': 0, 'is_asian_session': 0, 'is_session_overlap': 0
+                'month': 7
             }
 
             response = requests.post(f"{self.ml_service_url}/predict",
                                    json=prediction_request, timeout=10)
 
-            self.assertEqual(response.status_code, 200,
-                           f"Prediction should succeed, got status {response.status_code}")
+            if response.status_code != 200:
+                print(f"❌ Prediction failed with status {response.status_code}")
+                try:
+                    error_response = response.json()
+                    print(f"❌ Error response: {error_response}")
+                except:
+                    print(f"❌ Error response text: {response.text}")
+                self.assertEqual(response.status_code, 200,
+                               f"Prediction should succeed, got status {response.status_code}")
 
             result = response.json()
             self.assertEqual(result['status'], 'success',

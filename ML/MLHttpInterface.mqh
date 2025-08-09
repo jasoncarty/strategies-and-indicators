@@ -600,6 +600,652 @@ public:
         return escaped;
     }
 
+    //+------------------------------------------------------------------+
+    //| Analytics callback function type definitions                     |
+    //+------------------------------------------------------------------+
+    typedef void (*TradeEntryCallback)(string direction, double entry_price, double stop_loss, double take_profit, double lot_size, string strategy_name, string version);
+    typedef void (*MarketConditionsCallback)(MLFeatures& features);
+    typedef void (*MLPredictionCallback)(string model_name, string direction, double probability, double confidence, string features_json);
+    typedef void (*SetTradeIDCallback)(ulong position_ticket);
+    typedef void (*TradeExitCallback)(double close_price, double profit, double profitLossPips);
+
+    //+------------------------------------------------------------------+
+    //| Collect market features - unified function for all EAs           |
+    //+------------------------------------------------------------------+
+    void CollectMarketFeatures(MLFeatures &features) {
+        Print("📊 Collecting market features...");
+
+        // Technical indicators
+        int rsi_handle = iRSI(_Symbol, _Period, 14, PRICE_CLOSE);
+        if(rsi_handle == INVALID_HANDLE) {
+            Print("❌ Failed to create RSI indicator handle");
+            features.rsi = 50.0;
+        } else {
+            double rsi_buffer[];
+            ArraySetAsSeries(rsi_buffer, true);
+            if(CopyBuffer(rsi_handle, 0, 0, 1, rsi_buffer) <= 0) {
+                Print("❌ Failed to copy RSI data");
+                features.rsi = 50.0;
+            } else {
+                features.rsi = rsi_buffer[0];
+            }
+        }
+
+        int stoch_handle = iStochastic(_Symbol, _Period, 5, 3, 3, MODE_SMA, STO_LOWHIGH);
+        if(stoch_handle == INVALID_HANDLE) {
+            Print("❌ Failed to create Stochastic indicator handle");
+            features.stoch_main = 50.0;
+            features.stoch_signal = 50.0;
+        } else {
+            double stoch_main_buffer[], stoch_signal_buffer[];
+            ArraySetAsSeries(stoch_main_buffer, true);
+            ArraySetAsSeries(stoch_signal_buffer, true);
+            if(CopyBuffer(stoch_handle, 0, 0, 1, stoch_main_buffer) <= 0 ||
+               CopyBuffer(stoch_handle, 1, 0, 1, stoch_signal_buffer) <= 0) {
+                Print("❌ Failed to copy Stochastic data");
+                features.stoch_main = 50.0;
+                features.stoch_signal = 50.0;
+            } else {
+                features.stoch_main = stoch_main_buffer[0];
+                features.stoch_signal = stoch_signal_buffer[0];
+            }
+        }
+
+        int macd_handle = iMACD(_Symbol, _Period, 12, 26, 9, PRICE_CLOSE);
+        if(macd_handle == INVALID_HANDLE) {
+            Print("❌ Failed to create MACD indicator handle");
+            features.macd_main = 0.0;
+            features.macd_signal = 0.0;
+        } else {
+            double macd_main_buffer[], macd_signal_buffer[];
+            ArraySetAsSeries(macd_main_buffer, true);
+            ArraySetAsSeries(macd_signal_buffer, true);
+            if(CopyBuffer(macd_handle, 0, 0, 1, macd_main_buffer) <= 0 ||
+               CopyBuffer(macd_handle, 1, 0, 1, macd_signal_buffer) <= 0) {
+                Print("❌ Failed to copy MACD data");
+                features.macd_main = 0.0;
+                features.macd_signal = 0.0;
+            } else {
+                features.macd_main = macd_main_buffer[0];
+                features.macd_signal = macd_signal_buffer[0];
+            }
+        }
+
+        // Bollinger Bands
+        int bb_handle = iBands(_Symbol, _Period, 20, 2, 0, PRICE_CLOSE);
+        if(bb_handle == INVALID_HANDLE) {
+            Print("❌ Failed to create Bollinger Bands indicator handle");
+            features.bb_upper = 0.0;
+            features.bb_lower = 0.0;
+        } else {
+            double bb_upper_buffer[], bb_lower_buffer[];
+            ArraySetAsSeries(bb_upper_buffer, true);
+            ArraySetAsSeries(bb_lower_buffer, true);
+            if(CopyBuffer(bb_handle, 1, 0, 1, bb_upper_buffer) <= 0 ||
+               CopyBuffer(bb_handle, 2, 0, 1, bb_lower_buffer) <= 0) {
+                Print("❌ Failed to copy Bollinger Bands data");
+                features.bb_upper = 0.0;
+                features.bb_lower = 0.0;
+            } else {
+                features.bb_upper = bb_upper_buffer[0];
+                features.bb_lower = bb_lower_buffer[0];
+            }
+        }
+
+        // Williams %R
+        int williams_handle = iWPR(_Symbol, _Period, 14);
+        if(williams_handle == INVALID_HANDLE) {
+            Print("❌ Failed to create Williams %R indicator handle");
+            features.williams_r = 50.0;
+        } else {
+            double williams_buffer[];
+            ArraySetAsSeries(williams_buffer, true);
+            if(CopyBuffer(williams_handle, 0, 0, 1, williams_buffer) <= 0) {
+                Print("❌ Failed to copy Williams %R data");
+                features.williams_r = 50.0;
+            } else {
+                features.williams_r = williams_buffer[0];
+            }
+        }
+
+        int cci_handle = iCCI(_Symbol, _Period, 14, PRICE_TYPICAL);
+        if(cci_handle == INVALID_HANDLE) {
+            Print("❌ Failed to create CCI indicator handle");
+            features.cci = 0.0;
+        } else {
+            double cci_buffer[];
+            ArraySetAsSeries(cci_buffer, true);
+            if(CopyBuffer(cci_handle, 0, 0, 1, cci_buffer) <= 0) {
+                Print("❌ Failed to copy CCI data");
+                features.cci = 0.0;
+            } else {
+                features.cci = cci_buffer[0];
+            }
+        }
+
+        int momentum_handle = iMomentum(_Symbol, _Period, 14, PRICE_CLOSE);
+        if(momentum_handle == INVALID_HANDLE) {
+            Print("❌ Failed to create Momentum indicator handle");
+            features.momentum = 100.0;
+        } else {
+            double momentum_buffer[];
+            ArraySetAsSeries(momentum_buffer, true);
+            if(CopyBuffer(momentum_handle, 0, 0, 1, momentum_buffer) <= 0) {
+                Print("❌ Failed to copy Momentum data");
+                features.momentum = 100.0;
+            } else {
+                features.momentum = momentum_buffer[0];
+            }
+        }
+
+        // Market conditions
+        long volume_array[];
+        ArraySetAsSeries(volume_array, true);
+        if(CopyTickVolume(_Symbol, _Period, 0, 2, volume_array) < 2) {
+            Print("❌ Failed to copy volume data");
+            features.volume_ratio = 1.0;
+        } else {
+            features.volume_ratio = (volume_array[0] > 0) ? (double)volume_array[0] / volume_array[1] : 1.0;
+        }
+
+        double close_array[];
+        ArraySetAsSeries(close_array, true);
+        if(CopyClose(_Symbol, _Period, 0, 2, close_array) < 2) {
+            Print("❌ Failed to copy close price data");
+            features.price_change = 0.0;
+            features.volatility = 0.001;
+        } else {
+            features.price_change = (close_array[0] - close_array[1]) / close_array[1];
+            features.volatility = MathAbs(features.price_change);
+        }
+
+        features.spread = SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+        // Time-based features
+        MqlDateTime dt;
+        TimeToStruct(TimeCurrent(), dt);
+        features.session_hour = dt.hour;
+        features.is_news_time = false;
+        features.day_of_week = dt.day_of_week;
+        features.month = dt.mon;
+
+        // Force Index calculation
+        if(volume_array[0] > 0 && close_array[1] != 0) {
+            features.force_index = volume_array[0] * (close_array[0] - close_array[1]);
+        } else {
+            features.force_index = 0.0;
+        }
+
+        // Validate features
+        ValidateFeatures(features);
+
+        Print("✅ Features collected - RSI: ", DoubleToString(features.rsi, 2),
+              ", MACD: ", DoubleToString(features.macd_main, 2),
+              ", BB_Upper: ", DoubleToString(features.bb_upper, _Digits),
+              ", Price Change: ", DoubleToString(features.price_change * 100, 3), "%");
+    }
+
+    //+------------------------------------------------------------------+
+    //| Validate and fix feature values                                  |
+    //+------------------------------------------------------------------+
+    void ValidateFeatures(MLFeatures &features) {
+        if(!MathIsValidNumber(features.rsi) || !MathIsValidNumber(features.stoch_main) ||
+           !MathIsValidNumber(features.stoch_signal) || !MathIsValidNumber(features.macd_main) ||
+           !MathIsValidNumber(features.macd_signal) || !MathIsValidNumber(features.bb_upper) ||
+           !MathIsValidNumber(features.bb_lower) || !MathIsValidNumber(features.williams_r) ||
+           !MathIsValidNumber(features.cci) || !MathIsValidNumber(features.momentum) ||
+           !MathIsValidNumber(features.volume_ratio) || !MathIsValidNumber(features.price_change) ||
+           !MathIsValidNumber(features.volatility) || !MathIsValidNumber(features.force_index) ||
+           !MathIsValidNumber(features.spread)) {
+
+            Print("❌ Invalid feature values detected - using fallback values");
+            Print("   RSI: ", features.rsi, " (valid: ", MathIsValidNumber(features.rsi), ")");
+            Print("   Stoch Main: ", features.stoch_main, " (valid: ", MathIsValidNumber(features.stoch_main), ")");
+            Print("   Stoch Signal: ", features.stoch_signal, " (valid: ", MathIsValidNumber(features.stoch_signal), ")");
+            Print("   MACD Main: ", features.macd_main, " (valid: ", MathIsValidNumber(features.macd_main), ")");
+            Print("   MACD Signal: ", features.macd_signal, " (valid: ", MathIsValidNumber(features.macd_signal), ")");
+            Print("   BB Upper: ", features.bb_upper, " (valid: ", MathIsValidNumber(features.bb_upper), ")");
+            Print("   BB Lower: ", features.bb_lower, " (valid: ", MathIsValidNumber(features.bb_lower), ")");
+            Print("   Williams R: ", features.williams_r, " (valid: ", MathIsValidNumber(features.williams_r), ")");
+            Print("   CCI: ", features.cci, " (valid: ", MathIsValidNumber(features.cci), ")");
+            Print("   Momentum: ", features.momentum, " (valid: ", MathIsValidNumber(features.momentum), ")");
+            Print("   Volume Ratio: ", features.volume_ratio, " (valid: ", MathIsValidNumber(features.volume_ratio), ")");
+            Print("   Price Change: ", features.price_change, " (valid: ", MathIsValidNumber(features.price_change), ")");
+            Print("   Volatility: ", features.volatility, " (valid: ", MathIsValidNumber(features.volatility), ")");
+            Print("   Force Index: ", features.force_index, " (valid: ", MathIsValidNumber(features.force_index), ")");
+            Print("   Spread: ", features.spread, " (valid: ", MathIsValidNumber(features.spread), ")");
+
+            // Set fallback values for invalid features
+            if(!MathIsValidNumber(features.rsi)) features.rsi = 50.0;
+            if(!MathIsValidNumber(features.stoch_main)) features.stoch_main = 50.0;
+            if(!MathIsValidNumber(features.stoch_signal)) features.stoch_signal = 50.0;
+            if(!MathIsValidNumber(features.macd_main)) features.macd_main = 0.0;
+            if(!MathIsValidNumber(features.macd_signal)) features.macd_signal = 0.0;
+            if(!MathIsValidNumber(features.bb_upper)) features.bb_upper = 0.0;
+            if(!MathIsValidNumber(features.bb_lower)) features.bb_lower = 0.0;
+            if(!MathIsValidNumber(features.williams_r)) features.williams_r = 50.0;
+            if(!MathIsValidNumber(features.cci)) features.cci = 0.0;
+            if(!MathIsValidNumber(features.momentum)) features.momentum = 100.0;
+            if(!MathIsValidNumber(features.volume_ratio)) features.volume_ratio = 1.0;
+            if(!MathIsValidNumber(features.price_change)) features.price_change = 0.0;
+            if(!MathIsValidNumber(features.volatility)) features.volatility = 0.001;
+            if(!MathIsValidNumber(features.force_index)) features.force_index = 0.0;
+            if(!MathIsValidNumber(features.spread)) features.spread = 1.0;
+        }
+    }
+
+    //+------------------------------------------------------------------+
+    //| Unified analytics handler using individual callbacks             |
+    //+------------------------------------------------------------------+
+    void HandleTradeAnalytics(double entry_price, double lot_size, string direction, string strategy_name,
+                             MLFeatures& lastMarketFeatures, string& lastTradeDirection, MLPrediction& lastMLPrediction,
+                             SetTradeIDCallback setTradeIDCallback,
+                             TradeEntryCallback tradeEntryCallback,
+                             MarketConditionsCallback marketConditionsCallback,
+                             MLPredictionCallback mlPredictionCallback,
+                             ulong position_ticket) {
+
+        Print("📊 Recording trade entry analytics...");
+
+        // For now, use placeholder values for SL/TP (can be enhanced later)
+        double stop_loss = 0.0;
+        double take_profit = 0.0;
+
+        // Set the analytics trade ID (EA-specific)
+        if(setTradeIDCallback != NULL) {
+            setTradeIDCallback(position_ticket);
+        }
+
+        // Record trade entry
+        if(tradeEntryCallback != NULL) {
+            tradeEntryCallback(direction, entry_price, stop_loss, take_profit, lot_size, strategy_name, "1.00");
+            Print("✅ Recorded trade entry analytics");
+        }
+
+        // Record market conditions for every trade (regardless of ML prediction)
+        if(lastMarketFeatures.rsi != 0 && marketConditionsCallback != NULL) {
+            marketConditionsCallback(lastMarketFeatures);
+            Print("✅ Recorded market conditions analytics");
+        }
+
+        // Record ML prediction if we have stored data
+        if(lastTradeDirection != "" && mlPredictionCallback != NULL) {
+            // Record ML prediction with features JSON
+            string model_name = (lastTradeDirection == "BUY") ? "buy_model_improved" : "sell_model_improved";
+            string features_json = CreateFeatureJSON(lastMarketFeatures, lastTradeDirection);
+            mlPredictionCallback(model_name, StringToLower(lastTradeDirection), lastMLPrediction.probability, lastMLPrediction.confidence, features_json);
+            Print("✅ Recorded ML prediction analytics with features");
+
+            // Clear stored data
+            lastTradeDirection = "";
+        }
+    }
+
+    //+------------------------------------------------------------------+
+    //| Complete OnTradeTransaction handler - for simple EAs            |
+    //+------------------------------------------------------------------+
+    void HandleCompleteTradeTransaction(const MqlTradeTransaction& trans,
+                            const MqlTradeRequest& request,
+                            const MqlTradeResult& result,
+                            ulong& lastKnownPositionTicket,
+                            datetime& lastPositionOpenTime,
+                            string& lastTradeID,
+                            bool& pendingTradeData,
+                            bool enableHttpAnalytics,
+                            string eaIdentifier,
+                            string strategyName,
+                            MLPrediction& pendingPrediction,
+                            MLFeatures& pendingFeatures,
+                            string& pendingDirection,
+                            double pendingEntry,
+                            double pendingStopLoss,
+                            double pendingTakeProfit,
+                            double pendingLotSize,
+                            MLPrediction& lastMLPrediction,
+                            MLFeatures& lastMarketFeatures,
+                            string& lastTradeDirection,
+                            SetTradeIDCallback setTradeIDCallback,
+                            TradeEntryCallback tradeEntryCallback,
+                            MarketConditionsCallback marketConditionsCallback,
+                            MLPredictionCallback mlPredictionCallback,
+                            TradeExitCallback tradeExitCallback) {
+
+        Print("🔄 OnTradeTransaction() called - Transaction type: ", EnumToString(trans.type));
+        Print("🔍 Position ticket: ", trans.position, ", Deal ticket: ", trans.deal);
+
+        // Handle trade open transactions
+        HandleTradeOpenTransaction(trans, lastKnownPositionTicket, lastPositionOpenTime,
+                                 lastTradeID, pendingTradeData, enableHttpAnalytics, eaIdentifier,
+                                 strategyName, pendingPrediction, pendingFeatures,
+                                 pendingDirection, pendingEntry, pendingStopLoss, pendingTakeProfit, pendingLotSize);
+
+        // Handle unified analytics after trade open
+        if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.position != 0 && lastKnownPositionTicket == trans.position) {
+            if(enableHttpAnalytics && HistoryDealSelect(trans.deal)) {
+                double entry_price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+                double lot_size = HistoryDealGetDouble(trans.deal, DEAL_VOLUME);
+                string direction = (HistoryDealGetInteger(trans.deal, DEAL_TYPE) == DEAL_TYPE_BUY) ? "BUY" : "SELL";
+
+                // Use unified analytics handler
+                HandleTradeAnalytics(entry_price, lot_size, direction, strategyName,
+                                   lastMarketFeatures, lastTradeDirection, lastMLPrediction,
+                                   setTradeIDCallback, tradeEntryCallback, marketConditionsCallback, mlPredictionCallback,
+                                   lastKnownPositionTicket);
+            }
+        }
+
+        // Handle trade close transactions
+        HandleTradeCloseTransaction(trans, lastKnownPositionTicket, lastPositionOpenTime,
+                                  lastTradeID, pendingTradeData, enableHttpAnalytics, eaIdentifier, tradeExitCallback);
+    }
+
+    //+------------------------------------------------------------------+
+    //| Complete OnTradeTransaction handler - for BreakoutStrategy EA   |
+    //+------------------------------------------------------------------+
+    void HandleCompleteTradeTransactionWithPosition(const MqlTradeTransaction& trans,
+                                        const MqlTradeRequest& request,
+                                        const MqlTradeResult& result,
+                                        ulong& lastKnownPositionTicket,
+                                        datetime& lastPositionOpenTime,
+                                        string& lastTradeID,
+                                        bool& pendingTradeData,
+                                        bool enableHttpAnalytics,
+                                        string eaIdentifier,
+                                        string strategyName,
+                                        MLPrediction& pendingPrediction,
+                                        MLFeatures& pendingFeatures,
+                                        string& pendingDirection,
+                                        double pendingEntry,
+                                        double pendingStopLoss,
+                                        double pendingTakeProfit,
+                                        double pendingLotSize,
+                                        MLPrediction& lastMLPrediction,
+                                        MLFeatures& lastMarketFeatures,
+                                        string& lastTradeDirection,
+                                        bool& hasOpenPosition,
+                                        SetTradeIDCallback setTradeIDCallback,
+                                        TradeEntryCallback tradeEntryCallback,
+                                        MarketConditionsCallback marketConditionsCallback,
+                                        MLPredictionCallback mlPredictionCallback,
+                                        TradeExitCallback tradeExitCallback) {
+
+        Print("🔄 OnTradeTransaction() called - Transaction type: ", EnumToString(trans.type));
+        Print("🔍 Position ticket: ", trans.position, ", Deal ticket: ", trans.deal);
+
+        // Handle trade open transactions
+        HandleTradeOpenTransaction(trans, lastKnownPositionTicket, lastPositionOpenTime,
+                                 lastTradeID, pendingTradeData, enableHttpAnalytics, eaIdentifier,
+                                 strategyName, pendingPrediction, pendingFeatures,
+                                 pendingDirection, pendingEntry, pendingStopLoss, pendingTakeProfit, pendingLotSize);
+
+        // Handle BreakoutStrategy-specific logic after trade open
+        if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.position != 0 && lastKnownPositionTicket == trans.position) {
+            hasOpenPosition = true;
+
+            // Handle unified analytics after trade open
+            if(enableHttpAnalytics && HistoryDealSelect(trans.deal)) {
+                double entry_price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+                double lot_size = HistoryDealGetDouble(trans.deal, DEAL_VOLUME);
+                string direction = (HistoryDealGetInteger(trans.deal, DEAL_TYPE) == DEAL_TYPE_BUY) ? "BUY" : "SELL";
+
+                // Use unified analytics handler
+                HandleTradeAnalytics(entry_price, lot_size, direction, strategyName,
+                                   lastMarketFeatures, lastTradeDirection, lastMLPrediction,
+                                   setTradeIDCallback, tradeEntryCallback, marketConditionsCallback, mlPredictionCallback,
+                                   lastKnownPositionTicket);
+            }
+        }
+
+        // Store the original position ticket to check if trade was closed
+        ulong originalPositionTicket = lastKnownPositionTicket;
+
+        // Handle trade close transactions
+        HandleTradeCloseTransaction(trans, lastKnownPositionTicket, lastPositionOpenTime,
+                                  lastTradeID, pendingTradeData, enableHttpAnalytics, eaIdentifier, tradeExitCallback);
+
+        // Handle BreakoutStrategy-specific logic after trade close
+        if(originalPositionTicket != 0 && lastKnownPositionTicket == 0) {
+            // Position was closed and reset by utility function
+            hasOpenPosition = false;
+            Print("🔄 Updated hasOpenPosition status after trade close");
+        }
+    }
+
+    //+------------------------------------------------------------------+
+    //| Handle trade open transactions - utility function for EAs        |
+    //+------------------------------------------------------------------+
+    void HandleTradeOpenTransaction(const MqlTradeTransaction& trans,
+                                   ulong& lastKnownPositionTicket,
+                                   datetime& lastPositionOpenTime,
+                                   string& lastTradeID,
+                                   bool& pendingTradeData,
+                                   bool enableHttpAnalytics,
+                                   string eaIdentifier,
+                                   string strategyName,
+                                   MLPrediction& pendingPrediction,
+                                   MLFeatures& pendingFeatures,
+                                   string& pendingDirection,
+                                   double pendingEntry,
+                                   double pendingStopLoss,
+                                   double pendingTakeProfit,
+                                   double pendingLotSize) {
+
+        Print("🔄 HandleTradeOpenTransaction() called - Transaction type: ", EnumToString(trans.type));
+        Print("🔍 Position ticket: ", trans.position, ", Deal ticket: ", trans.deal);
+
+        // Check if this is a position opening transaction
+        if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.position != 0 && lastKnownPositionTicket == 0) {
+            Print("🔍 Potential position opening transaction detected - Position: ", trans.position);
+
+            // Verify this is our position by checking the deal
+            if(HistoryDealSelect(trans.deal)) {
+                string deal_symbol = HistoryDealGetString(trans.deal, DEAL_SYMBOL);
+                string deal_comment = HistoryDealGetString(trans.deal, DEAL_COMMENT);
+                ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+
+                Print("🔍 Deal symbol: ", deal_symbol, ", Comment: ", deal_comment);
+                Print("🔍 EA identifier: ", eaIdentifier);
+                Print("🔍 Deal entry type: ", EnumToString(deal_entry));
+
+                if(deal_symbol == _Symbol && StringFind(deal_comment, eaIdentifier) >= 0 && deal_entry == DEAL_ENTRY_IN) {
+                    Print("✅ Position opening confirmed for this EA - Ticket: ", trans.position);
+                    lastKnownPositionTicket = trans.position;
+                    lastPositionOpenTime = (datetime)HistoryDealGetInteger(trans.deal, DEAL_TIME);
+
+                    // Set the trade ID to the MT5 position ticket for consistency
+                    if(lastTradeID == "" || lastTradeID == "0") {
+                        lastTradeID = IntegerToString(trans.position);
+                        Print("✅ Set trade ID to MT5 position ticket: ", lastTradeID);
+
+                        // Note: SetTradeIDFromTicket is EA-specific and should be called by the EA
+
+                        // Record trade entry analytics now that we have the actual position ticket
+                        if(enableHttpAnalytics) {
+                            Print("📊 HTTP Analytics enabled - EA should handle RecordTradeEntry");
+                            // Note: RecordTradeEntry is EA-specific and should be handled by the EA
+                        }
+
+                        // Log trade data for ML retraining now that we have the actual MT5 ticket
+                        if(pendingTradeData) {
+                            Print("📊 Logging trade data for ML retraining with actual MT5 ticket: ", lastTradeID);
+                            LogTradeForRetraining(lastTradeID, pendingDirection, pendingEntry, pendingStopLoss, pendingTakeProfit, pendingLotSize, pendingPrediction, pendingFeatures);
+                            Print("✅ Trade data logged for ML retraining");
+
+                            // Clear pending trade data
+                            pendingTradeData = false;
+                        }
+                    }
+
+                    Print("🔄 Updated position tracking - Ticket: ", lastKnownPositionTicket, ", Time: ", TimeToString(lastPositionOpenTime));
+                    Print("🔄 Trade ID for this position: ", lastTradeID);
+                } else {
+                    Print("❌ Deal does not match this EA or is not an entry deal - skipping");
+                    Print("   Symbol match: ", deal_symbol == _Symbol ? "true" : "false");
+                    Print("   Comment match: ", StringFind(deal_comment, eaIdentifier) >= 0 ? "true" : "false");
+                    Print("   Entry type: ", deal_entry == DEAL_ENTRY_IN ? "true" : "false");
+                }
+            } else {
+                Print("❌ Could not select deal for position opening check: ", trans.deal);
+            }
+        }
+    }
+
+    //+------------------------------------------------------------------+
+    //| Handle trade close transactions - utility function for EAs       |
+    //+------------------------------------------------------------------+
+    void HandleTradeCloseTransaction(const MqlTradeTransaction& trans,
+                                   ulong& lastKnownPositionTicket,
+                                   datetime& lastPositionOpenTime,
+                                   string& lastTradeID,
+                                   bool& pendingTradeData,
+                                   bool enableHttpAnalytics,
+                                   string eaIdentifier,
+                                   TradeExitCallback tradeExitCallback) {
+
+        // Handle TRADE_TRANSACTION_DEAL_ADD for immediate trade close detection
+        if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.position == lastKnownPositionTicket && lastKnownPositionTicket != 0) {
+            Print("🔍 Position ticket: ", trans.position, ", Deal ticket: ", trans.deal);
+            Print("✅ Position close transaction detected for tracked position!");
+
+            // Get the closing deal details
+            if(HistoryDealSelect(trans.deal)) {
+                ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+
+                // Only process if this is actually a closing deal
+                if(deal_entry == DEAL_ENTRY_OUT) {
+                    double close_price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+                    double profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
+                    datetime close_time = (datetime)HistoryDealGetInteger(trans.deal, DEAL_TIME);
+
+                    Print("🔍 Deal details - Price: ", DoubleToString(close_price, _Digits), ", Profit: $", DoubleToString(profit, 2), ", Time: ", TimeToString(close_time));
+
+                    // Process the trade close
+                    ProcessTradeClose(close_price, profit, close_time, lastTradeID, lastKnownPositionTicket, lastPositionOpenTime, pendingTradeData, enableHttpAnalytics, tradeExitCallback);
+                } else {
+                    Print("❌ Deal is not a closing deal (entry type: ", EnumToString(deal_entry), ")");
+                }
+            } else {
+                Print("❌ Could not select deal: ", trans.deal);
+            }
+        }
+
+        // Handle TRADE_TRANSACTION_HISTORY_ADD for when position is moved to history after closing
+        else if(trans.type == TRADE_TRANSACTION_HISTORY_ADD && trans.position == lastKnownPositionTicket && lastKnownPositionTicket != 0) {
+            Print("✅ Position history add detected for tracked position: ", trans.position);
+
+            // Position has been moved to history, which means it's closed
+            // We need to get the closing deal information from history
+            if(HistorySelectByPosition(trans.position)) {
+                // Find the closing deal (DEAL_ENTRY_OUT)
+                int total_deals = HistoryDealsTotal();
+                bool found_closing_deal = false;
+
+                Print("🔍 Searching through ", total_deals, " deals for position: ", trans.position);
+
+                // First, let's see all deals for this position to understand the structure
+                for(int i = 0; i < total_deals; i++) {
+                    ulong deal_ticket = HistoryDealGetTicket(i);
+                    if(deal_ticket > 0) {
+                        long deal_position = HistoryDealGetInteger(deal_ticket, DEAL_POSITION_ID);
+                        ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
+                        string deal_symbol = HistoryDealGetString(deal_ticket, DEAL_SYMBOL);
+                        string deal_comment = HistoryDealGetString(deal_ticket, DEAL_COMMENT);
+                        datetime deal_time = (datetime)HistoryDealGetInteger(deal_ticket, DEAL_TIME);
+
+                        Print("Deal[", i, "] - Ticket: ", deal_ticket, ", Position: ", deal_position,
+                              ", Entry: ", EnumToString(deal_entry), " (", deal_entry, ")",
+                              ", Symbol: ", deal_symbol, ", Time: ", TimeToString(deal_time),
+                              ", Comment: ", deal_comment);
+                    }
+                }
+
+                // Now search for our specific closing deal
+                for(int i = total_deals - 1; i >= 0; i--) {
+                    ulong deal_ticket = HistoryDealGetTicket(i);
+                    if(deal_ticket > 0) {
+                        long deal_position = HistoryDealGetInteger(deal_ticket, DEAL_POSITION_ID);
+                        ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
+                        string deal_symbol = HistoryDealGetString(deal_ticket, DEAL_SYMBOL);
+                        string deal_comment = HistoryDealGetString(deal_ticket, DEAL_COMMENT);
+
+                        // Only check deals that match our position
+                        if(deal_position == trans.position) {
+                            Print("🔍 Checking deal for our position: ", deal_ticket);
+                            Print("   Entry type: ", EnumToString(deal_entry), " (", deal_entry, ")");
+                            Print("   Symbol: ", deal_symbol, " (expected: ", _Symbol, ")");
+                            Print("   Comment: ", deal_comment, " (looking for: ", eaIdentifier, ")");
+
+                            if(deal_entry == DEAL_ENTRY_OUT &&
+                               deal_symbol == _Symbol && StringFind(deal_comment, eaIdentifier) >= 0) {
+
+                                Print("🔍 Found closing deal for position: ", trans.position);
+
+                                double close_price = HistoryDealGetDouble(deal_ticket, DEAL_PRICE);
+                                double profit = HistoryDealGetDouble(deal_ticket, DEAL_PROFIT);
+                                datetime close_time = (datetime)HistoryDealGetInteger(deal_ticket, DEAL_TIME);
+
+                                Print("🔍 Deal details - Price: ", DoubleToString(close_price, _Digits), ", Profit: $", DoubleToString(profit, 2), ", Time: ", TimeToString(close_time));
+
+                                // Process the trade close
+                                ProcessTradeClose(close_price, profit, close_time, lastTradeID, lastKnownPositionTicket, lastPositionOpenTime, pendingTradeData, enableHttpAnalytics, tradeExitCallback);
+
+                                found_closing_deal = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if(!found_closing_deal) {
+                    Print("⚠️ Could not find closing deal for position: ", trans.position);
+                }
+            } else {
+                Print("❌ Could not select position history for: ", trans.position);
+            }
+        }
+    }
+
+private:
+    //+------------------------------------------------------------------+
+    //| Process trade close - common logic for both transaction types    |
+    //+------------------------------------------------------------------+
+    void ProcessTradeClose(double close_price, double profit, datetime close_time,
+                          string& lastTradeID, ulong& lastKnownPositionTicket,
+                          datetime& lastPositionOpenTime, bool& pendingTradeData,
+                          bool enableHttpAnalytics, TradeExitCallback tradeExitCallback) {
+
+        // Calculate profit/loss in pips
+        double profitLossPips = 0.0;
+        if(profit != 0) {
+            double pointValue = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+            profitLossPips = profit / (pointValue * 10); // Convert to pips
+        }
+
+        Print("✅ Position closed detected - P&L: $", DoubleToString(profit, 2), " (", DoubleToString(profitLossPips, 1), " pips)");
+
+        // Record trade exit analytics using callback
+        if(enableHttpAnalytics && tradeExitCallback != NULL) {
+            Print("📊 Recording trade exit analytics...");
+            tradeExitCallback(close_price, profit, profitLossPips);
+            Print("✅ Trade exit analytics recorded");
+        } else {
+            Print("⚠️ HTTP Analytics disabled or no trade exit callback provided");
+        }
+
+        // Always log trade close for ML retraining
+        Print("📊 Logging trade close for ML retraining...");
+        Print("🔍 Using stored trade ID: ", lastTradeID);
+        LogTradeCloseForRetraining(lastTradeID, close_price, profit, profitLossPips, close_time);
+        Print("✅ Trade close logged for ML retraining");
+
+        // Reset position tracking
+        lastKnownPositionTicket = 0;
+        lastPositionOpenTime = 0;
+        lastTradeID = ""; // Clear the trade ID
+        pendingTradeData = false; // Clear pending trade data
+        Print("🔄 Reset position tracking variables");
+    }
+
 private:
                 // Prepare JSON request for API using JSON library
     string PrepareJsonRequest(MLFeatures &features, string direction) {

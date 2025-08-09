@@ -26,12 +26,18 @@ enum BREAKOUT_STATE {
     WAITING_FOR_BULLISH_RETEST = 3,
     WAITING_FOR_BEARISH_RETEST = 4,
     WAITING_FOR_BULLISH_CLOSE = 5,
-    WAITING_FOR_BEARISH_CLOSE = 6
+    WAITING_FOR_BEARISH_CLOSE = 6,
+    // New states for enhanced trading opportunities
+    PRICE_NEAR_HIGH_LEVEL = 7,        // Price approaching prev day high
+    PRICE_NEAR_LOW_LEVEL = 8,         // Price approaching prev day low
+    BOUNCE_FROM_HIGH_DETECTED = 9,    // Bounce down from prev day high
+    BOUNCE_FROM_LOW_DETECTED = 10     // Bounce up from prev day low
 };
 extern BREAKOUT_STATE currentState;
 extern datetime lastStateChange;
 extern double breakoutLevel;
 extern string breakoutDirection;
+extern string bounceDirection; // Direction for bounce trades (separate from breakouts)
 extern double swingPoint; // The swing high/low that created the retest
 
 //--- Retest tracking variables
@@ -47,6 +53,15 @@ extern int retestBar;
 extern int breakoutBar;
 extern int barsSinceBreakout;
 
+//--- Bounce tracking variables (new)
+extern bool bounceFromHighDetected;
+extern bool bounceFromLowDetected;
+extern double bounceHighPoint;
+extern double bounceLowPoint;
+extern int proximityThreshold; // Points threshold for "near" level detection
+extern bool wasNearHighLevel;
+extern bool wasNearLowLevel;
+
 //+------------------------------------------------------------------+
 //| Update previous day high and low                                 |
 //+------------------------------------------------------------------+
@@ -54,19 +69,29 @@ void UpdatePreviousDayLevels() {
     previousDayHigh = iHigh(_Symbol, PERIOD_D1, 1);
     previousDayLow = iLow(_Symbol, PERIOD_D1, 1);
 
-    Print("📊 Previous Day Levels Updated:");
+        Print("📊 Previous Day Levels Updated:");
     Print("   High: ", DoubleToString(previousDayHigh, _Digits));
     Print("   Low: ", DoubleToString(previousDayLow, _Digits));
+
+    // Reset bounce extremes for new day
+    ResetBounceExtremes();
+
+    // Initialize proximity threshold (can be adjusted)
+    if(proximityThreshold == 0) {
+        proximityThreshold = 50; // 50 points default - can be made configurable
+        Print("📏 Proximity threshold set to: ", proximityThreshold, " points");
+    }
 }
 
 //+------------------------------------------------------------------+
 //| Calculate stop loss for bullish trade (based on new day low)     |
 //+------------------------------------------------------------------+
-double CalculateBullishStopLoss(int stopLossBuffer = 20) {
-    // For bullish trades: Stop loss below the NEW day low
-    double baseStopLoss = newDayLow - (stopLossBuffer * _Point); // Add small buffer below new day low
+double CalculateBullishStopLoss(int stopLossBuffer = 20, double customLevel = 0.0) {
+    // Use custom level if provided, otherwise use NEW day low
+    double referenceLevel = (customLevel > 0) ? customLevel : newDayLow;
+    double baseStopLoss = referenceLevel - (stopLossBuffer * _Point); // Add small buffer below reference level
     Print("🎯 Bullish Stop Loss Calculation:");
-    Print("   NEW day low: ", DoubleToString(newDayLow, _Digits));
+    Print("   Reference level: ", DoubleToString(referenceLevel, _Digits), (customLevel > 0) ? " (custom)" : " (NEW day low)");
     Print("   Buffer: ", stopLossBuffer, " points");
     Print("   Base Stop Loss: ", DoubleToString(baseStopLoss, _Digits));
     return baseStopLoss;
@@ -75,13 +100,40 @@ double CalculateBullishStopLoss(int stopLossBuffer = 20) {
 //+------------------------------------------------------------------+
 //| Calculate stop loss for bearish trade (based on new day high)    |
 //+------------------------------------------------------------------+
-double CalculateBearishStopLoss(int stopLossBuffer = 20) {
-    // For bearish trades: Stop loss above the NEW day high
-    double baseStopLoss = newDayHigh + (stopLossBuffer * _Point); // Add small buffer above new day high
+double CalculateBearishStopLoss(int stopLossBuffer = 20, double customLevel = 0.0) {
+    // Use custom level if provided, otherwise use NEW day high
+    double referenceLevel = (customLevel > 0) ? customLevel : newDayHigh;
+    double baseStopLoss = referenceLevel + (stopLossBuffer * _Point); // Add small buffer above reference level
     Print("🎯 Bearish Stop Loss Calculation:");
-    Print("   NEW day high: ", DoubleToString(newDayHigh, _Digits));
+    Print("   Reference level: ", DoubleToString(referenceLevel, _Digits), (customLevel > 0) ? " (custom)" : " (NEW day high)");
     Print("   Buffer: ", stopLossBuffer, " points");
     Print("   Base Stop Loss: ", DoubleToString(baseStopLoss, _Digits));
+    return baseStopLoss;
+}
+
+//+------------------------------------------------------------------+
+//| Calculate stop loss for bounce trades - SELL from high bounce   |
+//+------------------------------------------------------------------+
+double CalculateBounceFromHighStopLoss(int stopLossBuffer = 20) {
+    // For bounce SELL trades: Stop loss above the bounce high point
+    double baseStopLoss = bounceHighPoint + (stopLossBuffer * _Point);
+    Print("🎯 Bounce From High Stop Loss Calculation:");
+    Print("   Bounce high point: ", DoubleToString(bounceHighPoint, _Digits));
+    Print("   Buffer: ", stopLossBuffer, " points");
+    Print("   Stop Loss: ", DoubleToString(baseStopLoss, _Digits));
+    return baseStopLoss;
+}
+
+//+------------------------------------------------------------------+
+//| Calculate stop loss for bounce trades - BUY from low bounce     |
+//+------------------------------------------------------------------+
+double CalculateBounceFromLowStopLoss(int stopLossBuffer = 20) {
+    // For bounce BUY trades: Stop loss below the bounce low point
+    double baseStopLoss = bounceLowPoint - (stopLossBuffer * _Point);
+    Print("🎯 Bounce From Low Stop Loss Calculation:");
+    Print("   Bounce low point: ", DoubleToString(bounceLowPoint, _Digits));
+    Print("   Buffer: ", stopLossBuffer, " points");
+    Print("   Stop Loss: ", DoubleToString(baseStopLoss, _Digits));
     return baseStopLoss;
 }
 
@@ -146,6 +198,76 @@ double CalculateLotSize(double riskPercent, double stopDistance, double accountB
 }
 
 //+------------------------------------------------------------------+
+//| Check if price is near a key level                              |
+//+------------------------------------------------------------------+
+bool IsPriceNearLevel(double currentPrice, double level, int threshold) {
+    double distance = MathAbs(currentPrice - level);
+    double thresholdPrice = threshold * _Point;
+    return (distance <= thresholdPrice);
+}
+
+//+------------------------------------------------------------------+
+//| Detect bounce from previous day high                            |
+//+------------------------------------------------------------------+
+bool DetectBounceFromHigh(double currentHigh, double currentLow, double currentClose) {
+    // Price must have reached near previous day high and then moved away
+    bool reachedHigh = IsPriceNearLevel(currentHigh, previousDayHigh, proximityThreshold);
+    bool movedAway = currentClose < (previousDayHigh - (proximityThreshold * _Point));
+
+    if(reachedHigh && movedAway) {
+        bounceHighPoint = currentHigh;
+        Print("🔄 Bounce from high detected - High: ", DoubleToString(currentHigh, _Digits),
+              " Close: ", DoubleToString(currentClose, _Digits),
+              " Prev Day High: ", DoubleToString(previousDayHigh, _Digits));
+        return true;
+    }
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Detect bounce from previous day low                             |
+//+------------------------------------------------------------------+
+bool DetectBounceFromLow(double currentHigh, double currentLow, double currentClose) {
+    // Price must have reached near previous day low and then moved away
+    bool reachedLow = IsPriceNearLevel(currentLow, previousDayLow, proximityThreshold);
+    bool movedAway = currentClose > (previousDayLow + (proximityThreshold * _Point));
+
+    if(reachedLow && movedAway) {
+        bounceLowPoint = currentLow;
+        Print("🔄 Bounce from low detected - Low: ", DoubleToString(currentLow, _Digits),
+              " Close: ", DoubleToString(currentClose, _Digits),
+              " Prev Day Low: ", DoubleToString(previousDayLow, _Digits));
+        return true;
+    }
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Reset bounce detection variables                                 |
+//+------------------------------------------------------------------+
+void ResetBounceVariables() {
+    bounceFromHighDetected = false;
+    bounceFromLowDetected = false;
+    // Don't reset bounceHighPoint and bounceLowPoint here - they should track session extremes
+    // Only reset them at new day or when explicitly needed
+    wasNearHighLevel = false;
+    wasNearLowLevel = false;
+    bounceDirection = "";
+    Print("🔄 Reset bounce detection variables (preserving bounce extremes)");
+    Print("   Current bounce high point: ", DoubleToString(bounceHighPoint, _Digits));
+    Print("   Current bounce low point: ", DoubleToString(bounceLowPoint, _Digits));
+}
+
+//+------------------------------------------------------------------+
+//| Reset bounce extremes for new session                           |
+//+------------------------------------------------------------------+
+void ResetBounceExtremes() {
+    bounceHighPoint = 0;
+    bounceLowPoint = 0;
+    Print("🔄 Reset bounce extremes for new session");
+}
+
+//+------------------------------------------------------------------+
 //| Main state machine logic (exact copy from original)             |
 //+------------------------------------------------------------------+
 void ProcessBreakoutStateMachine() {
@@ -156,6 +278,53 @@ void ProcessBreakoutStateMachine() {
     double previousLow = iLow(_Symbol, _Period, 1);
     double previousClose = iClose(_Symbol, _Period, 1);
     double previousBarClose = iClose(_Symbol, _Period, 1);
+
+    // Check for bounce opportunities in all non-bounce states
+    if(currentState != BOUNCE_FROM_HIGH_DETECTED && currentState != BOUNCE_FROM_LOW_DETECTED) {
+                        // Update bounce extremes continuously (like newDayHigh/newDayLow tracking)
+        if(bounceHighPoint == 0 || currentHigh > bounceHighPoint) {
+            bounceHighPoint = currentHigh;
+        }
+        if(bounceLowPoint == 0 || currentLow < bounceLowPoint) {
+            bounceLowPoint = currentLow;
+        }
+
+        // Check for bounces from key levels (independent of any previous breakouts)
+        if(DetectBounceFromHigh(currentHigh, currentLow, currentClose)) {
+            currentState = BOUNCE_FROM_HIGH_DETECTED;
+            bounceFromHighDetected = true;
+            bounceDirection = "sell"; // Bounce from high = sell signal
+            Print("🎯 State changed to BOUNCE_FROM_HIGH_DETECTED - Ready for SELL ML prediction (BOUNCE, not breakout)");
+            Print("🎯 Bounce high point: ", DoubleToString(bounceHighPoint, _Digits), " (for stop loss calculation)");
+            return;
+        }
+
+        if(DetectBounceFromLow(currentHigh, currentLow, currentClose)) {
+            currentState = BOUNCE_FROM_LOW_DETECTED;
+            bounceFromLowDetected = true;
+            bounceDirection = "buy"; // Bounce from low = buy signal
+            Print("🎯 State changed to BOUNCE_FROM_LOW_DETECTED - Ready for BUY ML prediction (BOUNCE, not breakout)");
+            Print("🎯 Bounce low point: ", DoubleToString(bounceLowPoint, _Digits), " (for stop loss calculation)");
+            return;
+        }
+
+        // Check for price proximity to levels (for retest scenarios)
+        bool nearHigh = IsPriceNearLevel(currentClose, previousDayHigh, proximityThreshold);
+        bool nearLow = IsPriceNearLevel(currentClose, previousDayLow, proximityThreshold);
+
+                // Detect retests ONLY after confirmed previous breakouts
+        if(nearHigh && lastBreakoutDirection == "bullish" && currentState == WAITING_FOR_BREAKOUT) {
+            currentState = PRICE_NEAR_HIGH_LEVEL;
+            bounceDirection = "sell"; // Retest from above = sell signal (this is a bounce off a previously broken level)
+            Print("🎯 State changed to PRICE_NEAR_HIGH_LEVEL - Potential RETEST bounce sell opportunity");
+        }
+
+        if(nearLow && lastBreakoutDirection == "bearish" && currentState == WAITING_FOR_BREAKOUT) {
+            currentState = PRICE_NEAR_LOW_LEVEL;
+            bounceDirection = "buy"; // Retest from below = buy signal (this is a bounce off a previously broken level)
+            Print("🎯 State changed to PRICE_NEAR_LOW_LEVEL - Potential RETEST bounce buy opportunity");
+        }
+    }
 
     switch((int)currentState) {
         case WAITING_FOR_BREAKOUT:
@@ -364,6 +533,94 @@ void ProcessBreakoutStateMachine() {
                 Print("⏳ Waiting for previous bar to close below NEW day low: ", DoubleToString(newDayLow, _Digits));
             }
             break;
+
+        case PRICE_NEAR_HIGH_LEVEL:
+            // Check for breakouts first (price might break out instead of bouncing)
+            for(int i = 1; i <= 10; i++) {
+                double barClose = iClose(_Symbol, _Period, i);
+                if(barClose > previousDayHigh + (5 * _Point)) {
+                    currentState = BULLISH_BREAKOUT_DETECTED;
+                    breakoutLevel = previousDayHigh;
+                    lastBreakoutLevel = barClose;
+                    lastBreakoutDirection = "bullish";
+                    breakoutBar = i;
+                    barsSinceBreakout = 0;
+                    ResetBounceVariables(); // Clear bounce state
+                    Print("🔔 Bullish breakout detected while near high level at bar ", i, " - High: ", DoubleToString(barClose, _Digits));
+                    return;
+                }
+                if(barClose < previousDayLow - (5 * _Point)) {
+                    currentState = BEARISH_BREAKOUT_DETECTED;
+                    breakoutLevel = previousDayLow;
+                    lastBreakoutLevel = barClose;
+                    lastBreakoutDirection = "bearish";
+                    breakoutBar = i;
+                    barsSinceBreakout = 0;
+                    ResetBounceVariables(); // Clear bounce state
+                    Print("🔔 Bearish breakout detected while near high level at bar ", i, " - Low: ", DoubleToString(barClose, _Digits));
+                    return;
+                }
+            }
+
+            // If no breakout, check for retest bounce opportunity
+            if(DetectBounceFromHigh(currentHigh, currentLow, currentClose)) {
+                currentState = BOUNCE_FROM_HIGH_DETECTED;
+                bounceFromHighDetected = true;
+                bounceDirection = "sell";
+                Print("🎯 Retest bounce detected at high level - Ready for SELL ML prediction");
+            }
+            break;
+
+        case PRICE_NEAR_LOW_LEVEL:
+            // Check for breakouts first (price might break out instead of bouncing)
+            for(int i = 1; i <= 10; i++) {
+                double barClose = iClose(_Symbol, _Period, i);
+                if(barClose > previousDayHigh + (5 * _Point)) {
+                    currentState = BULLISH_BREAKOUT_DETECTED;
+                    breakoutLevel = previousDayHigh;
+                    lastBreakoutLevel = barClose;
+                    lastBreakoutDirection = "bullish";
+                    breakoutBar = i;
+                    barsSinceBreakout = 0;
+                    ResetBounceVariables(); // Clear bounce state
+                    Print("🔔 Bullish breakout detected while near low level at bar ", i, " - High: ", DoubleToString(barClose, _Digits));
+                    return;
+                }
+                if(barClose < previousDayLow - (5 * _Point)) {
+                    currentState = BEARISH_BREAKOUT_DETECTED;
+                    breakoutLevel = previousDayLow;
+                    lastBreakoutLevel = barClose;
+                    lastBreakoutDirection = "bearish";
+                    breakoutBar = i;
+                    barsSinceBreakout = 0;
+                    ResetBounceVariables(); // Clear bounce state
+                    Print("🔔 Bearish breakout detected while near low level at bar ", i, " - Low: ", DoubleToString(barClose, _Digits));
+                    return;
+                }
+            }
+
+            // If no breakout, check for retest bounce opportunity
+            if(DetectBounceFromLow(currentHigh, currentLow, currentClose)) {
+                currentState = BOUNCE_FROM_LOW_DETECTED;
+                bounceFromLowDetected = true;
+                bounceDirection = "buy";
+                Print("🎯 Retest bounce detected at low level - Ready for BUY ML prediction");
+            }
+            break;
+
+        case BOUNCE_FROM_HIGH_DETECTED:
+            // ML prediction should be requested for SELL in the main EA
+            // This state indicates a trading opportunity is ready
+            Print("💡 BOUNCE_FROM_HIGH_DETECTED state - Main EA should request SELL ML prediction");
+            // State will be reset by main EA after trade execution or timeout
+            break;
+
+        case BOUNCE_FROM_LOW_DETECTED:
+            // ML prediction should be requested for BUY in the main EA
+            // This state indicates a trading opportunity is ready
+            Print("💡 BOUNCE_FROM_LOW_DETECTED state - Main EA should request BUY ML prediction");
+            // State will be reset by main EA after trade execution or timeout
+            break;
     }
 }
 
@@ -377,6 +634,10 @@ void ResetBreakoutStateVariables() {
     bearishRetestDetected = false;
     bearishRetestHigh = 0;
     bullishRetestLow = 0;
+
+    // Reset bounce detection variables
+    ResetBounceVariables();
+
     Print("🔄 Reset breakout state variables (preserving new day high/low levels)");
     Print("   Current new day high: ", DoubleToString(newDayHigh, _Digits));
     Print("   Current new day low: ", DoubleToString(newDayLow, _Digits));
@@ -394,6 +655,11 @@ void LogCurrentState() {
     Print("   Breakout Direction: ", breakoutDirection);
     Print("   Bullish Retest Detected: ", bullishRetestDetected ? "true" : "false");
     Print("   Bearish Retest Detected: ", bearishRetestDetected ? "true" : "false");
+    Print("   Bounce From High Detected: ", bounceFromHighDetected ? "true" : "false");
+    Print("   Bounce From Low Detected: ", bounceFromLowDetected ? "true" : "false");
+    Print("   Proximity Threshold: ", proximityThreshold, " points");
+    Print("   Bounce High Point: ", DoubleToString(bounceHighPoint, _Digits), " (for stop loss)");
+    Print("   Bounce Low Point: ", DoubleToString(bounceLowPoint, _Digits), " (for stop loss)");
 }
 
 //+------------------------------------------------------------------+

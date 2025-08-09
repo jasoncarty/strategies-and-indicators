@@ -133,7 +133,8 @@ class MLPredictionService:
 
         # Try to extract from filename first (prioritize filename for + suffix)
         # Look for patterns like buy_feature_names_BTCUSD_PERIOD_H1.pkl or buy_feature_names_XAUUSD+_PERIOD_H1.pkl
-        symbol_match = re.search(r'[a-z_]+_([A-Z]{6}\+?)_PERIOD_', filename)
+        # Also handle 7-letter symbols like TESTUSD
+        symbol_match = re.search(r'[a-z_]+_([A-Z]{6,7}\+?)_PERIOD_', filename)
         if symbol_match:
             extracted_symbol = symbol_match.group(1)
             # If filename contains + suffix, use it
@@ -565,8 +566,8 @@ class MLPredictionService:
 def initialize_ml_service():
     """Initialize the ML service globally"""
     global ml_service
-    # Use local ml_models directory - fully web-based
-    models_dir = Path("ml_models")
+    # Use models directory from environment variable or default to local ml_models
+    models_dir = os.getenv('ML_MODELS_DIR', "ml_models")
     ml_service = MLPredictionService(models_dir=str(models_dir))
     return ml_service
 
