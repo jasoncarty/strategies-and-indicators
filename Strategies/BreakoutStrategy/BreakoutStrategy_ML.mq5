@@ -69,6 +69,7 @@ BREAKOUT_STATE currentState = WAITING_FOR_BREAKOUT;
 datetime lastStateChange = 0;
 double breakoutLevel = 0.0;
 string breakoutDirection = "";
+string bounceDirection = ""; // Direction for bounce trades (separate from breakouts)
 double swingPoint = 0.0; // The swing high/low that created the retest
 
 //--- Retest tracking variables
@@ -76,6 +77,15 @@ bool bullishRetestDetected = false;
 double bullishRetestLow = 999999.0;
 bool bearishRetestDetected = false;
 double bearishRetestHigh = 0.0;
+
+//--- Bounce tracking variables (new)
+bool bounceFromHighDetected = false;
+bool bounceFromLowDetected = false;
+double bounceHighPoint = 0.0;
+double bounceLowPoint = 0.0;
+int proximityThreshold = 50; // Points threshold for "near" level detection
+bool wasNearHighLevel = false;
+bool wasNearLowLevel = false;
 
 //--- Breakout tracking variables
 double lastBreakoutLevel = 0.0;
@@ -263,6 +273,70 @@ void CheckForTradeSignalsWithML() {
         ResetBreakoutStateVariables();
         bearishRetestDetected = false;
     }
+
+    // NEW: Check for bounce from high signal (SELL opportunity)
+    if(currentState == BOUNCE_FROM_HIGH_DETECTED && bounceFromHighDetected) {
+        Print("🔄 Bounce from high detected - validating SELL with ML");
+
+        if(UseML) {
+            MLPrediction prediction = GetMLPrediction("sell");
+
+            // Record ML prediction for analysis (regardless of whether trade is placed)
+            if(prediction.is_valid && EnableHttpAnalytics) {
+                MLFeatures features;
+                g_ml_interface.CollectMarketFeatures(features);
+                string features_json = g_ml_interface.CreateFeatureJSON(features, "SELL");
+                RecordGeneralMLPrediction("sell_model_improved", "sell", prediction.probability, prediction.confidence, features_json);
+                Print("📊 Recorded bounce SELL prediction for analysis");
+            }
+
+            if(g_ml_interface.IsSignalValid(prediction)) {
+                Print("✅ ML validation passed for bounce - placing sell order");
+                PlaceSellOrderWithML(prediction);
+            } else {
+                Print("❌ ML validation failed for bounce - skipping trade");
+            }
+        } else {
+            Print("🔄 ML disabled - placing bounce sell order");
+            PlaceSellOrder();
+        }
+
+        // Reset bounce state after processing
+        currentState = WAITING_FOR_BREAKOUT;
+        ResetBounceVariables();
+    }
+
+    // NEW: Check for bounce from low signal (BUY opportunity)
+    if(currentState == BOUNCE_FROM_LOW_DETECTED && bounceFromLowDetected) {
+        Print("🔄 Bounce from low detected - validating BUY with ML");
+
+        if(UseML) {
+            MLPrediction prediction = GetMLPrediction("buy");
+
+            // Record ML prediction for analysis (regardless of whether trade is placed)
+            if(prediction.is_valid && EnableHttpAnalytics) {
+                MLFeatures features;
+                g_ml_interface.CollectMarketFeatures(features);
+                string features_json = g_ml_interface.CreateFeatureJSON(features, "BUY");
+                RecordGeneralMLPrediction("buy_model_improved", "buy", prediction.probability, prediction.confidence, features_json);
+                Print("📊 Recorded bounce BUY prediction for analysis");
+            }
+
+            if(g_ml_interface.IsSignalValid(prediction)) {
+                Print("✅ ML validation passed for bounce - placing buy order");
+                PlaceBuyOrderWithML(prediction);
+            } else {
+                Print("❌ ML validation failed for bounce - skipping trade");
+            }
+        } else {
+            Print("🔄 ML disabled - placing bounce buy order");
+            PlaceBuyOrder();
+        }
+
+        // Reset bounce state after processing
+        currentState = WAITING_FOR_BREAKOUT;
+        ResetBounceVariables();
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -300,8 +374,17 @@ MLPrediction GetMLPrediction(string direction) {
 void PlaceBuyOrderWithML(MLPrediction &prediction) {
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
-    // Calculate base stop loss based on new day low (original strategy logic)
-    double baseStopLoss = CalculateBullishStopLoss(StopLossBuffer);
+    // Calculate base stop loss based on trade type
+    double baseStopLoss;
+    if(currentState == BOUNCE_FROM_LOW_DETECTED || bounceFromLowDetected) {
+        // Bounce trade: use bounce-specific stop loss
+        baseStopLoss = CalculateBounceFromLowStopLoss(StopLossBuffer);
+        Print("📊 Using bounce-from-low stop loss for BUY trade");
+    } else {
+        // Breakout trade: use original strategy logic (new day low)
+        baseStopLoss = CalculateBullishStopLoss(StopLossBuffer);
+        Print("📊 Using breakout stop loss for BUY trade");
+    }
 
     // Apply ML adjustments
     double adjustedStopLoss = g_ml_interface.AdjustStopLoss(baseStopLoss, prediction, "buy");
@@ -364,8 +447,17 @@ void PlaceBuyOrderWithML(MLPrediction &prediction) {
 void PlaceSellOrderWithML(MLPrediction &prediction) {
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-    // Calculate base stop loss based on new day high (original strategy logic)
-    double baseStopLoss = CalculateBearishStopLoss(StopLossBuffer);
+    // Calculate base stop loss based on trade type
+    double baseStopLoss;
+    if(currentState == BOUNCE_FROM_HIGH_DETECTED || bounceFromHighDetected) {
+        // Bounce trade: use bounce-specific stop loss
+        baseStopLoss = CalculateBounceFromHighStopLoss(StopLossBuffer);
+        Print("📊 Using bounce-from-high stop loss for SELL trade");
+    } else {
+        // Breakout trade: use original strategy logic (new day high)
+        baseStopLoss = CalculateBearishStopLoss(StopLossBuffer);
+        Print("📊 Using breakout stop loss for SELL trade");
+    }
 
     // Apply ML adjustments
     double adjustedStopLoss = g_ml_interface.AdjustStopLoss(baseStopLoss, prediction, "sell");
@@ -428,8 +520,17 @@ void PlaceSellOrderWithML(MLPrediction &prediction) {
 void PlaceBuyOrder() {
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
-    // Calculate stop loss based on new day low (original strategy logic)
-    double stopLoss = CalculateBullishStopLoss(StopLossBuffer);
+    // Calculate stop loss based on trade type
+    double stopLoss;
+    if(currentState == BOUNCE_FROM_LOW_DETECTED || bounceFromLowDetected) {
+        // Bounce trade: use bounce-specific stop loss
+        stopLoss = CalculateBounceFromLowStopLoss(StopLossBuffer);
+        Print("📊 Using bounce-from-low stop loss for BUY trade (no ML)");
+    } else {
+        // Breakout trade: use original strategy logic (new day low)
+        stopLoss = CalculateBullishStopLoss(StopLossBuffer);
+        Print("📊 Using breakout stop loss for BUY trade (no ML)");
+    }
 
     // Calculate take profit based on risk:reward ratio
     double takeProfit = CalculateTakeProfit(entry, stopLoss, RiskRewardRatio, "buy");
@@ -475,8 +576,17 @@ void PlaceBuyOrder() {
 void PlaceSellOrder() {
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
-    // Calculate stop loss based on new day high (original strategy logic)
-    double stopLoss = CalculateBearishStopLoss(StopLossBuffer);
+    // Calculate stop loss based on trade type
+    double stopLoss;
+    if(currentState == BOUNCE_FROM_HIGH_DETECTED || bounceFromHighDetected) {
+        // Bounce trade: use bounce-specific stop loss
+        stopLoss = CalculateBounceFromHighStopLoss(StopLossBuffer);
+        Print("📊 Using bounce-from-high stop loss for SELL trade (no ML)");
+    } else {
+        // Breakout trade: use original strategy logic (new day high)
+        stopLoss = CalculateBearishStopLoss(StopLossBuffer);
+        Print("📊 Using breakout stop loss for SELL trade (no ML)");
+    }
 
     // Calculate take profit based on risk:reward ratio
     double takeProfit = CalculateTakeProfit(entry, stopLoss, RiskRewardRatio, "sell");

@@ -1101,11 +1101,10 @@ public:
                                    bool enableHttpAnalytics,
                                    string eaIdentifier,
                                    TradeExitCallback tradeExitCallback) {
-        Print("🔄 HandleTradeCloseTransaction() called - Transaction type: ", EnumToString(trans.type));
-        Print("🔍 Position ticket: ", trans.position, ", Deal ticket: ", trans.deal);
 
         // Handle TRADE_TRANSACTION_DEAL_ADD for immediate trade close detection
         if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.position == lastKnownPositionTicket && lastKnownPositionTicket != 0) {
+            Print("🔍 Position ticket: ", trans.position, ", Deal ticket: ", trans.deal);
             Print("✅ Position close transaction detected for tracked position!");
 
             // Get the closing deal details
@@ -1141,6 +1140,26 @@ public:
                 int total_deals = HistoryDealsTotal();
                 bool found_closing_deal = false;
 
+                Print("🔍 Searching through ", total_deals, " deals for position: ", trans.position);
+
+                // First, let's see all deals for this position to understand the structure
+                for(int i = 0; i < total_deals; i++) {
+                    ulong deal_ticket = HistoryDealGetTicket(i);
+                    if(deal_ticket > 0) {
+                        long deal_position = HistoryDealGetInteger(deal_ticket, DEAL_POSITION_ID);
+                        ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
+                        string deal_symbol = HistoryDealGetString(deal_ticket, DEAL_SYMBOL);
+                        string deal_comment = HistoryDealGetString(deal_ticket, DEAL_COMMENT);
+                        datetime deal_time = (datetime)HistoryDealGetInteger(deal_ticket, DEAL_TIME);
+
+                        Print("Deal[", i, "] - Ticket: ", deal_ticket, ", Position: ", deal_position,
+                              ", Entry: ", EnumToString(deal_entry), " (", deal_entry, ")",
+                              ", Symbol: ", deal_symbol, ", Time: ", TimeToString(deal_time),
+                              ", Comment: ", deal_comment);
+                    }
+                }
+
+                // Now search for our specific closing deal
                 for(int i = total_deals - 1; i >= 0; i--) {
                     ulong deal_ticket = HistoryDealGetTicket(i);
                     if(deal_ticket > 0) {
@@ -1149,23 +1168,30 @@ public:
                         string deal_symbol = HistoryDealGetString(deal_ticket, DEAL_SYMBOL);
                         string deal_comment = HistoryDealGetString(deal_ticket, DEAL_COMMENT);
 
-                        // Check if this is the closing deal for our position
-                        if(deal_position == trans.position && deal_entry == DEAL_ENTRY_OUT &&
-                           deal_symbol == _Symbol && StringFind(deal_comment, eaIdentifier) >= 0) {
+                        // Only check deals that match our position
+                        if(deal_position == trans.position) {
+                            Print("🔍 Checking deal for our position: ", deal_ticket);
+                            Print("   Entry type: ", EnumToString(deal_entry), " (", deal_entry, ")");
+                            Print("   Symbol: ", deal_symbol, " (expected: ", _Symbol, ")");
+                            Print("   Comment: ", deal_comment, " (looking for: ", eaIdentifier, ")");
 
-                            Print("🔍 Found closing deal for position: ", trans.position);
+                            if(deal_entry == DEAL_ENTRY_OUT &&
+                               deal_symbol == _Symbol && StringFind(deal_comment, eaIdentifier) >= 0) {
 
-                            double close_price = HistoryDealGetDouble(deal_ticket, DEAL_PRICE);
-                            double profit = HistoryDealGetDouble(deal_ticket, DEAL_PROFIT);
-                            datetime close_time = (datetime)HistoryDealGetInteger(deal_ticket, DEAL_TIME);
+                                Print("🔍 Found closing deal for position: ", trans.position);
 
-                            Print("🔍 Deal details - Price: ", DoubleToString(close_price, _Digits), ", Profit: $", DoubleToString(profit, 2), ", Time: ", TimeToString(close_time));
+                                double close_price = HistoryDealGetDouble(deal_ticket, DEAL_PRICE);
+                                double profit = HistoryDealGetDouble(deal_ticket, DEAL_PROFIT);
+                                datetime close_time = (datetime)HistoryDealGetInteger(deal_ticket, DEAL_TIME);
 
-                            // Process the trade close
-                            ProcessTradeClose(close_price, profit, close_time, lastTradeID, lastKnownPositionTicket, lastPositionOpenTime, pendingTradeData, enableHttpAnalytics, tradeExitCallback);
+                                Print("🔍 Deal details - Price: ", DoubleToString(close_price, _Digits), ", Profit: $", DoubleToString(profit, 2), ", Time: ", TimeToString(close_time));
 
-                            found_closing_deal = true;
-                            break;
+                                // Process the trade close
+                                ProcessTradeClose(close_price, profit, close_time, lastTradeID, lastKnownPositionTicket, lastPositionOpenTime, pendingTradeData, enableHttpAnalytics, tradeExitCallback);
+
+                                found_closing_deal = true;
+                                break;
+                            }
                         }
                     }
                 }
