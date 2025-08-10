@@ -293,17 +293,30 @@ void CheckForTradeSignalsWithML() {
             if(g_ml_interface.IsSignalValid(prediction)) {
                 Print("✅ ML validation passed for bounce - placing sell order");
                 PlaceSellOrderWithML(prediction);
+
+                // Reset bounce state after successful trade
+                currentState = WAITING_FOR_BREAKOUT;
+                ResetBounceVariables();
             } else {
-                Print("❌ ML validation failed for bounce - skipping trade");
+                Print("❌ ML validation failed for bounce - falling back to breakout strategy");
+
+                // Fallback to original breakout logic if this was a retest completion
+                if(bullishRetestDetected) {
+                    currentState = WAITING_FOR_BULLISH_CLOSE;
+                    Print("🔄 Falling back to WAITING_FOR_BULLISH_CLOSE for breakout confirmation");
+                } else {
+                    currentState = WAITING_FOR_BREAKOUT;
+                }
+                ResetBounceVariables();
             }
         } else {
             Print("🔄 ML disabled - placing bounce sell order");
             PlaceSellOrder();
-        }
 
-        // Reset bounce state after processing
-        currentState = WAITING_FOR_BREAKOUT;
-        ResetBounceVariables();
+            // Reset bounce state after trade
+            currentState = WAITING_FOR_BREAKOUT;
+            ResetBounceVariables();
+        }
     }
 
     // NEW: Check for bounce from low signal (BUY opportunity)
@@ -325,17 +338,30 @@ void CheckForTradeSignalsWithML() {
             if(g_ml_interface.IsSignalValid(prediction)) {
                 Print("✅ ML validation passed for bounce - placing buy order");
                 PlaceBuyOrderWithML(prediction);
+
+                // Reset bounce state after successful trade
+                currentState = WAITING_FOR_BREAKOUT;
+                ResetBounceVariables();
             } else {
-                Print("❌ ML validation failed for bounce - skipping trade");
+                Print("❌ ML validation failed for bounce - falling back to breakout strategy");
+
+                // Fallback to original breakout logic if this was a retest completion
+                if(bearishRetestDetected) {
+                    currentState = WAITING_FOR_BEARISH_CLOSE;
+                    Print("🔄 Falling back to WAITING_FOR_BEARISH_CLOSE for breakout confirmation");
+                } else {
+                    currentState = WAITING_FOR_BREAKOUT;
+                }
+                ResetBounceVariables();
             }
         } else {
             Print("🔄 ML disabled - placing bounce buy order");
             PlaceBuyOrder();
-        }
 
-        // Reset bounce state after processing
-        currentState = WAITING_FOR_BREAKOUT;
-        ResetBounceVariables();
+            // Reset bounce state after trade
+            currentState = WAITING_FOR_BREAKOUT;
+            ResetBounceVariables();
+        }
     }
 }
 

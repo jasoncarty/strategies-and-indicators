@@ -412,16 +412,24 @@ void ProcessBreakoutStateMachine() {
             if(previousClose <= previousDayHigh) {
                 Print("🔍 DEBUG: Retest completed - Price bounced back down from previous day high. Current low: ", DoubleToString(currentLow, _Digits), " Previous day high: ", DoubleToString(previousDayHigh, _Digits));
 
-                // Immediately go to WAITING_FOR_BULLISH_CLOSE state
-                swingPoint = newDayLow; // Use new day low as the stop loss level
-                currentState = WAITING_FOR_BULLISH_CLOSE;
+                // ENHANCED: Treat retest completion as a bounce opportunity first
+                bounceHighPoint = previousDayHigh;  // Set the high point that was tested
+                bounceFromHighDetected = true;
+                bounceDirection = "sell"; // Bounce down from high = sell signal
+                currentState = BOUNCE_FROM_HIGH_DETECTED;
+
+                Print("🎯 Bullish retest completed - BOUNCE OPPORTUNITY DETECTED!");
+                Print("🎯 Previous day high (bounce point): ", DoubleToString(previousDayHigh, _Digits));
+                Print("🎯 Setting up for BOUNCE SELL ML prediction check");
+                Print("🎯 Bounce high point: ", DoubleToString(bounceHighPoint, _Digits), " (for stop loss calculation)");
+
+                // Store the original breakout data in case bounce fails
+                swingPoint = newDayLow; // Use new day low as the stop loss level for fallback
                 breakoutDirection = "bullish";
                 bullishRetestDetected = true;
-                Print("🎯 Bullish retest completed - Moving to WAITING_FOR_BULLISH_CLOSE");
-                Print("🎯 Previous day high: ", DoubleToString(previousDayHigh, _Digits));
-                Print("🎯 NEW day high(confirmation level): ", DoubleToString(newDayHigh, _Digits));
-                Print("🎯 NEW day low(stop loss level): ", DoubleToString(newDayLow, _Digits));
-                Print("🎯 Waiting for close above new day high with momentum");
+
+                Print("🎯 NEW day high(fallback confirmation level): ", DoubleToString(newDayHigh, _Digits));
+                Print("🎯 NEW day low(fallback stop loss level): ", DoubleToString(newDayLow, _Digits));
             }
             // Do NOT reset to WAITING_FOR_BREAKOUT if price moves away from the level; just keep waiting for confirmation
             break;
@@ -442,16 +450,24 @@ void ProcessBreakoutStateMachine() {
             if(previousHigh >= previousDayLow) {
                 Print("🔍 DEBUG: Retest completed - Price bounced back up from previous day low. Current high: ", DoubleToString(previousHigh, _Digits), " Previous day low: ", DoubleToString(previousDayLow, _Digits));
 
-                // Immediately go to WAITING_FOR_BEARISH_CLOSE state
-                swingPoint = newDayHigh; // Use new day high as the stop loss level
-                currentState = WAITING_FOR_BEARISH_CLOSE;
+                // ENHANCED: Treat retest completion as a bounce opportunity first
+                bounceLowPoint = previousDayLow;  // Set the low point that was tested
+                bounceFromLowDetected = true;
+                bounceDirection = "buy"; // Bounce up from low = buy signal
+                currentState = BOUNCE_FROM_LOW_DETECTED;
+
+                Print("🎯 Bearish retest completed - BOUNCE OPPORTUNITY DETECTED!");
+                Print("🎯 Previous day low (bounce point): ", DoubleToString(previousDayLow, _Digits));
+                Print("🎯 Setting up for BOUNCE BUY ML prediction check");
+                Print("🎯 Bounce low point: ", DoubleToString(bounceLowPoint, _Digits), " (for stop loss calculation)");
+
+                // Store the original breakout data in case bounce fails
+                swingPoint = newDayHigh; // Use new day high as the stop loss level for fallback
                 breakoutDirection = "bearish";
                 bearishRetestDetected = true;
-                Print("🎯 Bearish retest completed - Moving to WAITING_FOR_BEARISH_CLOSE");
-                Print("🎯 Previous day low: ", DoubleToString(previousDayLow, _Digits));
-                Print("🎯 NEW day low(confirmation level): ", DoubleToString(newDayLow, _Digits));
-                Print("🎯 NEW day high(stop loss level): ", DoubleToString(newDayHigh, _Digits));
-                Print("🎯 Waiting for close below new day low with momentum");
+
+                Print("🎯 NEW day low(fallback confirmation level): ", DoubleToString(newDayLow, _Digits));
+                Print("🎯 NEW day high(fallback stop loss level): ", DoubleToString(newDayHigh, _Digits));
             }
             // Do NOT reset to WAITING_FOR_BREAKOUT if price moves away from the level; just keep waiting for confirmation
             break;
