@@ -293,22 +293,65 @@ public:
         return true;
     }
 
-    // Adjust stop loss based on ML prediction
-    double AdjustStopLoss(double base_stop_loss, MLPrediction &prediction, string direction) {
+    // Adjust stop loss distance based on ML prediction (more reasonable than price adjustment)
+    double AdjustStopDistance(double base_stop_distance, MLPrediction &prediction) {
+        if(!prediction.is_valid) {
+            return base_stop_distance;
+        }
+
+        // Small adjustment based on confidence (±20% max)
+        // Higher confidence = slightly wider stops, lower confidence = tighter stops
+        double adjustment_factor = 1.0 + (prediction.confidence - 0.5) * 0.4; // ±20% adjustment
+
+        // Ensure adjustment factor stays within reasonable bounds
+        adjustment_factor = MathMax(0.8, MathMin(1.2, adjustment_factor));
+
+        double adjusted_distance = base_stop_distance * adjustment_factor;
+
+        Print("🔧 ML Stop Distance Adjustment:");
+        Print("   Base distance: ", DoubleToString(base_stop_distance, 5), " points");
+        Print("   ML confidence: ", DoubleToString(prediction.confidence, 3));
+        Print("   Adjustment factor: ", DoubleToString(adjustment_factor, 3));
+        Print("   Adjusted distance: ", DoubleToString(adjusted_distance, 5), " points");
+
+        return adjusted_distance;
+    }
+
+    // Calculate final stop loss price from entry and adjusted distance
+    double CalculateAdjustedStopLoss(double entry_price, double base_stop_loss, MLPrediction &prediction, string direction) {
         if(!prediction.is_valid) {
             return base_stop_loss;
         }
 
-        // Simple adjustment based on confidence
-        double adjustment_factor = 1.0 + (prediction.confidence - 0.5) * 0.2; // ±10% adjustment
+        // Calculate base stop distance
+        double base_stop_distance = MathAbs(base_stop_loss - entry_price);
 
+        // Adjust the distance (not the price)
+        double adjusted_distance = AdjustStopDistance(base_stop_distance, prediction);
+
+        // Apply adjusted distance back to get final stop price
+        double adjusted_stop_loss;
         if(direction == "buy") {
-            return base_stop_loss * adjustment_factor;
+            adjusted_stop_loss = entry_price - adjusted_distance;
         } else if(direction == "sell") {
-            return base_stop_loss / adjustment_factor;
+            adjusted_stop_loss = entry_price + adjusted_distance;
+        } else {
+            return base_stop_loss; // Invalid direction
         }
 
-        return base_stop_loss;
+        Print("🎯 Final Stop Loss Calculation:");
+        Print("   Entry: ", DoubleToString(entry_price, _Digits));
+        Print("   Base stop: ", DoubleToString(base_stop_loss, _Digits));
+        Print("   Adjusted stop: ", DoubleToString(adjusted_stop_loss, _Digits));
+        Print("   Direction: ", direction);
+
+        return adjusted_stop_loss;
+    }
+
+    // DEPRECATED: Keep old function for backward compatibility but mark as deprecated
+    double AdjustStopLoss(double base_stop_loss, MLPrediction &prediction, string direction) {
+        Print("⚠️ DEPRECATED: AdjustStopLoss() - Use CalculateAdjustedStopLoss() instead");
+        return base_stop_loss; // Just return base value to avoid breaking existing code
     }
 
     // Adjust position size based on ML prediction
@@ -1047,7 +1090,21 @@ public:
                 Print("🔍 EA identifier: ", eaIdentifier);
                 Print("🔍 Deal entry type: ", EnumToString(deal_entry));
 
-                if(deal_symbol == _Symbol && StringFind(deal_comment, eaIdentifier) >= 0 && deal_entry == DEAL_ENTRY_IN) {
+                // More flexible EA identifier matching to handle truncated comments
+                bool comment_matches = false;
+                if(StringFind(deal_comment, eaIdentifier) >= 0) {
+                    comment_matches = true;
+                } else {
+                    // Check for partial match if comment might be truncated
+                    string comment_prefix = StringSubstr(eaIdentifier, 0, MathMin(StringLen(eaIdentifier), StringLen(deal_comment)));
+                    if(StringLen(deal_comment) >= StringLen(comment_prefix) - 2 && // Allow some tolerance
+                       StringFind(deal_comment, comment_prefix) == 0) {
+                        comment_matches = true;
+                        Print("🔍 Using partial match for truncated comment in trade open");
+                    }
+                }
+
+                if(deal_symbol == _Symbol && comment_matches && deal_entry == DEAL_ENTRY_IN) {
                     Print("✅ Position opening confirmed for this EA - Ticket: ", trans.position);
                     lastKnownPositionTicket = trans.position;
                     lastPositionOpenTime = (datetime)HistoryDealGetInteger(trans.deal, DEAL_TIME);
@@ -1134,6 +1191,9 @@ public:
             Print("✅ Position history add detected for tracked position: ", trans.position);
 
             // Position has been moved to history, which means it's closed
+            // Add a small delay to ensure all deals are written to history
+            Sleep(100); // 100ms delay to allow deal history to be written
+
             // We need to get the closing deal information from history
             if(HistorySelectByPosition(trans.position)) {
                 // Find the closing deal (DEAL_ENTRY_OUT)
@@ -1175,8 +1235,23 @@ public:
                             Print("   Symbol: ", deal_symbol, " (expected: ", _Symbol, ")");
                             Print("   Comment: ", deal_comment, " (looking for: ", eaIdentifier, ")");
 
+                            // More flexible EA identifier matching to handle truncated comments
+                            bool comment_matches = false;
+                            if(StringFind(deal_comment, eaIdentifier) >= 0) {
+                                comment_matches = true;
+                            } else {
+                                // Check for partial match if comment might be truncated
+                                // Allow match if comment starts with our identifier (truncated case)
+                                string comment_prefix = StringSubstr(eaIdentifier, 0, MathMin(StringLen(eaIdentifier), StringLen(deal_comment)));
+                                if(StringLen(deal_comment) >= StringLen(comment_prefix) - 2 && // Allow some tolerance
+                                   StringFind(deal_comment, comment_prefix) == 0) {
+                                    comment_matches = true;
+                                    Print("🔍 Using partial match for truncated comment");
+                                }
+                            }
+
                             if(deal_entry == DEAL_ENTRY_OUT &&
-                               deal_symbol == _Symbol && StringFind(deal_comment, eaIdentifier) >= 0) {
+                               deal_symbol == _Symbol && comment_matches) {
 
                                 Print("🔍 Found closing deal for position: ", trans.position);
 
@@ -1196,8 +1271,70 @@ public:
                     }
                 }
 
-                if(!found_closing_deal) {
-                    Print("⚠️ Could not find closing deal for position: ", trans.position);
+                            if(!found_closing_deal) {
+                Print("⚠️ Could not find closing deal for position: ", trans.position);
+
+                // CRITICAL: Before assuming fast close, verify the position is actually closed
+                // Check if position still exists in the active positions list
+                bool position_still_open = false;
+                int total_positions = PositionsTotal();
+                for(int pos_idx = 0; pos_idx < total_positions; pos_idx++) {
+                    ulong pos_ticket = PositionGetTicket(pos_idx);
+                    if(pos_ticket == trans.position) {
+                        position_still_open = true;
+                        break;
+                    }
+                }
+
+                if(position_still_open) {
+                    Print("✅ Position ", trans.position, " is still OPEN - this is not a close transaction");
+                    Print("🔍 This was likely a TRADE_TRANSACTION_HISTORY_ADD for position tracking, not closure");
+                    return; // Exit early - don't process as a close
+                }
+
+                // Fallback: If we only have one deal and it's an opening deal,
+                // this might be a very fast close where the closing deal wasn't written yet
+                if(total_deals == 1) {
+                    Print("🔍 Only one deal found - checking if this is a fast close scenario");
+                    Print("🔍 Position ", trans.position, " is confirmed CLOSED - proceeding with estimation");
+                    ulong deal_ticket = HistoryDealGetTicket(0);
+                    if(deal_ticket > 0) {
+                        ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
+                        if(deal_entry == DEAL_ENTRY_IN) {
+                            Print("🔍 Fast close detected - using deal info for close estimation");
+
+                                // Use the opening deal info but estimate closing values
+                                double open_price = HistoryDealGetDouble(deal_ticket, DEAL_PRICE);
+                                double lot_size = HistoryDealGetDouble(deal_ticket, DEAL_VOLUME);
+                                ENUM_DEAL_TYPE deal_type = (ENUM_DEAL_TYPE)HistoryDealGetInteger(deal_ticket, DEAL_TYPE);
+
+                                // Get current market price as estimate for close price
+                                double close_price = (deal_type == DEAL_TYPE_BUY) ?
+                                    SymbolInfoDouble(_Symbol, SYMBOL_BID) :
+                                    SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+                                // Estimate profit based on price difference
+                                double profit = 0.0;
+                                if(deal_type == DEAL_TYPE_BUY) {
+                                    profit = (close_price - open_price) * lot_size / SymbolInfoDouble(_Symbol, SYMBOL_POINT) * SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+                                } else {
+                                    profit = (open_price - close_price) * lot_size / SymbolInfoDouble(_Symbol, SYMBOL_POINT) * SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+                                }
+
+                                datetime close_time = TimeCurrent();
+
+                                Print("🔍 Estimated close - Price: ", DoubleToString(close_price, _Digits), ", Profit: $", DoubleToString(profit, 2));
+
+                                // Process the trade close with estimated values
+                                ProcessTradeClose(close_price, profit, close_time, lastTradeID, lastKnownPositionTicket, lastPositionOpenTime, pendingTradeData, enableHttpAnalytics, tradeExitCallback);
+                                found_closing_deal = true;
+                            }
+                        }
+                    }
+
+                    if(!found_closing_deal) {
+                        Print("❌ Unable to process trade close - no closing deal found");
+                    }
                 }
             } else {
                 Print("❌ Could not select position history for: ", trans.position);

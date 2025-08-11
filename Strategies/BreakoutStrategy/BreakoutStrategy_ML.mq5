@@ -412,8 +412,8 @@ void PlaceBuyOrderWithML(MLPrediction &prediction) {
         Print("📊 Using breakout stop loss for BUY trade");
     }
 
-    // Apply ML adjustments
-    double adjustedStopLoss = g_ml_interface.AdjustStopLoss(baseStopLoss, prediction, "buy");
+    // Apply ML adjustments using new distance-based method
+    double adjustedStopLoss = g_ml_interface.CalculateAdjustedStopLoss(entry, baseStopLoss, prediction, "buy");
     double stopDistance = entry - adjustedStopLoss;
     double takeProfit = CalculateTakeProfit(entry, adjustedStopLoss, RiskRewardRatio, "buy");
 
@@ -485,8 +485,8 @@ void PlaceSellOrderWithML(MLPrediction &prediction) {
         Print("📊 Using breakout stop loss for SELL trade");
     }
 
-    // Apply ML adjustments
-    double adjustedStopLoss = g_ml_interface.AdjustStopLoss(baseStopLoss, prediction, "sell");
+    // Apply ML adjustments using new distance-based method
+    double adjustedStopLoss = g_ml_interface.CalculateAdjustedStopLoss(entry, baseStopLoss, prediction, "sell");
     double stopDistance = adjustedStopLoss - entry;
     double takeProfit = CalculateTakeProfit(entry, adjustedStopLoss, RiskRewardRatio, "sell");
 
@@ -834,9 +834,31 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
 //| Generate unique EA identifier for position filtering              |
 //+------------------------------------------------------------------+
 string GenerateEAIdentifier() {
-    // EnumToString(_Period) already returns "PERIOD_H1", "PERIOD_M15", etc.
-    // So we don't need to add "PERIOD_" prefix
-    return MLStrategyName + "_" + _Symbol + "_" + EnumToString(_Period);
+    // Shorten to stay within MT5's 31-character comment limit
+    // Use abbreviations: Breakout instead of BreakoutStrategy, remove PERIOD_ prefix
+    string shortened_strategy = "Breakout";
+    string timeframe = EnumToString(_Period);
+
+    // Remove "PERIOD_" prefix from timeframe (saves 7 chars)
+    if(StringFind(timeframe, "PERIOD_") == 0) {
+        timeframe = StringSubstr(timeframe, 7);
+    }
+
+    // Format: Breakout_USDJPY+_M5 (max ~20 chars)
+    string identifier = shortened_strategy + "_" + _Symbol + "_" + timeframe;
+
+    // Ensure we stay under 31 characters
+    if(StringLen(identifier) > 31) {
+        // Truncate symbol if needed (keep first part)
+        int max_symbol_len = 31 - StringLen(shortened_strategy) - StringLen(timeframe) - 2; // -2 for underscores
+        if(max_symbol_len > 0) {
+            string truncated_symbol = StringSubstr(_Symbol, 0, max_symbol_len);
+            identifier = shortened_strategy + "_" + truncated_symbol + "_" + timeframe;
+        }
+    }
+
+    Print("🔍 Generated EA identifier: '", identifier, "' (", StringLen(identifier), " chars)");
+    return identifier;
 }
 
 //+------------------------------------------------------------------+
@@ -864,8 +886,21 @@ bool HasOpenPositionForThisEA() {
                 // Check if this position belongs to our EA by checking the comment
                 string position_comment = PositionGetString(POSITION_COMMENT);
 
-                // Enhanced filtering: Check for exact EA identifier match
+                // Enhanced filtering: Check for EA identifier match with truncation tolerance
+                bool comment_matches = false;
                 if(StringFind(position_comment, ea_identifier) >= 0) {
+                    comment_matches = true;
+                } else {
+                    // Check for partial match if comment might be truncated
+                    string comment_prefix = StringSubstr(ea_identifier, 0, MathMin(StringLen(ea_identifier), StringLen(position_comment)));
+                    if(StringLen(position_comment) >= StringLen(comment_prefix) - 2 && // Allow some tolerance
+                       StringFind(position_comment, comment_prefix) == 0) {
+                        comment_matches = true;
+                        Print("🔍 Using partial match for position detection (truncated comment)");
+                    }
+                }
+
+                if(comment_matches) {
                     // Position is still open (if it exists in PositionsTotal, it's open)
                     return true;
                 }

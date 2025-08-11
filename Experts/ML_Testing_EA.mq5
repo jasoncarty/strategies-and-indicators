@@ -38,8 +38,8 @@ input double ATRStopLossMultiplier = 2.0;      // ATR multiplier for stop loss
 input double ATRTakeProfitMultiplier = 3.0;    // ATR multiplier for take profit
 input double MinStopLossPips = 20;             // Minimum stop loss in pips (fallback)
 input double MinTakeProfitPips = 40;           // Minimum take profit in pips (fallback)
-input double MaxStopLossPips = 200;            // Maximum stop loss in pips (fallback)
-input double MaxTakeProfitPips = 400;          // Maximum take profit in pips (fallback)
+input double MaxStopLossPips = 50;             // Maximum stop loss in pips (fallback)
+input double MaxTakeProfitPips = 100;          // Maximum take profit in pips (fallback)
 
 input group "Analytics Configuration"
 // AnalyticsServerUrl is defined in ea_http_analytics.mqh
@@ -772,7 +772,7 @@ void ExecuteRandomTrade() {
 
     // Use TradeUtils functions for robust order placement
     bool success = false;
-    string tradeComment = GenerateEAIdentifier() + "_RANDOM"; // Add RANDOM suffix to distinguish
+    string tradeComment = GenerateEAIdentifier(); // Use consistent EA identifier
     if(tradeDirection == "BUY") {
         success = PlaceBuyOrder(TestLotSize, stopLoss, takeProfit, 0, tradeComment);
     } else {
@@ -878,9 +878,31 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
 //| Generate unique EA identifier for position filtering              |
 //+------------------------------------------------------------------+
 string GenerateEAIdentifier() {
-    // EnumToString(_Period) already returns "PERIOD_H1", "PERIOD_M15", etc.
-    // So we don't need to add "PERIOD_" prefix
-    return MLStrategyName + "_" + _Symbol + "_" + EnumToString(_Period);
+    // Shorten to stay within MT5's 31-character comment limit
+    // Use abbreviations: ML_Test instead of ML_Testing_EA, remove PERIOD_ prefix
+    string shortened_strategy = "ML_Test";
+    string timeframe = EnumToString(_Period);
+
+    // Remove "PERIOD_" prefix from timeframe (saves 7 chars)
+    if(StringFind(timeframe, "PERIOD_") == 0) {
+        timeframe = StringSubstr(timeframe, 7);
+    }
+
+    // Format: ML_Test_XAUUSD+_H1 (max ~20 chars)
+    string identifier = shortened_strategy + "_" + _Symbol + "_" + timeframe;
+
+    // Ensure we stay under 31 characters
+    if(StringLen(identifier) > 31) {
+        // Truncate symbol if needed (keep first part)
+        int max_symbol_len = 31 - StringLen(shortened_strategy) - StringLen(timeframe) - 2; // -2 for underscores
+        if(max_symbol_len > 0) {
+            string truncated_symbol = StringSubstr(_Symbol, 0, max_symbol_len);
+            identifier = shortened_strategy + "_" + truncated_symbol + "_" + timeframe;
+        }
+    }
+
+    Print("🔍 Generated EA identifier: '", identifier, "' (", StringLen(identifier), " chars)");
+    return identifier;
 }
 
 //+------------------------------------------------------------------+

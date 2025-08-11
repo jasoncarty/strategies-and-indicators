@@ -1370,3 +1370,12 @@
 2025-08-08 13:23:39,971 - INFO - 📊 Retrieved 46 trades with features for ETHUSD M5
 2025-08-08 13:23:39,971 - INFO - 📊 ETHUSD_M5: Only 46 trades (need 50)
 2025-08-08 13:23:39,971 - INFO - 💤 Sleeping for 24 hours until next check
+2025-08-11 11:09:34,231 - INFO - 🚀 Live Retraining Service initialized
+2025-08-11 11:09:34,231 - INFO -    Analytics URL: http://127.0.0.1:5001
+2025-08-11 11:09:34,231 - INFO -    Models Directory: ml_models
+2025-08-11 11:09:34,231 - INFO -    Retraining Interval: 24 hours
+2025-08-11 11:09:34,231 - INFO -    Min Trades for Retraining: 50
+2025-08-11 11:09:34,231 - INFO -    Performance Threshold: 0.55
+2025-08-11 11:09:34,231 - INFO - 🔧 Manual retraining requested for XAUUSD+ PERIOD_H1
+2025-08-11 11:09:34,243 - INFO - 📊 Retrieved 0 trades with features for XAUUSD+ PERIOD_H1
+2025-08-11 11:09:34,243 - WARNING - ⚠️ Insufficient data for manual retraining: 0 trades
