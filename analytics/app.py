@@ -327,6 +327,10 @@ def record_batch():
         raw_data = request.get_data(as_text=True)
         logger.info(f"🔍 Raw request data (first 500 chars): {raw_data[:500]}")
 
+        # Also log the end of the data to see ml_prediction records
+        if len(raw_data) > 500:
+            logger.info(f"🔍 Raw request data (last 500 chars): {raw_data[-500:]}")
+
         # Try to parse JSON with better error handling
         try:
             data = request.get_json()
@@ -354,6 +358,8 @@ def record_batch():
                 logger.info(f"   Processing record {i+1}/{len(data['records'])}: {record_type}")
 
                 if record_type == 'ml_prediction':
+                    # Log the ml_prediction data for debugging
+                    logger.info(f"     🔍 ML prediction data: {record_data}")
                     prediction_id = analytics_db.insert_ml_prediction(record_data)
                     results.append({"type": "ml_prediction", "id": prediction_id, "status": "success"})
                     logger.info(f"     ✅ ML prediction recorded with ID: {prediction_id}")

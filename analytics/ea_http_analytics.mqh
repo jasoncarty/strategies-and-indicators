@@ -209,7 +209,7 @@ void RecordTradeExit(double exit_price, double profit_loss, double profit_loss_p
 //| Record ML prediction via HTTP (trade-specific)                    |
 //+------------------------------------------------------------------+
 void RecordMLPrediction(string model_name, string model_type, double prediction_probability,
-                        double confidence_score, string features_json = "") {
+                        double confidence_score, string features_json = "", string strategy_name = "") {
     if(!g_analytics_enabled) return;
 
     // Only record if we have a valid trade ID (not "0")
@@ -228,7 +228,7 @@ void RecordMLPrediction(string model_name, string model_type, double prediction_
     data.timestamp = TimeCurrent();
     data.symbol = _Symbol;
     data.timeframe = GetCurrentTimeframeString();
-    data.strategy_name = "BreakoutStrategy_ML";
+    data.strategy_name = (strategy_name != "") ? strategy_name : "ML_Testing_EA";
     data.strategy_version = "1.00";
 
     if(EnableBatchMode) {
@@ -242,8 +242,17 @@ void RecordMLPrediction(string model_name, string model_type, double prediction_
 //| Record general ML prediction via HTTP (no trade required)         |
 //+------------------------------------------------------------------+
 void RecordGeneralMLPrediction(string model_name, string model_type, double prediction_probability,
-                               double confidence_score, string features_json = "") {
+                               double confidence_score, string features_json = "", string strategy_name = "") {
     if(!g_analytics_enabled) return;
+
+    // Debug logging to track the model_type value and type
+    Print("🔍 RecordGeneralMLPrediction called with:");
+    Print("   model_name: '", model_name, "' (type: string, length: ", StringLen(model_name), ")");
+    Print("   model_type: '", model_type, "' (type: string, length: ", StringLen(model_type), ")");
+    Print("   prediction_probability: ", prediction_probability, " (type: double)");
+    Print("   confidence_score: ", confidence_score, " (type: double)");
+    Print("   features_json length: ", StringLen(features_json));
+    Print("   strategy_name: '", strategy_name, "' (type: string, length: ", StringLen(strategy_name), ")");
 
     MLAnalyticsData data;
     data.trade_id = "0"; // General prediction, not tied to a specific trade
@@ -255,8 +264,16 @@ void RecordGeneralMLPrediction(string model_name, string model_type, double pred
     data.timestamp = TimeCurrent();
     data.symbol = _Symbol;
     data.timeframe = GetCurrentTimeframeString();
-    data.strategy_name = "BreakoutStrategy_ML";
+    data.strategy_name = (strategy_name != "") ? strategy_name : "ML_Testing_EA";
     data.strategy_version = "1.00";
+
+    // Debug logging after assignment to struct
+    Print("🔍 After assignment to MLAnalyticsData struct:");
+    Print("   data.model_name: '", data.model_name, "' (length: ", StringLen(data.model_name), ")");
+    Print("   data.model_type: '", data.model_type, "' (length: ", StringLen(data.model_type), ")");
+    Print("   data.prediction_probability: ", data.prediction_probability);
+    Print("   data.confidence_score: ", data.confidence_score);
+
 
     if(EnableBatchMode) {
         AddMLToBatch(data);
@@ -524,6 +541,9 @@ string TradeStructToJson(TradeAnalyticsData &data) {
 //| Convert ML struct to JSON                                         |
 //+------------------------------------------------------------------+
 string MLStructToJson(MLAnalyticsData &data) {
+    // Debug logging to track the model_type value during JSON conversion
+    Print("🔍 MLStructToJson - data.model_type: '", data.model_type, "' (length: ", StringLen(data.model_type), ")");
+
     string json = "{";
     json += "\"trade_id\":" + data.trade_id + ",";
     json += "\"model_name\":\"" + data.model_name + "\",";
@@ -537,6 +557,9 @@ string MLStructToJson(MLAnalyticsData &data) {
     json += "\"strategy_name\":\"" + data.strategy_name + "\",";
     json += "\"strategy_version\":\"" + data.strategy_version + "\"";
     json += "}";
+
+    // Debug logging to show the final JSON
+    Print("🔍 MLStructToJson - Final JSON: ", json);
     return json;
 }
 

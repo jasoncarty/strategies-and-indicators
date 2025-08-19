@@ -15,7 +15,6 @@ extern double previousDayHigh;
 extern double previousDayLow;
 extern double newDayLow; // New day low established after bearish breakout
 extern double newDayHigh; // New day high established after bullish breakout
-extern bool hasOpenPosition;
 extern datetime lastDayCheck;
 
 //--- State machine enum

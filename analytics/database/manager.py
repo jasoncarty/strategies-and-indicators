@@ -26,6 +26,11 @@ class AnalyticsDatabase:
     def __init__(self):
         self.config = db_config
         self.connection = None
+        self.last_connection_time = None
+        self.connection_attempts = 0
+        self.last_error_time = None
+        self.max_connection_age = 3600  # 1 hour max connection age
+        self.use_connection_pool = True  # Use fresh connections for each operation
 
     def connect(self):
         """Establish database connection"""
@@ -39,14 +44,20 @@ class AnalyticsDatabase:
                 'read_timeout': 30,     # 30 second read timeout
                 'write_timeout': 30,    # 30 second write timeout
                 'max_allowed_packet': 16777216,  # 16MB max packet size
+                'sql_mode': 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO',
+                'init_command': 'SET SESSION wait_timeout=28800,interactive_timeout=28800',
             })
 
             self.connection = pymysql.connect(
                 **connection_params,
                 cursorclass=DictCursor
             )
+            self.last_connection_time = datetime.now()
+            self.connection_attempts = 0
             logger.info("✅ Database connection established")
         except Exception as e:
+            self.last_error_time = datetime.now()
+            self.connection_attempts += 1
             logger.error(f"❌ Database connection failed: {e}")
             self.connection = None  # Ensure connection is None on failure
             raise
@@ -61,6 +72,52 @@ class AnalyticsDatabase:
                 logger.warning(f"⚠️ Error closing database connection: {e}")
             finally:
                 self.connection = None
+
+    def force_reconnect(self):
+        """Force a clean reconnection by closing and re-establishing the connection"""
+        logger.info("🔄 Forcing database reconnection...")
+        try:
+            self.disconnect()
+            import time
+            time.sleep(1)  # Brief delay to ensure cleanup
+            self.connect()
+            logger.info("✅ Force reconnection completed successfully")
+        except Exception as e:
+            logger.error(f"❌ Force reconnection failed: {e}")
+            raise
+
+    def _get_fresh_connection(self):
+        """Create a completely fresh database connection for each operation"""
+        try:
+            connection_params = self.config.get_connection_params()
+            # Add connection stability settings
+            connection_params.update({
+                'autocommit': True,  # Auto-commit to avoid transaction issues
+                'charset': 'utf8mb4',
+                'connect_timeout': 10,  # 10 second connection timeout
+                'read_timeout': 30,     # 30 second read timeout
+                'write_timeout': 30,    # 30 second write timeout
+                'max_allowed_packet': 16777216,  # 16MB max packet size
+                'sql_mode': 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO',
+                'init_command': 'SET SESSION wait_timeout=28800,interactive_timeout=28800',
+            })
+
+            fresh_connection = pymysql.connect(
+                **connection_params,
+                cursorclass=DictCursor
+            )
+
+            # Test the fresh connection immediately
+            with fresh_connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+
+            logger.debug("✅ Fresh database connection created and tested successfully")
+            return fresh_connection
+
+        except Exception as e:
+            logger.error(f"❌ Failed to create fresh database connection: {e}")
+            return None
 
     def is_connected(self) -> bool:
         """Check if database connection is healthy"""
@@ -77,118 +134,170 @@ class AnalyticsDatabase:
             logger.debug(f"Database connection health check failed: {e}")
             return False
 
-    def _ensure_connection(self):
-        """Ensure database connection is valid, reconnect if necessary"""
+    def get_connection_status(self) -> Dict[str, Any]:
+        """Get detailed connection status information"""
+        status = {
+            'connected': False,
+            'connection_object': None,
+            'error': None,
+            'last_error_time': None
+        }
+
         try:
             if self.connection is None:
-                logger.info("🔄 No database connection, establishing new connection...")
-                self.connect()
-                return
+                status['error'] = 'No connection object'
+                return status
 
-            # Test the connection with a simple query
-            if hasattr(self.connection, 'ping'):
-                self.connection.ping(reconnect=False)
-            else:
-                # Fallback: try a simple query to test connection
-                with self.connection.cursor() as cursor:
-                    cursor.execute("SELECT 1")
-                    cursor.fetchone()
+            # Test the connection
+            with self.connection.cursor() as cursor:
+                cursor.execute("SELECT 1 as test")
+                result = cursor.fetchone()
+                if result and result['test'] == 1:
+                    status['connected'] = True
+                    status['connection_object'] = f"<pymysql.Connection object at {id(self.connection)}>"
+                else:
+                    status['error'] = 'Connection test query failed'
+
         except Exception as e:
-            logger.warning(f"⚠️ Database connection lost, reconnecting... Error: {e}")
+            status['error'] = str(e)
+            status['last_error_time'] = datetime.now().isoformat()
+
+        return status
+
+    def _ensure_connection(self):
+        """Ensure database connection is valid, reconnect if necessary"""
+        # Check if connection is too old and needs refreshing
+        if (self.connection and self.last_connection_time and
+            (datetime.now() - self.last_connection_time).total_seconds() > self.max_connection_age):
+            logger.info("🔄 Connection is too old, refreshing...")
             try:
-                if self.connection:
-                    self.connection.close()
+                self.connection.close()
             except:
                 pass
-            # Reset connection to None before reconnecting
             self.connection = None
-            self.connect()
+
+        max_retries = 3
+        retry_count = 0
+
+        while retry_count < max_retries:
+            try:
+                if self.connection is None:
+                    logger.info("🔄 No database connection, establishing new connection...")
+                    self.connect()
+                    return
+
+                # Test the connection with a simple query
+                if hasattr(self.connection, 'ping'):
+                    self.connection.ping(reconnect=False)
+                else:
+                    # Fallback: try a simple query to test connection
+                    with self.connection.cursor() as cursor:
+                        cursor.execute("SELECT 1")
+                        cursor.fetchone()
+
+                # If we get here, connection is healthy
+                return
+
+            except Exception as e:
+                retry_count += 1
+                logger.warning(f"⚠️ Database connection lost (attempt {retry_count}/{max_retries}), reconnecting... Error: {e}")
+
+                # Clean up the corrupted connection
+                try:
+                    if self.connection:
+                        self.connection.close()
+                except Exception as cleanup_error:
+                    logger.debug(f"Cleanup error (non-critical): {cleanup_error}")
+
+                # Reset connection to None
+                self.connection = None
+
+                if retry_count >= max_retries:
+                    logger.error(f"❌ Failed to establish database connection after {max_retries} attempts")
+                    raise Exception(f"Database connection failed after {max_retries} retries: {e}")
+
+                # Wait before retrying
+                import time
+                time.sleep(1)
+
+                # Try to establish new connection
+                try:
+                    self.connect()
+                except Exception as connect_error:
+                    logger.error(f"❌ Connection attempt {retry_count} failed: {connect_error}")
+                    if retry_count >= max_retries:
+                        raise
+
+    def _execute_with_retry(self, operation_name: str, operation_func, needs_rollback: bool = False, *args, **kwargs):
+        """Generic retry wrapper for database operations"""
+        max_retries = 3
+        retry_count = 0
+
+        while retry_count < max_retries:
+            # Always use a fresh connection for each operation to avoid corruption
+            fresh_connection = None
+            try:
+                # Create a completely fresh connection
+                fresh_connection = self._get_fresh_connection()
+
+                if fresh_connection is None:
+                    raise Exception("Failed to create fresh database connection")
+
+                # Execute the operation function with the fresh connection
+                result = operation_func(fresh_connection, *args, **kwargs)
+                return result
+
+            except Exception as e:
+                retry_count += 1
+                logger.error(f"❌ {operation_name} failed (attempt {retry_count}/{max_retries}): {e}")
+
+                # Clean up the fresh connection
+                if fresh_connection:
+                    try:
+                        fresh_connection.close()
+                    except:
+                        pass
+
+                if retry_count >= max_retries:
+                    logger.error(f"❌ {operation_name} failed after {max_retries} attempts")
+                    raise
+
+                logger.info(f"🔄 Retrying {operation_name} (attempt {retry_count + 1}/{max_retries})...")
+                import time
+                time.sleep(1)  # Brief delay before retry
 
     def execute_query(self, query: str, params: tuple = None) -> List[Dict]:
         """Execute a SELECT query"""
-        self._ensure_connection()
-        try:
-            if self.connection is None:
-                raise Exception("Database connection is None")
-            with self.connection.cursor() as cursor:
+        def _query_operation(connection):
+            with connection.cursor() as cursor:
                 cursor.execute(query, params)
                 return cursor.fetchall()
-        except Exception as e:
-            logger.error(f"❌ Query execution failed: {e}")
-            # Try to reconnect and retry once
-            try:
-                logger.info("🔄 Attempting to reconnect and retry query...")
-                self._ensure_connection()
-                if self.connection is None:
-                    raise Exception("Database connection is still None after reconnection")
-                with self.connection.cursor() as cursor:
-                    cursor.execute(query, params)
-                    return cursor.fetchall()
-            except Exception as retry_e:
-                logger.error(f"❌ Query retry failed: {retry_e}")
-                raise
+
+        return self._execute_with_retry("Query execution", _query_operation, False)
 
     def execute_insert(self, query: str, params: tuple = None) -> int:
         """Execute an INSERT query and return the last insert ID"""
-        self._ensure_connection()
-        try:
-            if self.connection is None:
-                raise Exception("Database connection is None")
-            with self.connection.cursor() as cursor:
+        # Log the SQL query and parameters for debugging
+        logger.info(f"🔍 Executing SQL: {query}")
+        logger.info(f"🔍 SQL parameters: {params}")
+
+        def _insert_operation(connection):
+            with connection.cursor() as cursor:
                 cursor.execute(query, params)
-                self.connection.commit()
+                connection.commit()
                 return cursor.lastrowid
-        except Exception as e:
-            logger.error(f"❌ Insert execution failed: {e}")
-            try:
-                if self.connection:
-                    self.connection.rollback()
-            except:
-                pass
-            # Try to reconnect and retry once
-            try:
-                logger.info("🔄 Attempting to reconnect and retry insert...")
-                self._ensure_connection()
-                if self.connection is None:
-                    raise Exception("Database connection is still None after reconnection")
-                with self.connection.cursor() as cursor:
-                    cursor.execute(query, params)
-                    self.connection.commit()
-                    return cursor.lastrowid
-            except Exception as retry_e:
-                logger.error(f"❌ Insert retry failed: {retry_e}")
-                raise
+
+        return self._execute_with_retry("Insert execution", _insert_operation, True)
 
     def execute_update(self, query: str, params: tuple = None) -> int:
         """Execute an UPDATE query and return affected rows"""
-        self._ensure_connection()
-        try:
-            if self.connection is None:
-                raise Exception("Database connection is None")
-            with self.connection.cursor() as cursor:
+        def _update_operation(connection):
+            with connection.cursor() as cursor:
                 cursor.execute(query, params)
-                self.connection.commit()
+                connection.commit()
                 return cursor.rowcount
-        except Exception as e:
-            logger.error(f"❌ Update execution failed: {e}")
-            try:
-                if self.connection:
-                    self.connection.rollback()
-            except:
-                pass
-            # Try to reconnect and retry once
-            try:
-                logger.info("🔄 Attempting to reconnect and retry update...")
-                self._ensure_connection()
-                if self.connection is None:
-                    raise Exception("Database connection is still None after reconnection")
-                with self.connection.cursor() as cursor:
-                    cursor.execute(query, params)
-                    self.connection.commit()
-                    return cursor.rowcount
-            except Exception as retry_e:
-                logger.error(f"❌ Update retry failed: {retry_e}")
-                raise
+
+        return self._execute_with_retry("Update execution", _update_operation, True)
 
     def insert_trade(self, trade_data: Dict[str, Any]) -> str:
         """Insert a new trade record with upsert logic to handle duplicates"""
@@ -436,6 +545,10 @@ class AnalyticsDatabase:
 
     def insert_ml_prediction(self, prediction_data: Dict[str, Any]) -> int:
         """Insert ML prediction data"""
+        # Log the data being inserted for debugging
+        logger.info(f"🔍 Inserting ML prediction - model_type: '{prediction_data.get('model_type')}' (length: {len(str(prediction_data.get('model_type', '')))})")
+        logger.info(f"🔍 Full prediction data: {prediction_data}")
+
         # Check if trade exists, create placeholder if not (for testing scenarios)
         trade_id = prediction_data['trade_id']
 

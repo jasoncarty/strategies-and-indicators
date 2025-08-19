@@ -40,6 +40,30 @@ struct MLPrediction {
     bool is_valid;                  // Whether prediction is valid
     string error_message;           // Error message if prediction failed
     datetime timestamp;             // When prediction was made
+
+    // Copy constructor to avoid deprecated assignment warnings
+    MLPrediction(const MLPrediction& other) {
+        confidence = other.confidence;
+        probability = other.probability;
+        direction = other.direction;
+        model_type = other.model_type;
+        model_key = other.model_key;
+        is_valid = other.is_valid;
+        error_message = other.error_message;
+        timestamp = other.timestamp;
+    }
+
+    // Default constructor
+    MLPrediction() {
+        confidence = 0.0;
+        probability = 0.0;
+        direction = "";
+        model_type = "";
+        model_key = "";
+        is_valid = false;
+        error_message = "";
+        timestamp = 0;
+    }
 };
 
 //+------------------------------------------------------------------+
@@ -86,6 +110,24 @@ struct MLFeatures {
 };
 
 //+------------------------------------------------------------------+
+//| Unified Trade Data Structure                                     |
+//+------------------------------------------------------------------+
+struct UnifiedTradeData {
+    ulong ticket;                    // MT5 position ticket (0 if not yet opened)
+    string direction;                 // BUY/SELL
+    double entry_price;              // Entry price
+    double stop_loss;                // Stop loss
+    double take_profit;              // Take profit
+    double lot_size;                 // Lot size
+    MLPrediction prediction;         // ML prediction data
+    MLFeatures features;             // Market features
+    bool is_logged;                  // Whether ML data was logged to database
+    bool is_open;                    // Whether position is currently open
+    datetime created_time;           // When trade was created
+    datetime opened_time;            // When position was opened
+};
+
+//+------------------------------------------------------------------+
 //| HTTP-based Machine Learning Interface Class                       |
 //+------------------------------------------------------------------+
 class MLHttpInterface {
@@ -93,6 +135,11 @@ public:
     MLConfig config;  // Make config public for easy access
 private:
     MLPrediction last_prediction;
+
+    // Unified trade tracking (replaces both pending trades and position tracking)
+    // Array size: 1000 slots (large enough for any reasonable EA capacity setting)
+    UnifiedTradeData unified_trades[1000];  // Large default size to accommodate any EA capacity setting
+    int unified_trade_count;
     bool api_connected;
     datetime last_connection_check;
     int request_timeout;
@@ -118,6 +165,7 @@ public:
         last_connection_check = 0;
         request_timeout = 5000;
         cache_index = 0;
+        unified_trade_count = 0;  // Initialize unified trade counter
     }
 
     // Initialize the interface
@@ -280,6 +328,7 @@ public:
         return prediction;
     }
 
+public:
     // Check if a signal is valid based on confidence thresholds
     bool IsSignalValid(MLPrediction &prediction) {
         if(!prediction.is_valid) {
@@ -395,6 +444,38 @@ public:
 
 public:
     //+------------------------------------------------------------------+
+    //| Register a pending trade for ML logging                           |
+    //+------------------------------------------------------------------+
+    void RegisterPendingTrade(string direction, double entry_price, double stop_loss, double take_profit,
+                                             double lot_size, MLPrediction& prediction, MLFeatures& features, int maxCapacity) {
+        // Check capacity BEFORE allowing trade registration
+        if(!CanTrackMoreTrades(maxCapacity)) {
+            Print("❌ Cannot register pending trade - unified trade array is full (", unified_trade_count, "/", maxCapacity, ")");
+            Print("⚠️ Trade execution should be prevented when capacity is exhausted");
+            Print("🔍 Remaining capacity: ", GetRemainingTradeCapacity(maxCapacity), " slots");
+            PrintUnifiedTradeArrayStatus(maxCapacity);
+            return;
+        }
+
+        UnifiedTradeData new_trade;
+        new_trade.ticket = 0;  // Will be set when actual ticket is known
+        new_trade.direction = direction;
+        new_trade.entry_price = entry_price;
+        new_trade.stop_loss = stop_loss;
+        new_trade.take_profit = take_profit;
+        new_trade.lot_size = lot_size;
+        new_trade.prediction = prediction;
+        new_trade.features = features;
+        new_trade.is_logged = false;
+        new_trade.is_open = false;
+        new_trade.created_time = TimeCurrent();
+        new_trade.opened_time = 0;
+
+        AddUnifiedTrade(unified_trades, unified_trade_count, new_trade, maxCapacity);
+        PrintUnifiedTrades(unified_trades, unified_trade_count, "After registering new pending trade");
+    }
+
+    //+------------------------------------------------------------------+
     //| Log trade data for ML retraining                                  |
     //+------------------------------------------------------------------+
     void LogTradeForRetraining(string trade_id, string direction, double entry, double sl, double tp, double lot, MLPrediction &prediction, MLFeatures &features) {
@@ -407,6 +488,16 @@ public:
         if(trade_id == "0" || trade_id == "" || trade_id == "null") {
             Print("⚠️ Trade ID is placeholder - waiting for actual MT5 ticket number");
             return; // Skip logging until we have a real ticket number
+        }
+
+        // Validate prediction data
+        if(prediction.model_key == "" || prediction.model_key == "null") {
+            Print("❌ Cannot log trade for ML retraining - missing model_key");
+            Print("   Trade ID: ", trade_id);
+            Print("   Direction: ", direction);
+            Print("   Model Key: '", prediction.model_key, "'");
+            Print("   Prediction Valid: ", prediction.is_valid ? "Yes" : "No");
+            return;
         }
 
         // Create JSON object using the library
@@ -424,7 +515,7 @@ public:
         json_request["lot_size"] = lot;
         json_request["ml_prediction"] = prediction.probability;
         json_request["ml_confidence"] = prediction.confidence;
-        json_request["ml_model_type"] = prediction.model_type;
+        json_request["ml_model_type"] = direction;
         json_request["ml_model_key"] = prediction.model_key;
         json_request["trade_time"] = (long)TimeCurrent();
 
@@ -648,10 +739,11 @@ public:
     //+------------------------------------------------------------------+
     typedef void (*TradeEntryCallback)(string direction, double entry_price, double stop_loss, double take_profit, double lot_size, string strategy_name, string version);
     typedef void (*MarketConditionsCallback)(MLFeatures& features);
-    typedef void (*MLPredictionCallback)(string model_name, string direction, double probability, double confidence, string features_json);
+    typedef void (*MLPredictionCallback)(string model_name, string model_type, double probability, double confidence, string features_json);
     typedef void (*SetTradeIDCallback)(ulong position_ticket);
     typedef void (*TradeExitCallback)(double close_price, double profit, double profitLossPips);
 
+public:
     //+------------------------------------------------------------------+
     //| Collect market features - unified function for all EAs           |
     //+------------------------------------------------------------------+
@@ -881,7 +973,7 @@ public:
     //| Unified analytics handler using individual callbacks             |
     //+------------------------------------------------------------------+
     void HandleTradeAnalytics(double entry_price, double lot_size, string direction, string strategy_name,
-                             MLFeatures& lastMarketFeatures, string& lastTradeDirection, MLPrediction& lastMLPrediction,
+                             MLFeatures& param_lastMarketFeatures, string& param_lastTradeDirection, MLPrediction& param_lastMLPrediction,
                              SetTradeIDCallback setTradeIDCallback,
                              TradeEntryCallback tradeEntryCallback,
                              MarketConditionsCallback marketConditionsCallback,
@@ -906,179 +998,195 @@ public:
         }
 
         // Record market conditions for every trade (regardless of ML prediction)
-        if(lastMarketFeatures.rsi != 0 && marketConditionsCallback != NULL) {
-            marketConditionsCallback(lastMarketFeatures);
+        if(param_lastMarketFeatures.rsi != 0 && marketConditionsCallback != NULL) {
+            marketConditionsCallback(param_lastMarketFeatures);
             Print("✅ Recorded market conditions analytics");
         }
 
         // Record ML prediction if we have stored data
-        if(lastTradeDirection != "" && mlPredictionCallback != NULL) {
-            // Record ML prediction with features JSON
-            string model_name = (lastTradeDirection == "BUY") ? "buy_model_improved" : "sell_model_improved";
-            string features_json = CreateFeatureJSON(lastMarketFeatures, lastTradeDirection);
-            mlPredictionCallback(model_name, StringToLower(lastTradeDirection), lastMLPrediction.probability, lastMLPrediction.confidence, features_json);
+        if(param_lastTradeDirection != "" && mlPredictionCallback != NULL) {
+            // Record ML prediction with features JSON - use standardized model names and types
+            string model_name = (direction == "BUY") ? "buy_model_improved" : "sell_model_improved";
+            string model_type = direction;
+            string features_json = CreateFeatureJSON(param_lastMarketFeatures, direction);
+
+            // Debug logging to track parameter types
+            Print("🔍 HandleTradeAnalytics - About to call MLPredictionCallback:");
+            Print("   model_name: '", model_name, "' (type: string, length: ", StringLen(model_name), ")");
+            Print("   model_type: '", model_type, "' (type: string, length: ", StringLen(model_type), ")");
+            Print("   probability: ", param_lastMLPrediction.probability, " (type: double)");
+            Print("   confidence: ", param_lastMLPrediction.confidence, " (type: double)");
+            Print("   features_json length: ", StringLen(features_json));
+
+            mlPredictionCallback(model_name, model_type, param_lastMLPrediction.probability, param_lastMLPrediction.confidence, features_json);
             Print("✅ Recorded ML prediction analytics with features");
 
             // Clear stored data
-            lastTradeDirection = "";
+            param_lastTradeDirection = "";
         }
     }
 
+public:
     //+------------------------------------------------------------------+
-    //| Complete OnTradeTransaction handler - for simple EAs            |
+    //| Check if we can track more trades (unified system)                |
     //+------------------------------------------------------------------+
-    void HandleCompleteTradeTransaction(const MqlTradeTransaction& trans,
+    bool CanTrackMoreTrades(int maxCapacity) {
+        if(unified_trade_count >= maxCapacity) {
+            Print("❌ Unified trade array is full (", unified_trade_count, "/", maxCapacity, ")");
+            return false;
+        }
+        return true;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Get remaining capacity for unified trade tracking                 |
+    //+------------------------------------------------------------------+
+    int GetRemainingTradeCapacity(int maxCapacity) {
+        return MathMax(0, maxCapacity - unified_trade_count);
+    }
+
+    //+------------------------------------------------------------------+
+    //| Get current unified trade count for debugging                     |
+    //+------------------------------------------------------------------+
+    int GetCurrentUnifiedTradeCount() {
+        return unified_trade_count;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Print unified trade array status for debugging                    |
+    //+------------------------------------------------------------------+
+    void PrintUnifiedTradeArrayStatus(int maxCapacity) {
+        Print("🔍 Unified Trade Array Status:");
+        Print("   Current count: ", unified_trade_count);
+        Print("   Max capacity: ", maxCapacity);
+        Print("   Remaining slots: ", GetRemainingTradeCapacity(maxCapacity));
+        Print("   Array utilization: ", DoubleToString((double)unified_trade_count / maxCapacity * 100, 1), "%");
+    }
+
+    //+------------------------------------------------------------------+
+    //| Check if EA has open positions (unified system)                   |
+    //+------------------------------------------------------------------+
+    bool HasOpenPositionForThisEAUnified(bool allowMultipleOrders) {
+        // If multiple simultaneous orders are allowed, don't check for existing positions
+        if(allowMultipleOrders) {
+            Print("🔍 Multiple simultaneous orders allowed - skipping position check");
+            return false;
+        }
+
+        // Check if we're tracking any open positions in unified array
+        int openPositionCount = 0;
+        for(int i = 0; i < unified_trade_count; i++) {
+            if(unified_trades[i].is_open) {
+                openPositionCount++;
+            }
+        }
+
+        if(openPositionCount > 0) {
+            Print("✅ Found ", openPositionCount, " open position(s) for this EA in unified array");
+            return true;
+        }
+
+        Print("❌ No open positions found for this EA in unified array");
+        return false;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Helper functions for managing unified trade data arrays          |
+    //+------------------------------------------------------------------+
+    void AddUnifiedTrade(UnifiedTradeData& trades[], int& tradeCount, const UnifiedTradeData& newTrade, int maxCapacity) {
+        if(tradeCount >= maxCapacity) {
+            Print("❌ Cannot add unified trade - array is full (", tradeCount, "/", maxCapacity, ")");
+            return;
+        }
+
+        trades[tradeCount] = newTrade;
+        tradeCount++;
+        Print("✅ Added unified trade ", tradeCount, " - Direction: ", newTrade.direction, ", Lot: ", DoubleToString(newTrade.lot_size, 2));
+    }
+
+    void RemoveUnifiedTrade(int index, UnifiedTradeData& trades[], int& tradeCount) {
+        if(index < 0 || index >= tradeCount) {
+            Print("❌ Invalid unified trade index: ", index);
+            return;
+        }
+
+        // Shift remaining elements down
+        for(int i = index; i < tradeCount - 1; i++) {
+            trades[i] = trades[i + 1];
+        }
+
+        // Clear the last element
+        UnifiedTradeData empty_trade;
+        trades[tradeCount - 1] = empty_trade;
+        tradeCount--;
+
+        Print("✅ Removed unified trade at index ", index, " - Remaining: ", tradeCount);
+    }
+
+    int FindUnifiedTradeByTicket(ulong ticket, const UnifiedTradeData& trades[], int tradeCount) {
+        for(int i = 0; i < tradeCount; i++) {
+            if(trades[i].ticket == ticket || trades[i].ticket == 0) {
+                // Match by ticket or find first unassigned pending trade
+                if(trades[i].ticket == 0) {
+                    Print("🔍 Found unassigned unified trade at index ", i, " - assigning to ticket ", ticket);
+                } else {
+                    Print("🔍 Found unified trade for ticket ", ticket, " at index ", i);
+                }
+                return i;
+            }
+        }
+        Print("⚠️ No unified trade found for ticket ", ticket);
+        return -1;
+    }
+
+    void PrintUnifiedTrades(const UnifiedTradeData& trades[], int tradeCount, string context = "") {
+        if(context != "") Print("🔍 ", context);
+        Print("🔍 Currently tracking ", tradeCount, " unified trades:");
+        for(int i = 0; i < tradeCount; i++) {
+            Print("   [", i, "] Ticket: ", trades[i].ticket,
+                  ", Direction: ", trades[i].direction,
+                  ", Lot: ", DoubleToString(trades[i].lot_size, 2),
+                  ", Open: ", trades[i].is_open ? "Yes" : "No",
+                  ", Logged: ", trades[i].is_logged ? "Yes" : "No");
+        }
+    }
+
+
+
+    //+------------------------------------------------------------------+
+    //| Handle complete trade transaction - UNIFIED SYSTEM (no legacy params) |
+    //+------------------------------------------------------------------+
+    void HandleCompleteTradeTransactionUnified(const MqlTradeTransaction& trans,
                             const MqlTradeRequest& request,
                             const MqlTradeResult& result,
-                            ulong& lastKnownPositionTicket,
-                            datetime& lastPositionOpenTime,
-                            string& lastTradeID,
-                            bool& pendingTradeData,
+                            datetime& param_lastPositionOpenTime,
+                            string& param_lastTradeID,
                             bool enableHttpAnalytics,
                             string eaIdentifier,
                             string strategyName,
-                            MLPrediction& pendingPrediction,
-                            MLFeatures& pendingFeatures,
-                            string& pendingDirection,
-                            double pendingEntry,
-                            double pendingStopLoss,
-                            double pendingTakeProfit,
-                            double pendingLotSize,
-                            MLPrediction& lastMLPrediction,
-                            MLFeatures& lastMarketFeatures,
-                            string& lastTradeDirection,
+                            MLPrediction& param_lastMLPrediction,
+                            MLFeatures& param_lastMarketFeatures,
+                            string& param_lastTradeDirection,
                             SetTradeIDCallback setTradeIDCallback,
                             TradeEntryCallback tradeEntryCallback,
                             MarketConditionsCallback marketConditionsCallback,
                             MLPredictionCallback mlPredictionCallback,
-                            TradeExitCallback tradeExitCallback) {
+                            TradeExitCallback tradeExitCallback,
+                            int maxCapacity) {
 
-        Print("🔄 OnTradeTransaction() called - Transaction type: ", EnumToString(trans.type));
+        Print("🔄 OnTradeTransaction() called - UNIFIED SYSTEM - Transaction type: ", EnumToString(trans.type));
         Print("🔍 Position ticket: ", trans.position, ", Deal ticket: ", trans.deal);
+        PrintUnifiedTrades(unified_trades, unified_trade_count, "Before processing transaction");
 
-        // Handle trade open transactions
-        HandleTradeOpenTransaction(trans, lastKnownPositionTicket, lastPositionOpenTime,
-                                 lastTradeID, pendingTradeData, enableHttpAnalytics, eaIdentifier,
-                                 strategyName, pendingPrediction, pendingFeatures,
-                                 pendingDirection, pendingEntry, pendingStopLoss, pendingTakeProfit, pendingLotSize);
+        // Debug logging to track parameter values
+        Print("🔍 HandleCompleteTradeTransactionUnified received:");
+        Print("   param_lastTradeDirection: '", param_lastTradeDirection, "' (type: string, length: ", StringLen(param_lastTradeDirection), ")");
+        Print("   param_lastMLPrediction.is_valid: ", param_lastMLPrediction.is_valid ? "true" : "false");
+        Print("   param_lastMLPrediction.direction: '", param_lastMLPrediction.direction, "'");
 
-        // Handle unified analytics after trade open
-        if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.position != 0 && lastKnownPositionTicket == trans.position) {
-            if(enableHttpAnalytics && HistoryDealSelect(trans.deal)) {
-                double entry_price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
-                double lot_size = HistoryDealGetDouble(trans.deal, DEAL_VOLUME);
-                string direction = (HistoryDealGetInteger(trans.deal, DEAL_TYPE) == DEAL_TYPE_BUY) ? "BUY" : "SELL";
-
-                // Use unified analytics handler
-                HandleTradeAnalytics(entry_price, lot_size, direction, strategyName,
-                                   lastMarketFeatures, lastTradeDirection, lastMLPrediction,
-                                   setTradeIDCallback, tradeEntryCallback, marketConditionsCallback, mlPredictionCallback,
-                                   lastKnownPositionTicket);
-            }
-        }
-
-        // Handle trade close transactions
-        HandleTradeCloseTransaction(trans, lastKnownPositionTicket, lastPositionOpenTime,
-                                  lastTradeID, pendingTradeData, enableHttpAnalytics, eaIdentifier, tradeExitCallback);
-    }
-
-    //+------------------------------------------------------------------+
-    //| Complete OnTradeTransaction handler - for BreakoutStrategy EA   |
-    //+------------------------------------------------------------------+
-    void HandleCompleteTradeTransactionWithPosition(const MqlTradeTransaction& trans,
-                                        const MqlTradeRequest& request,
-                                        const MqlTradeResult& result,
-                                        ulong& lastKnownPositionTicket,
-                                        datetime& lastPositionOpenTime,
-                                        string& lastTradeID,
-                                        bool& pendingTradeData,
-                                        bool enableHttpAnalytics,
-                                        string eaIdentifier,
-                                        string strategyName,
-                                        MLPrediction& pendingPrediction,
-                                        MLFeatures& pendingFeatures,
-                                        string& pendingDirection,
-                                        double pendingEntry,
-                                        double pendingStopLoss,
-                                        double pendingTakeProfit,
-                                        double pendingLotSize,
-                                        MLPrediction& lastMLPrediction,
-                                        MLFeatures& lastMarketFeatures,
-                                        string& lastTradeDirection,
-                                        bool& hasOpenPosition,
-                                        SetTradeIDCallback setTradeIDCallback,
-                                        TradeEntryCallback tradeEntryCallback,
-                                        MarketConditionsCallback marketConditionsCallback,
-                                        MLPredictionCallback mlPredictionCallback,
-                                        TradeExitCallback tradeExitCallback) {
-
-        Print("🔄 OnTradeTransaction() called - Transaction type: ", EnumToString(trans.type));
-        Print("🔍 Position ticket: ", trans.position, ", Deal ticket: ", trans.deal);
-
-        // Handle trade open transactions
-        HandleTradeOpenTransaction(trans, lastKnownPositionTicket, lastPositionOpenTime,
-                                 lastTradeID, pendingTradeData, enableHttpAnalytics, eaIdentifier,
-                                 strategyName, pendingPrediction, pendingFeatures,
-                                 pendingDirection, pendingEntry, pendingStopLoss, pendingTakeProfit, pendingLotSize);
-
-        // Handle BreakoutStrategy-specific logic after trade open
-        if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.position != 0 && lastKnownPositionTicket == trans.position) {
-            hasOpenPosition = true;
-
-            // Handle unified analytics after trade open
-            if(enableHttpAnalytics && HistoryDealSelect(trans.deal)) {
-                double entry_price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
-                double lot_size = HistoryDealGetDouble(trans.deal, DEAL_VOLUME);
-                string direction = (HistoryDealGetInteger(trans.deal, DEAL_TYPE) == DEAL_TYPE_BUY) ? "BUY" : "SELL";
-
-                // Use unified analytics handler
-                HandleTradeAnalytics(entry_price, lot_size, direction, strategyName,
-                                   lastMarketFeatures, lastTradeDirection, lastMLPrediction,
-                                   setTradeIDCallback, tradeEntryCallback, marketConditionsCallback, mlPredictionCallback,
-                                   lastKnownPositionTicket);
-            }
-        }
-
-        // Store the original position ticket to check if trade was closed
-        ulong originalPositionTicket = lastKnownPositionTicket;
-
-        // Handle trade close transactions
-        HandleTradeCloseTransaction(trans, lastKnownPositionTicket, lastPositionOpenTime,
-                                  lastTradeID, pendingTradeData, enableHttpAnalytics, eaIdentifier, tradeExitCallback);
-
-        // Handle BreakoutStrategy-specific logic after trade close
-        if(originalPositionTicket != 0 && lastKnownPositionTicket == 0) {
-            // Position was closed and reset by utility function
-            hasOpenPosition = false;
-            Print("🔄 Updated hasOpenPosition status after trade close");
-        }
-    }
-
-    //+------------------------------------------------------------------+
-    //| Handle trade open transactions - utility function for EAs        |
-    //+------------------------------------------------------------------+
-    void HandleTradeOpenTransaction(const MqlTradeTransaction& trans,
-                                   ulong& lastKnownPositionTicket,
-                                   datetime& lastPositionOpenTime,
-                                   string& lastTradeID,
-                                   bool& pendingTradeData,
-                                   bool enableHttpAnalytics,
-                                   string eaIdentifier,
-                                   string strategyName,
-                                   MLPrediction& pendingPrediction,
-                                   MLFeatures& pendingFeatures,
-                                   string& pendingDirection,
-                                   double pendingEntry,
-                                   double pendingStopLoss,
-                                   double pendingTakeProfit,
-                                   double pendingLotSize) {
-
-        Print("🔄 HandleTradeOpenTransaction() called - Transaction type: ", EnumToString(trans.type));
-        Print("🔍 Position ticket: ", trans.position, ", Deal ticket: ", trans.deal);
-
-        // Check if this is a position opening transaction
-        if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.position != 0 && lastKnownPositionTicket == 0) {
-            Print("🔍 Potential position opening transaction detected - Position: ", trans.position);
+        // Handle trade open transactions using unified system
+        if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.position != 0) {
+            Print("🔍 Position opening transaction detected - Position: ", trans.position);
 
             // Verify this is our position by checking the deal
             if(HistoryDealSelect(trans.deal)) {
@@ -1100,291 +1208,298 @@ public:
                     if(StringLen(deal_comment) >= StringLen(comment_prefix) - 2 && // Allow some tolerance
                        StringFind(deal_comment, comment_prefix) == 0) {
                         comment_matches = true;
-                        Print("🔍 Using partial match for truncated comment in trade open");
                     }
                 }
 
-                if(deal_symbol == _Symbol && comment_matches && deal_entry == DEAL_ENTRY_IN) {
-                    Print("✅ Position opening confirmed for this EA - Ticket: ", trans.position);
-                    lastKnownPositionTicket = trans.position;
-                    lastPositionOpenTime = (datetime)HistoryDealGetInteger(trans.deal, DEAL_TIME);
+                if(comment_matches && deal_entry == DEAL_ENTRY_IN) {
+                    Print("✅ Position confirmed as ours - updating unified array");
+                    // Find the pending trade and assign the ticket
+                    int pendingIndex = FindUnifiedTradeByTicket(0, unified_trades, unified_trade_count);
+                    if(pendingIndex >= 0) {
+                        unified_trades[pendingIndex].ticket = trans.position;
+                        unified_trades[pendingIndex].is_open = true;
+                        unified_trades[pendingIndex].opened_time = TimeCurrent();
+                        Print("✅ Assigned ticket ", trans.position, " to pending trade at index ", pendingIndex);
 
-                    // Set the trade ID to the MT5 position ticket for consistency
-                    if(lastTradeID == "" || lastTradeID == "0") {
-                        lastTradeID = IntegerToString(trans.position);
-                        Print("✅ Set trade ID to MT5 position ticket: ", lastTradeID);
+                        // Log trade for ML retraining (pending trade that was just opened)
+                        string trade_id = IntegerToString(trans.position);
 
-                        // Note: SetTradeIDFromTicket is EA-specific and should be called by the EA
-
-                        // Record trade entry analytics now that we have the actual position ticket
-                        if(enableHttpAnalytics) {
-                            Print("📊 HTTP Analytics enabled - EA should handle RecordTradeEntry");
-                            // Note: RecordTradeEntry is EA-specific and should be handled by the EA
+                        // Get actual SL/TP from the position
+                        double actual_sl = 0.0;
+                        double actual_tp = 0.0;
+                        if(PositionSelectByTicket(trans.position)) {
+                            actual_sl = PositionGetDouble(POSITION_SL);
+                            actual_tp = PositionGetDouble(POSITION_TP);
                         }
 
-                        // Log trade data for ML retraining now that we have the actual MT5 ticket
-                        if(pendingTradeData) {
-                            Print("📊 Logging trade data for ML retraining with actual MT5 ticket: ", lastTradeID);
-                            LogTradeForRetraining(lastTradeID, pendingDirection, pendingEntry, pendingStopLoss, pendingTakeProfit, pendingLotSize, pendingPrediction, pendingFeatures);
-                            Print("✅ Trade data logged for ML retraining");
+                        // Use the prediction data stored with this specific trade
+                        LogTradeForRetraining(trade_id, unified_trades[pendingIndex].direction, unified_trades[pendingIndex].entry_price, actual_sl, actual_tp, unified_trades[pendingIndex].lot_size, unified_trades[pendingIndex].prediction, unified_trades[pendingIndex].features);
+                        Print("📊 Logged pending trade for ML retraining with SL: ", DoubleToString(actual_sl, _Digits), ", TP: ", DoubleToString(actual_tp, _Digits));
+                    } else {
+                        Print("⚠️ No pending trade found for new position - creating new entry");
+                        // Create new unified trade entry
+                        UnifiedTradeData newTrade;
+                        newTrade.ticket = trans.position;
+                        newTrade.direction = (HistoryDealGetInteger(trans.deal, DEAL_TYPE) == DEAL_TYPE_BUY) ? "BUY" : "SELL";
+                        newTrade.entry_price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+                        newTrade.lot_size = HistoryDealGetDouble(trans.deal, DEAL_VOLUME);
+                        newTrade.stop_loss = 0.0;  // Will be updated from position
+                        newTrade.take_profit = 0.0; // Will be updated from position
+                        newTrade.prediction = param_lastMLPrediction;  // Store current prediction
+                        newTrade.features = param_lastMarketFeatures; // Store current features
+                        newTrade.is_open = true;
+                        newTrade.is_logged = false;
+                        newTrade.created_time = TimeCurrent();
+                        newTrade.opened_time = TimeCurrent();
 
-                            // Clear pending trade data
-                            pendingTradeData = false;
+                        AddUnifiedTrade(unified_trades, unified_trade_count, newTrade, maxCapacity);
+
+                        // Log trade for ML retraining
+                        string trade_id = IntegerToString(trans.position);
+
+                        // Get actual SL/TP from the position
+                        double actual_sl = 0.0;
+                        double actual_tp = 0.0;
+                        if(PositionSelectByTicket(trans.position)) {
+                            actual_sl = PositionGetDouble(POSITION_SL);
+                            actual_tp = PositionGetDouble(POSITION_TP);
                         }
+
+                        // Use the prediction data stored with this specific trade
+                        LogTradeForRetraining(trade_id, newTrade.direction, newTrade.entry_price, actual_sl, actual_tp, newTrade.lot_size, newTrade.prediction, newTrade.features);
+                        Print("📊 Logged trade for ML retraining with SL: ", DoubleToString(actual_sl, _Digits), ", TP: ", DoubleToString(actual_tp, _Digits));
                     }
+                    param_lastPositionOpenTime = TimeCurrent();
+                    PrintUnifiedTrades(unified_trades, unified_trade_count, "After processing position open");
 
-                    Print("🔄 Updated position tracking - Ticket: ", lastKnownPositionTicket, ", Time: ", TimeToString(lastPositionOpenTime));
-                    Print("🔄 Trade ID for this position: ", lastTradeID);
+                    // Handle unified analytics for trade open
+                    if(enableHttpAnalytics) {
+                        double entry_price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+                        double lot_size = HistoryDealGetDouble(trans.deal, DEAL_VOLUME);
+                        string direction = (HistoryDealGetInteger(trans.deal, DEAL_TYPE) == DEAL_TYPE_BUY) ? "BUY" : "SELL";
+
+                        // Use unified analytics handler
+                        HandleTradeAnalytics(entry_price, lot_size, direction, strategyName,
+                                           param_lastMarketFeatures, param_lastTradeDirection, param_lastMLPrediction,
+                                           setTradeIDCallback, tradeEntryCallback, marketConditionsCallback, mlPredictionCallback,
+                                           trans.position);
+
+                        Print("📊 Recorded analytics for trade open (unified system)");
+                    }
                 } else {
-                    Print("❌ Deal does not match this EA or is not an entry deal - skipping");
-                    Print("   Symbol match: ", deal_symbol == _Symbol ? "true" : "false");
-                    Print("   Comment match: ", StringFind(deal_comment, eaIdentifier) >= 0 ? "true" : "false");
-                    Print("   Entry type: ", deal_entry == DEAL_ENTRY_IN ? "true" : "false");
+                    Print("⚠️ Position not ours or not entry deal - skipping");
                 }
-            } else {
-                Print("❌ Could not select deal for position opening check: ", trans.deal);
             }
         }
-    }
 
-    //+------------------------------------------------------------------+
-    //| Handle trade close transactions - utility function for EAs       |
-    //+------------------------------------------------------------------+
-    void HandleTradeCloseTransaction(const MqlTradeTransaction& trans,
-                                   ulong& lastKnownPositionTicket,
-                                   datetime& lastPositionOpenTime,
-                                   string& lastTradeID,
-                                   bool& pendingTradeData,
-                                   bool enableHttpAnalytics,
-                                   string eaIdentifier,
-                                   TradeExitCallback tradeExitCallback) {
+        // Store original trade count to detect if a position was closed
+        int originalTradeCount = unified_trade_count;
 
-        // Handle TRADE_TRANSACTION_DEAL_ADD for immediate trade close detection
-        if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.position == lastKnownPositionTicket && lastKnownPositionTicket != 0) {
-            Print("🔍 Position ticket: ", trans.position, ", Deal ticket: ", trans.deal);
-            Print("✅ Position close transaction detected for tracked position!");
+        // Handle trade close transactions using unified system
+        if(trans.type == TRADE_TRANSACTION_DEAL_ADD && trans.position != 0) {
+            // Find the trade in unified array
+            int tradeIndex = FindUnifiedTradeByTicket(trans.position, unified_trades, unified_trade_count);
+            if(tradeIndex >= 0 && unified_trades[tradeIndex].is_open) {
+                Print("🔍 Position closing transaction detected - Position: ", trans.position);
 
-            // Get the closing deal details
-            if(HistoryDealSelect(trans.deal)) {
-                ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+                // Verify this is a closing deal
+                if(HistoryDealSelect(trans.deal)) {
+                    ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
 
-                // Only process if this is actually a closing deal
-                if(deal_entry == DEAL_ENTRY_OUT) {
-                    double close_price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
-                    double profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
-                    datetime close_time = (datetime)HistoryDealGetInteger(trans.deal, DEAL_TIME);
+                    if(deal_entry == DEAL_ENTRY_OUT) {
+                        Print("✅ Position closing confirmed - processing analytics before removal");
 
-                    Print("🔍 Deal details - Price: ", DoubleToString(close_price, _Digits), ", Profit: $", DoubleToString(profit, 2), ", Time: ", TimeToString(close_time));
+                        // Get closing deal details for analytics and retraining
+                        double close_price = 0.0;
+                        double profit = 0.0;
+                        double profitLossPips = 0.0;
+                        datetime close_time = TimeCurrent();
 
-                    // Process the trade close
-                    ProcessTradeClose(close_price, profit, close_time, lastTradeID, lastKnownPositionTicket, lastPositionOpenTime, pendingTradeData, enableHttpAnalytics, tradeExitCallback);
-                } else {
-                    Print("❌ Deal is not a closing deal (entry type: ", EnumToString(deal_entry), ")");
+                        if(HistoryDealSelect(trans.deal)) {
+                            close_price = HistoryDealGetDouble(trans.deal, DEAL_PRICE);
+                            profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
+                            close_time = (datetime)HistoryDealGetInteger(trans.deal, DEAL_TIME);
+                            // Calculate profit/loss in pips
+                            if(profit != 0) {
+                                double pointValue = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+                                profitLossPips = profit / (pointValue * 10); // Convert to pips
+                            }
+                        }
+
+                        // Log trade close for ML retraining BEFORE removing from array
+                        string trade_id = IntegerToString(unified_trades[tradeIndex].ticket);
+                        LogTradeCloseForRetraining(trade_id, close_price, profit, profitLossPips, close_time);
+                        Print("📊 Logged trade close for ML retraining");
+
+                        // Handle trade exit analytics
+                        if(enableHttpAnalytics && tradeExitCallback != NULL) {
+                            tradeExitCallback(close_price, profit, profitLossPips);
+                            Print("📊 Recorded trade exit analytics (unified system)");
+                        }
+
+                        // NOW remove from unified array after all processing is complete
+                        RemoveUnifiedTrade(tradeIndex, unified_trades, unified_trade_count);
+                        PrintUnifiedTrades(unified_trades, unified_trade_count, "After removing closed position");
+                    }
                 }
-            } else {
-                Print("❌ Could not select deal: ", trans.deal);
             }
         }
 
         // Handle TRADE_TRANSACTION_HISTORY_ADD for when position is moved to history after closing
-        else if(trans.type == TRADE_TRANSACTION_HISTORY_ADD && trans.position == lastKnownPositionTicket && lastKnownPositionTicket != 0) {
-            Print("✅ Position history add detected for tracked position: ", trans.position);
+        if(trans.type == TRADE_TRANSACTION_HISTORY_ADD && trans.position != 0) {
+            Print("🔍 Position history add detected - Position: ", trans.position);
+
+            // CRITICAL: Before assuming fast close, verify the position is actually closed
+            // Check if position still exists in the active positions list
+            bool position_still_open = false;
+            int total_positions = PositionsTotal();
+            for(int pos_idx = 0; pos_idx < total_positions; pos_idx++) {
+                ulong pos_ticket = PositionGetTicket(pos_idx);
+                if(pos_ticket == trans.position) {
+                    position_still_open = true;
+                    break;
+                }
+            }
+
+            if(position_still_open) {
+                Print("✅ Position ", trans.position, " is still OPEN - this is not a close transaction");
+                Print("🔍 This was likely a TRADE_TRANSACTION_HISTORY_ADD for position tracking, not closure");
+                return; // Exit early - don't process as a close
+            }
 
             // Position has been moved to history, which means it's closed
             // Add a small delay to ensure all deals are written to history
             Sleep(100); // 100ms delay to allow deal history to be written
 
-            // We need to get the closing deal information from history
-            if(HistorySelectByPosition(trans.position)) {
-                // Find the closing deal (DEAL_ENTRY_OUT)
-                int total_deals = HistoryDealsTotal();
-                bool found_closing_deal = false;
+            // Find the trade in unified array
+            int tradeIndex = FindUnifiedTradeByTicket(trans.position, unified_trades, unified_trade_count);
+            if(tradeIndex >= 0 && unified_trades[tradeIndex].is_open) {
+                Print("✅ Position confirmed as closed (moved to history) - removing from unified array");
 
-                Print("🔍 Searching through ", total_deals, " deals for position: ", trans.position);
+                // Get closing deal information from history
+                if(HistorySelectByPosition(trans.position)) {
+                    int total_deals = HistoryDealsTotal();
+                    Print("🔍 Found ", total_deals, " deals in history for position ", trans.position);
 
-                // First, let's see all deals for this position to understand the structure
-                for(int i = 0; i < total_deals; i++) {
-                    ulong deal_ticket = HistoryDealGetTicket(i);
-                    if(deal_ticket > 0) {
-                        long deal_position = HistoryDealGetInteger(deal_ticket, DEAL_POSITION_ID);
-                        ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
-                        string deal_symbol = HistoryDealGetString(deal_ticket, DEAL_SYMBOL);
-                        string deal_comment = HistoryDealGetString(deal_ticket, DEAL_COMMENT);
-                        datetime deal_time = (datetime)HistoryDealGetInteger(deal_ticket, DEAL_TIME);
-
-                        Print("Deal[", i, "] - Ticket: ", deal_ticket, ", Position: ", deal_position,
-                              ", Entry: ", EnumToString(deal_entry), " (", deal_entry, ")",
-                              ", Symbol: ", deal_symbol, ", Time: ", TimeToString(deal_time),
-                              ", Comment: ", deal_comment);
-                    }
-                }
-
-                // Now search for our specific closing deal
-                for(int i = total_deals - 1; i >= 0; i--) {
-                    ulong deal_ticket = HistoryDealGetTicket(i);
-                    if(deal_ticket > 0) {
-                        long deal_position = HistoryDealGetInteger(deal_ticket, DEAL_POSITION_ID);
-                        ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
-                        string deal_symbol = HistoryDealGetString(deal_ticket, DEAL_SYMBOL);
-                        string deal_comment = HistoryDealGetString(deal_ticket, DEAL_COMMENT);
-
-                        // Only check deals that match our position
-                        if(deal_position == trans.position) {
-                            Print("🔍 Checking deal for our position: ", deal_ticket);
-                            Print("   Entry type: ", EnumToString(deal_entry), " (", deal_entry, ")");
-                            Print("   Symbol: ", deal_symbol, " (expected: ", _Symbol, ")");
-                            Print("   Comment: ", deal_comment, " (looking for: ", eaIdentifier, ")");
-
-                            // More flexible EA identifier matching to handle truncated comments
-                            bool comment_matches = false;
-                            if(StringFind(deal_comment, eaIdentifier) >= 0) {
-                                comment_matches = true;
-                            } else {
-                                // Check for partial match if comment might be truncated
-                                // Allow match if comment starts with our identifier (truncated case)
-                                string comment_prefix = StringSubstr(eaIdentifier, 0, MathMin(StringLen(eaIdentifier), StringLen(deal_comment)));
-                                if(StringLen(deal_comment) >= StringLen(comment_prefix) - 2 && // Allow some tolerance
-                                   StringFind(deal_comment, comment_prefix) == 0) {
-                                    comment_matches = true;
-                                    Print("🔍 Using partial match for truncated comment");
-                                }
-                            }
-
-                            if(deal_entry == DEAL_ENTRY_OUT &&
-                               deal_symbol == _Symbol && comment_matches) {
-
-                                Print("🔍 Found closing deal for position: ", trans.position);
-
+                    // Look for the closing deal
+                    bool found_closing_deal = false;
+                    for(int i = total_deals - 1; i >= 0; i--) { // Search backwards for most recent closing deal
+                        ulong deal_ticket = HistoryDealGetTicket(i);
+                        if(deal_ticket > 0) {
+                            ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
+                            if(deal_entry == DEAL_ENTRY_OUT) {
                                 double close_price = HistoryDealGetDouble(deal_ticket, DEAL_PRICE);
                                 double profit = HistoryDealGetDouble(deal_ticket, DEAL_PROFIT);
                                 datetime close_time = (datetime)HistoryDealGetInteger(deal_ticket, DEAL_TIME);
 
-                                Print("🔍 Deal details - Price: ", DoubleToString(close_price, _Digits), ", Profit: $", DoubleToString(profit, 2), ", Time: ", TimeToString(close_time));
+                                Print("🔍 Closing deal found - Price: ", DoubleToString(close_price, _Digits),
+                                      ", Profit: $", DoubleToString(profit, 2), ", Time: ", TimeToString(close_time));
 
-                                // Process the trade close
-                                ProcessTradeClose(close_price, profit, close_time, lastTradeID, lastKnownPositionTicket, lastPositionOpenTime, pendingTradeData, enableHttpAnalytics, tradeExitCallback);
+                                // Handle trade exit analytics with actual closing data
+                                if(enableHttpAnalytics && tradeExitCallback != NULL) {
+                                    // Calculate profit/loss in pips
+                                    double profitLossPips = 0.0;
+                                    if(profit != 0) {
+                                        double pointValue = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+                                        profitLossPips = profit / (pointValue * 10); // Convert to pips
+                                    }
+
+                                    tradeExitCallback(close_price, profit, profitLossPips);
+                                    Print("📊 Recorded trade exit analytics from history (unified system)");
+                                }
 
                                 found_closing_deal = true;
                                 break;
                             }
                         }
                     }
-                }
 
-                            if(!found_closing_deal) {
-                Print("⚠️ Could not find closing deal for position: ", trans.position);
+                    // If we still haven't found a closing deal, try to estimate from position history
+                    if(!found_closing_deal) {
+                        Print("⚠️ No closing deal found - attempting to estimate from position history");
 
-                // CRITICAL: Before assuming fast close, verify the position is actually closed
-                // Check if position still exists in the active positions list
-                bool position_still_open = false;
-                int total_positions = PositionsTotal();
-                for(int pos_idx = 0; pos_idx < total_positions; pos_idx++) {
-                    ulong pos_ticket = PositionGetTicket(pos_idx);
-                    if(pos_ticket == trans.position) {
-                        position_still_open = true;
-                        break;
-                    }
-                }
+                        // Get the last known position details
+                        if(HistorySelectByPosition(trans.position)) {
+                            int total_deals = HistoryDealsTotal();
+                            if(total_deals >= 1) { // Need at least opening deal
+                                // Get the opening deal (first deal)
+                                ulong open_deal = HistoryDealGetTicket(0);
+                                if(open_deal > 0) {
+                                    double open_price = HistoryDealGetDouble(open_deal, DEAL_PRICE);
+                                    double lot_size = HistoryDealGetDouble(open_deal, DEAL_VOLUME);
+                                    ENUM_DEAL_TYPE deal_type = (ENUM_DEAL_TYPE)HistoryDealGetInteger(open_deal, DEAL_TYPE);
 
-                if(position_still_open) {
-                    Print("✅ Position ", trans.position, " is still OPEN - this is not a close transaction");
-                    Print("🔍 This was likely a TRADE_TRANSACTION_HISTORY_ADD for position tracking, not closure");
-                    return; // Exit early - don't process as a close
-                }
+                                    // Estimate close price and profit based on deal type
+                                    double close_price = 0;
+                                    double profit = 0;
 
-                // Fallback: If we only have one deal and it's an opening deal,
-                // this might be a very fast close where the closing deal wasn't written yet
-                if(total_deals == 1) {
-                    Print("🔍 Only one deal found - checking if this is a fast close scenario");
-                    Print("🔍 Position ", trans.position, " is confirmed CLOSED - proceeding with estimation");
-                    ulong deal_ticket = HistoryDealGetTicket(0);
-                    if(deal_ticket > 0) {
-                        ENUM_DEAL_ENTRY deal_entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
-                        if(deal_entry == DEAL_ENTRY_IN) {
-                            Print("🔍 Fast close detected - using deal info for close estimation");
+                                    if(deal_type == DEAL_TYPE_BUY) {
+                                        // For buy deals, estimate close at current bid
+                                        close_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+                                        profit = (close_price - open_price) * lot_size / SymbolInfoDouble(_Symbol, SYMBOL_POINT) * SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+                                    } else {
+                                        // For sell deals, estimate close at current ask
+                                        close_price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+                                        profit = (open_price - close_price) * lot_size / SymbolInfoDouble(_Symbol, SYMBOL_POINT) * SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+                                    }
 
-                                // Use the opening deal info but estimate closing values
-                                double open_price = HistoryDealGetDouble(deal_ticket, DEAL_PRICE);
-                                double lot_size = HistoryDealGetDouble(deal_ticket, DEAL_VOLUME);
-                                ENUM_DEAL_TYPE deal_type = (ENUM_DEAL_TYPE)HistoryDealGetInteger(deal_ticket, DEAL_TYPE);
+                                    datetime close_time = TimeCurrent();
 
-                                // Get current market price as estimate for close price
-                                double close_price = (deal_type == DEAL_TYPE_BUY) ?
-                                    SymbolInfoDouble(_Symbol, SYMBOL_BID) :
-                                    SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+                                    Print("🔍 Fast close estimated - Price: ", DoubleToString(close_price, _Digits), ", Profit: $", DoubleToString(profit, 2));
 
-                                // Estimate profit based on price difference
-                                double profit = 0.0;
-                                if(deal_type == DEAL_TYPE_BUY) {
-                                    profit = (close_price - open_price) * lot_size / SymbolInfoDouble(_Symbol, SYMBOL_POINT) * SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-                                } else {
-                                    profit = (open_price - close_price) * lot_size / SymbolInfoDouble(_Symbol, SYMBOL_POINT) * SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+                                    // Handle trade exit analytics with estimated values
+                                    if(enableHttpAnalytics && tradeExitCallback != NULL) {
+                                        // Calculate profit/loss in pips
+                                        double profitLossPips = 0.0;
+                                        if(profit != 0) {
+                                            double pointValue = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+                                            profitLossPips = profit / (pointValue * 10); // Convert to pips
+                                        }
+
+                                        tradeExitCallback(close_price, profit, profitLossPips);
+                                        Print("📊 Recorded trade exit analytics with fast close estimation (unified system)");
+                                    }
+
+                                    found_closing_deal = true;
                                 }
+                            }
+                        }
 
-                                datetime close_time = TimeCurrent();
+                        if(!found_closing_deal) {
+                            Print("⚠️ Unable to process trade close - no closing deal found and estimation failed");
+                            // Handle trade exit analytics with fallback
+                            if(enableHttpAnalytics && tradeExitCallback != NULL) {
+                                // Use fallback values for analytics
+                                double close_price = SymbolInfoDouble(_Symbol, SYMBOL_BID); // Use current bid as estimate
+                                double profit = 0.0; // Unknown profit
+                                double profitLossPips = 0.0; // Unknown pips
 
-                                Print("🔍 Estimated close - Price: ", DoubleToString(close_price, _Digits), ", Profit: $", DoubleToString(profit, 2));
-
-                                // Process the trade close with estimated values
-                                ProcessTradeClose(close_price, profit, close_time, lastTradeID, lastKnownPositionTicket, lastPositionOpenTime, pendingTradeData, enableHttpAnalytics, tradeExitCallback);
-                                found_closing_deal = true;
+                                tradeExitCallback(close_price, profit, profitLossPips);
+                                Print("📊 Recorded trade exit analytics with fallback (unified system)");
                             }
                         }
                     }
-
-                    if(!found_closing_deal) {
-                        Print("❌ Unable to process trade close - no closing deal found");
-                    }
                 }
+
+                // Remove the closed position from unified array
+                RemoveUnifiedTrade(tradeIndex, unified_trades, unified_trade_count);
+                PrintUnifiedTrades(unified_trades, unified_trade_count, "After removing position moved to history");
             } else {
-                Print("❌ Could not select position history for: ", trans.position);
+                Print("⚠️ Position ", trans.position, " not found in unified array or already closed");
             }
         }
+
+        // Check if any position was closed and handle analytics cleanup
+        if(originalTradeCount > unified_trade_count) {
+            Print("🔄 Trade count decreased from ", originalTradeCount, " to ", unified_trade_count);
+            PrintUnifiedTrades(unified_trades, unified_trade_count, "After position closure");
+        }
     }
 
 private:
     //+------------------------------------------------------------------+
-    //| Process trade close - common logic for both transaction types    |
+    //| Prepare JSON request for API using JSON library                  |
     //+------------------------------------------------------------------+
-    void ProcessTradeClose(double close_price, double profit, datetime close_time,
-                          string& lastTradeID, ulong& lastKnownPositionTicket,
-                          datetime& lastPositionOpenTime, bool& pendingTradeData,
-                          bool enableHttpAnalytics, TradeExitCallback tradeExitCallback) {
-
-        // Calculate profit/loss in pips
-        double profitLossPips = 0.0;
-        if(profit != 0) {
-            double pointValue = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-            profitLossPips = profit / (pointValue * 10); // Convert to pips
-        }
-
-        Print("✅ Position closed detected - P&L: $", DoubleToString(profit, 2), " (", DoubleToString(profitLossPips, 1), " pips)");
-
-        // Record trade exit analytics using callback
-        if(enableHttpAnalytics && tradeExitCallback != NULL) {
-            Print("📊 Recording trade exit analytics...");
-            tradeExitCallback(close_price, profit, profitLossPips);
-            Print("✅ Trade exit analytics recorded");
-        } else {
-            Print("⚠️ HTTP Analytics disabled or no trade exit callback provided");
-        }
-
-        // Always log trade close for ML retraining
-        Print("📊 Logging trade close for ML retraining...");
-        Print("🔍 Using stored trade ID: ", lastTradeID);
-        LogTradeCloseForRetraining(lastTradeID, close_price, profit, profitLossPips, close_time);
-        Print("✅ Trade close logged for ML retraining");
-
-        // Reset position tracking
-        lastKnownPositionTicket = 0;
-        lastPositionOpenTime = 0;
-        lastTradeID = ""; // Clear the trade ID
-        pendingTradeData = false; // Clear pending trade data
-        Print("🔄 Reset position tracking variables");
-    }
-
-private:
-                // Prepare JSON request for API using JSON library
     string PrepareJsonRequest(MLFeatures &features, string direction) {
         Print("📋 Preparing JSON request - Strategy: ", config.strategy_name, ", Symbol: ", config.symbol, ", Timeframe: ", config.timeframe, ", Direction: ", direction);
 
@@ -1493,6 +1608,153 @@ private:
             case PERIOD_H4:  return "H4";
             case PERIOD_D1:  return "D1";
             default:         return "H1";
+        }
+    }
+
+public:
+    //+------------------------------------------------------------------+
+    //| Scan for existing open positions and add to tracking system      |
+    //+------------------------------------------------------------------+
+    void ScanForExistingOpenPositions(string ea_identifier, int maxCapacity,
+                                     TradeEntryCallback tradeEntryCallback,
+                                     MarketConditionsCallback marketConditionsCallback,
+                                     bool enableAnalytics = true,
+                                     string strategy_name = "Unknown",
+                                     SetTradeIDCallback setTradeIDCallback = NULL) {
+        Print("🔍 Scanning for existing open positions with EA identifier: '", ea_identifier, "'");
+
+        int total_positions = PositionsTotal();
+        int found_positions = 0;
+
+        for(int pos_idx = 0; pos_idx < total_positions; pos_idx++) {
+            ulong pos_ticket = PositionGetTicket(pos_idx);
+            if(pos_ticket <= 0) continue;
+
+            // Get position details
+            if(PositionSelectByTicket(pos_ticket)) {
+                string comment = PositionGetString(POSITION_COMMENT);
+                string symbol = PositionGetString(POSITION_SYMBOL);
+                double volume = PositionGetDouble(POSITION_VOLUME);
+                double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
+                datetime open_time = (datetime)PositionGetInteger(POSITION_TIME);
+                ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+
+                // Check if this position belongs to our EA
+                if(StringFind(comment, ea_identifier) >= 0) {
+                    Print("✅ Found existing position: Ticket ", pos_ticket, ", Symbol: ", symbol,
+                          ", Type: ", (pos_type == POSITION_TYPE_BUY ? "BUY" : "SELL"),
+                          ", Volume: ", DoubleToString(volume, 2),
+                          ", Open Price: ", DoubleToString(open_price, _Digits),
+                          ", Open Time: ", TimeToString(open_time));
+
+                    // Check if we can track more trades
+                    if(!CanTrackMoreTrades(maxCapacity)) {
+                        Print("❌ Cannot track position ", pos_ticket, " - array is full (", unified_trade_count, "/", maxCapacity, ")");
+                        continue;
+                    }
+
+                    // Create unified trade data for this existing position
+                    UnifiedTradeData existing_trade;
+                    existing_trade.ticket = pos_ticket;
+                    existing_trade.direction = (pos_type == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+                    existing_trade.entry_price = open_price;
+                    existing_trade.lot_size = volume;
+                    existing_trade.opened_time = open_time;
+                    existing_trade.is_open = true;
+                    existing_trade.stop_loss = 0.0; // Unknown for existing positions
+                    existing_trade.take_profit = 0.0; // Unknown for existing positions
+                    existing_trade.is_logged = false; // Not logged yet
+                    existing_trade.created_time = open_time; // Use open time as created time
+
+                    // For existing positions, we don't have the original ML prediction/features
+                    // Create default/empty prediction and features
+                    MLPrediction default_prediction;
+                    default_prediction.model_key = "existing_position_no_ml_data";
+                    default_prediction.direction = (pos_type == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+                    default_prediction.probability = 0.5; // Neutral
+                    default_prediction.confidence = 0.0; // No confidence
+                    default_prediction.is_valid = false;
+
+                    MLFeatures default_features;
+                    // Initialize with current market features if possible
+                    CollectMarketFeatures(default_features);
+
+                    existing_trade.prediction = default_prediction;
+                    existing_trade.features = default_features;
+
+                    // Add to unified tracking system
+                    AddUnifiedTrade(unified_trades, unified_trade_count, existing_trade, maxCapacity);
+                    found_positions++;
+
+                                        // Try to record analytics for this existing position
+                    if(enableAnalytics) {
+                        Print("📊 Attempting to record analytics for existing position ", pos_ticket);
+
+                        // Set the analytics trade ID to the position ticket before recording analytics
+                        if(setTradeIDCallback != NULL) {
+                            setTradeIDCallback(pos_ticket);
+                            Print("🔧 Set analytics trade ID to position ticket: ", pos_ticket);
+                        } else {
+                            Print("⚠️ No SetTradeIDCallback available - analytics may fail");
+                        }
+
+                        // Record trade entry analytics
+                        if(tradeEntryCallback != NULL) {
+                            // Use current market data for SL/TP estimates
+                            double current_bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+                            double current_ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+                            double estimated_sl = (pos_type == POSITION_TYPE_BUY) ? current_bid * 0.99 : current_ask * 1.01; // Rough estimate
+                            double estimated_tp = (pos_type == POSITION_TYPE_BUY) ? current_ask * 1.01 : current_bid * 0.99; // Rough estimate
+
+                            tradeEntryCallback(existing_trade.direction, existing_trade.entry_price,
+                                             estimated_sl, estimated_tp, existing_trade.lot_size,
+                                             strategy_name, "1.00"); // Use passed strategy name
+                            Print("✅ Recorded trade entry analytics for existing position");
+                        }
+
+                        // Try to collect and record market conditions
+                        if(marketConditionsCallback != NULL) {
+                            MLFeatures features;
+                            CollectMarketFeatures(features);
+                            marketConditionsCallback(features);
+                            Print("✅ Recorded market conditions for existing position");
+                        }
+                    }
+                }
+            }
+        }
+
+        Print("🔍 Scan complete: Found ", found_positions, " existing positions for EA '", ea_identifier, "'");
+        Print("📊 Total tracked positions: ", unified_trade_count, "/", maxCapacity);
+
+        if(found_positions > 0) {
+            PrintUnifiedTradeArrayStatus(maxCapacity);
+            PrintDetailedTrackedPositions();
+        }
+    }
+
+    //+------------------------------------------------------------------+
+    //| Print detailed status of all tracked positions                   |
+    //+------------------------------------------------------------------+
+    void PrintDetailedTrackedPositions() {
+        Print("🔍 Detailed Tracked Positions Status:");
+        Print("   Total tracked: ", unified_trade_count);
+
+        if(unified_trade_count == 0) {
+            Print("   No positions currently tracked");
+            return;
+        }
+
+        for(int i = 0; i < unified_trade_count; i++) {
+            Print("   [", i, "] Ticket: ", unified_trades[i].ticket,
+                  ", Direction: ", unified_trades[i].direction,
+                  ", Lot: ", DoubleToString(unified_trades[i].lot_size, 2),
+                  ", Entry: ", DoubleToString(unified_trades[i].entry_price, _Digits),
+                  ", Open Time: ", TimeToString(unified_trades[i].opened_time),
+                  ", Status: ", unified_trades[i].is_open ? "OPEN" : "CLOSED",
+                  ", Created: ", TimeToString(unified_trades[i].created_time),
+                  ", Model: ", unified_trades[i].prediction.model_key,
+                  ", ML Valid: ", unified_trades[i].prediction.is_valid ? "Yes" : "No");
         }
     }
 

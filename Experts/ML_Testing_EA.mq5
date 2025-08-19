@@ -28,6 +28,7 @@ input int TestIntervalMinutes = 5;             // Test interval in minutes
 input bool EnableTrading = false;              // Enable actual trading (for safety)
 input bool AllowMultipleSimultaneousOrders = false; // Allow multiple simultaneous orders
 input double TestLotSize = 0.01;               // Lot size for test trades
+input int MaxTrackedPositions = 50;            // Maximum number of positions to track simultaneously
 input bool EnableRandomTrading = true;         // Enable random trading when no ML predictions available
 input double RandomTradeProbability = 0.3;     // Probability of placing random trade (0.0-1.0)
 
@@ -36,10 +37,12 @@ input bool UseATRStops = true;                 // Use ATR for dynamic stop loss/
 input int ATRPeriod = 14;                      // ATR period for calculation
 input double ATRStopLossMultiplier = 2.0;      // ATR multiplier for stop loss
 input double ATRTakeProfitMultiplier = 3.0;    // ATR multiplier for take profit
-input double MinStopLossPips = 20;             // Minimum stop loss in pips (fallback)
-input double MinTakeProfitPips = 40;           // Minimum take profit in pips (fallback)
-input double MaxStopLossPips = 50;             // Maximum stop loss in pips (fallback)
-input double MaxTakeProfitPips = 100;          // Maximum take profit in pips (fallback)
+input bool UseDynamicPipRanges = true;         // Use symbol-specific dynamic pip ranges
+input double PipMultiplier = 1.0;             // Multiplier for dynamic ranges (1.0 = default, 0.5 = tighter, 2.0 = wider)
+input double MinStopLossPips = 20;             // Minimum stop loss in pips (fallback if dynamic disabled)
+input double MinTakeProfitPips = 40;           // Minimum take profit in pips (fallback if dynamic disabled)
+input double MaxStopLossPips = 50;             // Maximum stop loss in pips (fallback if dynamic disabled)
+input double MaxTakeProfitPips = 100;          // Maximum take profit in pips (fallback if dynamic disabled)
 
 input group "Analytics Configuration"
 // AnalyticsServerUrl is defined in ea_http_analytics.mqh
@@ -50,20 +53,11 @@ int testCount = 0;
 int successCount = 0;
 int errorCount = 0;
 
-//--- Position tracking for closed position detection
-ulong lastKnownPositionTicket = 0;
+//--- Position tracking (unified system - no separate arrays needed)
 datetime lastPositionOpenTime = 0;
 string lastTradeID = ""; // Store the trade ID for matching close
 
-//--- Pending trade data for ML retraining
-bool pendingTradeData = false;
-MLPrediction pendingPrediction;
-MLFeatures pendingFeatures;
-string pendingDirection = "";
-double pendingEntry = 0.0;
-double pendingStopLoss = 0.0;
-double pendingTakeProfit = 0.0;
-double pendingLotSize = 0.0;
+//--- Pending trade data for ML retraining (unified system - no legacy variables needed)
 
 //--- Analytics tracking variables (for comprehensive recording)
 MLPrediction lastMLPrediction;
@@ -182,6 +176,15 @@ int OnInit() {
         InitializeHttpAnalytics(MLStrategyName + "_Testing", "1.00");
         Print("✅ HTTP Analytics system initialized");
     }
+
+    // Initialize position tracking (unified system)
+    Print("✅ Position tracking initialized (unified system)");
+
+    // Scan for existing open positions and add them to tracking system
+    string ea_identifier = GenerateEAIdentifier();
+    Print("🔍 Scanning for existing open positions with identifier: '", ea_identifier, "'");
+    g_ml_interface.ScanForExistingOpenPositions(ea_identifier, MaxTrackedPositions,
+                                                   RecordTradeEntry, RecordMarketConditions, EnableHttpAnalytics, MLStrategyName + "_Testing", SetTradeIDFromTicket);
 
     return(INIT_SUCCEEDED);
 }
@@ -355,7 +358,17 @@ void ExecuteTestTrade(MLPrediction &buyPrediction, MLPrediction &sellPrediction)
         Print("⚠️ Skipping trade - position already open for this EA");
         return;
     }
-    Print("✅ No existing positions found - proceeding with trade execution");
+
+    // Check if we can track more trades (unified system)
+    if(!g_ml_interface.CanTrackMoreTrades(MaxTrackedPositions)) {
+        Print("❌ Cannot place trade - unified trade array is full");
+        Print("⚠️ Wait for existing trades to be processed before placing new trades");
+        g_ml_interface.PrintUnifiedTradeArrayStatus(MaxTrackedPositions);
+        return;
+    }
+
+    int remaining_capacity = g_ml_interface.GetRemainingTradeCapacity(MaxTrackedPositions);
+    Print("✅ Capacity available: ", remaining_capacity, " slots remaining");
 
     // Determine best signal
     MLPrediction bestPrediction;
@@ -413,22 +426,14 @@ void ExecuteTestTrade(MLPrediction &buyPrediction, MLPrediction &sellPrediction)
         Print("   Take Profit: ", DoubleToString(takeProfit, _Digits));
         Print("   ML Confidence: ", DoubleToString(bestPrediction.confidence, 3));
 
-        // Store trade data for ML retraining (will be logged when we have actual MT5 ticket)
+        // Store trade data for ML retraining using the new array-based system
         if(EnableHttpAnalytics) {
             MLFeatures features;
             g_ml_interface.CollectMarketFeatures(features);
 
-            // Store pending trade data for later logging
-            pendingTradeData = true;
-            pendingPrediction = bestPrediction;
-            pendingFeatures = features;
-            pendingDirection = tradeDirection;
-            pendingEntry = entry;
-            pendingStopLoss = stopLoss;
-            pendingTakeProfit = takeProfit;
-            pendingLotSize = TestLotSize;
-
-            Print("📊 Trade data stored for ML retraining (waiting for MT5 ticket)");
+            // Register pending trade with ML interface for proper tracking
+            g_ml_interface.RegisterPendingTrade(tradeDirection, entry, stopLoss, takeProfit, TestLotSize, bestPrediction, features, MaxTrackedPositions);
+            Print("📊 Trade data registered for ML retraining (unified tracking system)");
         }
     } else {
         Print("❌ Test trade failed - TradeUtils function returned false");
@@ -465,14 +470,18 @@ void CalculateDynamicStops(double entry, string direction, double &stopLoss, dou
             double atrStopDistance = currentATR * ATRStopLossMultiplier;
             double atrTpDistance = currentATR * ATRTakeProfitMultiplier;
 
+            // Get dynamic ranges for this symbol
+            double minSL, maxSL, minTP, maxTP;
+            GetDynamicPipRanges(minSL, maxSL, minTP, maxTP);
+
             // Convert pips to points for fallback calculations
             double pipsToPoints = (_Digits == 2) ? 100 : 10;
-            double minStopPips = MinStopLossPips * pipsToPoints * point;
-            double maxStopPips = MaxStopLossPips * pipsToPoints * point;
-            double minTpPips = MinTakeProfitPips * pipsToPoints * point;
-            double maxTpPips = MaxTakeProfitPips * pipsToPoints * point;
+            double minStopPips = minSL * pipsToPoints * point;
+            double maxStopPips = maxSL * pipsToPoints * point;
+            double minTpPips = minTP * pipsToPoints * point;
+            double maxTpPips = maxTP * pipsToPoints * point;
 
-            // Use ATR with fallback limits
+            // Use ATR with dynamic limits
             stopDistance = MathMax(atrStopDistance, minStopPips);
             stopDistance = MathMin(stopDistance, maxStopPips);
             tpDistance = MathMax(atrTpDistance, minTpPips);
@@ -486,20 +495,26 @@ void CalculateDynamicStops(double entry, string direction, double &stopLoss, dou
             Print("   Final TP Distance: ", DoubleToString(tpDistance, _Digits));
         } else {
             Print("⚠️ Failed to get ATR value, using fallback calculations");
-            // Fallback to fixed pip distances
+            // Fallback to dynamic pip distances
+            double minSL, maxSL, minTP, maxTP;
+            GetDynamicPipRanges(minSL, maxSL, minTP, maxTP);
+
             double pipsToPoints = (_Digits == 2) ? 100 : 10;
-            stopDistance = MathMax(MinStopLossPips * pipsToPoints * point, minStopDistance * point);
-            tpDistance = MathMax(MinTakeProfitPips * pipsToPoints * point, minTpDistance * point);
+            stopDistance = MathMax(minSL * pipsToPoints * point, minStopDistance * point);
+            tpDistance = MathMax(minTP * pipsToPoints * point, minTpDistance * point);
         }
     } else {
-        // Use fixed pip distances (fallback)
-        double pipsToPoints = (_Digits == 2) ? 100 : 10;
-        stopDistance = MathMax(MinStopLossPips * pipsToPoints * point, minStopDistance * point);
-        tpDistance = MathMax(MinTakeProfitPips * pipsToPoints * point, minTpDistance * point);
+        // Use dynamic pip distances (fallback)
+        double minSL, maxSL, minTP, maxTP;
+        GetDynamicPipRanges(minSL, maxSL, minTP, maxTP);
 
-        Print("🔍 Fixed pip-based calculations:");
-        Print("   Min Stop Loss: ", MinStopLossPips, " pips");
-        Print("   Min Take Profit: ", MinTakeProfitPips, " pips");
+        double pipsToPoints = (_Digits == 2) ? 100 : 10;
+        stopDistance = MathMax(minSL * pipsToPoints * point, minStopDistance * point);
+        tpDistance = MathMax(minTP * pipsToPoints * point, minTpDistance * point);
+
+        Print("🔍 Dynamic pip-based calculations:");
+        Print("   Min Stop Loss: ", DoubleToString(minSL, 1), " pips");
+        Print("   Min Take Profit: ", DoubleToString(minTP, 1), " pips");
     }
 
     // Ensure minimum broker requirements are met
@@ -584,13 +599,77 @@ bool ValidateStops(double entry, double stopLoss, double takeProfit, string dire
 }
 
 //+------------------------------------------------------------------+
+//| Get dynamic pip ranges based on symbol type and volatility        |
+//+------------------------------------------------------------------+
+void GetDynamicPipRanges(double &minSL, double &maxSL, double &minTP, double &maxTP)
+{
+    if(!UseDynamicPipRanges) {
+        // Use static values if dynamic is disabled
+        minSL = MinStopLossPips;
+        maxSL = MaxStopLossPips;
+        minTP = MinTakeProfitPips;
+        maxTP = MaxTakeProfitPips;
+        Print("🔧 Using static pip ranges - SL: ", minSL, "-", maxSL, " pips, TP: ", minTP, "-", maxTP, " pips");
+        return;
+    }
+
+    string symbol = _Symbol;
+
+    // Define symbol-specific ranges based on typical volatility
+    if(StringFind(symbol, "XAU") >= 0 || StringFind(symbol, "GOLD") >= 0) {
+        // Gold: High volatility, larger ranges
+        minSL = 50; maxSL = 200; minTP = 100; maxTP = 400;
+        Print("🥇 GOLD detected - Using precious metals ranges");
+    }
+    else if(StringFind(symbol, "BTC") >= 0 || StringFind(symbol, "BITCOIN") >= 0) {
+        // Bitcoin: Extreme volatility, very large ranges
+        minSL = 200; maxSL = 1000; minTP = 400; maxTP = 2000;
+        Print("₿ BITCOIN detected - Using crypto ranges");
+    }
+    else if(StringFind(symbol, "ETH") >= 0 || StringFind(symbol, "ETHEREUM") >= 0) {
+        // Ethereum: High volatility, large ranges
+        minSL = 100; maxSL = 500; minTP = 200; maxTP = 1000;
+        Print("⟠ ETHEREUM detected - Using crypto ranges");
+    }
+    else if(StringFind(symbol, "JPY") >= 0) {
+        // JPY pairs: Different pip scale, moderate ranges
+        minSL = 15; maxSL = 60; minTP = 30; maxTP = 120;
+        Print("¥ JPY pair detected - Using JPY ranges");
+    }
+    else if(StringFind(symbol, "EUR") >= 0 || StringFind(symbol, "GBP") >= 0 ||
+            StringFind(symbol, "USD") >= 0 || StringFind(symbol, "AUD") >= 0 ||
+            StringFind(symbol, "CAD") >= 0 || StringFind(symbol, "CHF") >= 0) {
+        // Major currency pairs: Standard ranges
+        minSL = 15; maxSL = 40; minTP = 30; maxTP = 80;
+        Print("💱 Major currency pair detected - Using forex ranges");
+    }
+    else {
+        // Unknown symbol: Use conservative ranges
+        minSL = 20; maxSL = 50; minTP = 40; maxTP = 100;
+        Print("❓ Unknown symbol type - Using default ranges");
+    }
+
+    // Apply user multiplier
+    minSL *= PipMultiplier;
+    maxSL *= PipMultiplier;
+    minTP *= PipMultiplier;
+    maxTP *= PipMultiplier;
+
+    Print("🔧 Dynamic pip ranges for ", symbol, " - SL: ", DoubleToString(minSL, 1), "-", DoubleToString(maxSL, 1),
+          " pips, TP: ", DoubleToString(minTP, 1), "-", DoubleToString(maxTP, 1), " pips (multiplier: ", DoubleToString(PipMultiplier, 1), ")");
+}
+
+//+------------------------------------------------------------------+
 //| Get symbol-specific minimum stop loss distance in points          |
 //+------------------------------------------------------------------+
 double GetSymbolMinStopDistance()
 {
-    // Universal minimum stop distance: 20 pips
-    // The pips-to-points conversion will handle different symbols automatically
-    return 2000; // 20 pips × 100 = 2000 points for 2-digit symbols, 20 pips × 10 = 200 points for 5-digit symbols
+    double minSL, maxSL, minTP, maxTP;
+    GetDynamicPipRanges(minSL, maxSL, minTP, maxTP);
+
+    // Convert to points
+    double pipsToPoints = (_Digits == 2) ? 100 : 10;
+    return minSL * pipsToPoints;
 }
 
 //+------------------------------------------------------------------+
@@ -598,9 +677,12 @@ double GetSymbolMinStopDistance()
 //+------------------------------------------------------------------+
 double GetSymbolMinTpDistance()
 {
-    // Universal minimum take profit distance: 40 pips
-    // The pips-to-points conversion will handle different symbols automatically
-    return 4000; // 40 pips × 100 = 4000 points for 2-digit symbols, 40 pips × 10 = 400 points for 5-digit symbols
+    double minSL, maxSL, minTP, maxTP;
+    GetDynamicPipRanges(minSL, maxSL, minTP, maxTP);
+
+    // Convert to points
+    double pipsToPoints = (_Digits == 2) ? 100 : 10;
+    return minTP * pipsToPoints;
 }
 
 //+------------------------------------------------------------------+
@@ -733,6 +815,14 @@ void ExecuteRandomTrade() {
         return;
     }
 
+    // Check if we can track more trades (unified system)
+    if(!g_ml_interface.CanTrackMoreTrades(MaxTrackedPositions)) {
+        Print("❌ Cannot place random trade - unified trade array is full");
+        Print("⚠️ Wait for existing trades to be processed before placing new trades");
+        g_ml_interface.PrintUnifiedTradeArrayStatus(MaxTrackedPositions);
+        return;
+    }
+
     // Generate random number to determine if we should place a trade
     double randomValue = MathRand() / 32767.0; // Normalize to 0.0-1.0
     Print("🎲 Random value: ", DoubleToString(randomValue, 3), " (threshold: ", DoubleToString(RandomTradeProbability, 3), ")");
@@ -802,17 +892,9 @@ void ExecuteRandomTrade() {
             randomPrediction.model_key = "RANDOM_MODEL";
             randomPrediction.error_message = "";
 
-            // Store pending trade data for later logging
-            pendingTradeData = true;
-            pendingPrediction = randomPrediction;
-            pendingFeatures = features;
-            pendingDirection = tradeDirection;
-            pendingEntry = entry;
-            pendingStopLoss = stopLoss;
-            pendingTakeProfit = takeProfit;
-            pendingLotSize = TestLotSize;
-
-            Print("📊 Random trade data stored for ML retraining (waiting for MT5 ticket)");
+            // Register pending trade with ML interface for proper tracking
+            g_ml_interface.RegisterPendingTrade(tradeDirection, entry, stopLoss, takeProfit, TestLotSize, randomPrediction, features, MaxTrackedPositions);
+            Print("📊 Random trade data registered for ML retraining (unified tracking system)");
         }
     } else {
         Print("❌ Random trade failed - TradeUtils function returned false");
@@ -830,13 +912,13 @@ void RecordAnalyticsData(MLFeatures &features, MLPrediction &buyPrediction, MLPr
     // Record ML predictions (general, no trade required)
     if(buyPrediction.is_valid) {
         string features_json = g_ml_interface.CreateFeatureJSON(features, "BUY");
-        RecordGeneralMLPrediction("buy_model_test", "buy", buyPrediction.probability, buyPrediction.confidence, features_json);
+        RecordGeneralMLPrediction("buy_model_test", "BUY", buyPrediction.probability, buyPrediction.confidence, features_json, MLStrategyName + "_Testing");
         Print("   ✅ Recorded BUY prediction analytics");
     }
 
     if(sellPrediction.is_valid) {
         string features_json = g_ml_interface.CreateFeatureJSON(features, "SELL");
-        RecordGeneralMLPrediction("sell_model_test", "sell", sellPrediction.probability, sellPrediction.confidence, features_json);
+        RecordGeneralMLPrediction("sell_model_test", "SELL", sellPrediction.probability, sellPrediction.confidence, features_json, MLStrategyName + "_Testing");
         Print("   ✅ Recorded SELL prediction analytics");
     }
 
@@ -862,16 +944,21 @@ string GenerateMLTestingTradeID() {
 void OnTradeTransaction(const MqlTradeTransaction& trans,
                         const MqlTradeRequest& request,
                         const MqlTradeResult& result) {
-    // Use unified trade transaction handler with analytics callback
+    // Debug logging to track parameter values
+    Print("🔍 OnTradeTransaction - About to call HandleCompleteTradeTransactionUnified:");
+    Print("   lastTradeDirection: '", lastTradeDirection, "' (type: string, length: ", StringLen(lastTradeDirection), ")");
+    Print("   lastMLPrediction.is_valid: ", lastMLPrediction.is_valid ? "true" : "false");
+    Print("   lastMLPrediction.direction: '", lastMLPrediction.direction, "'");
+
+    // Use unified trade transaction handler with analytics callback (unified system)
     string ea_identifier = GenerateEAIdentifier();
-    g_ml_interface.HandleCompleteTradeTransaction(trans, request, result,
-                                                lastKnownPositionTicket, lastPositionOpenTime,
-                                                lastTradeID, pendingTradeData, EnableHttpAnalytics,
+    g_ml_interface.HandleCompleteTradeTransactionUnified(trans, request, result,
+                                                lastPositionOpenTime,
+                                                lastTradeID, EnableHttpAnalytics,
                                                 ea_identifier, MLStrategyName + "_Testing",
-                                                pendingPrediction, pendingFeatures,
-                                                pendingDirection, pendingEntry, pendingStopLoss, pendingTakeProfit, pendingLotSize,
                                                 lastMLPrediction, lastMarketFeatures, lastTradeDirection,
-                                                SetTradeIDFromTicket, RecordTradeEntry, RecordMarketConditions, RecordMLPrediction, RecordTradeExit);
+                                                SetTradeIDFromTicket, RecordTradeEntry, RecordMarketConditions, MLPredictionCallback, RecordTradeExit,
+                                                MaxTrackedPositions);
 }
 
 //+------------------------------------------------------------------+
@@ -906,45 +993,31 @@ string GenerateEAIdentifier() {
 }
 
 //+------------------------------------------------------------------+
+//| ML Prediction Callback for analytics                              |
+//+------------------------------------------------------------------+
+void MLPredictionCallback(string model_name, string model_type, double probability, double confidence, string features_json) {
+    // Debug logging to track parameter types
+    Print("🔍 MLPredictionCallback received:");
+    Print("   model_name: '", model_name, "' (type: string, length: ", StringLen(model_name), ")");
+    Print("   model_type: '", model_type, "' (type: string, length: ", StringLen(model_type), ")");
+    Print("   probability: ", probability, " (type: double)");
+    Print("   confidence: ", confidence, " (type: double)");
+    Print("   features_json length: ", StringLen(features_json));
+
+    RecordGeneralMLPrediction(model_name, model_type, probability, confidence, features_json, MLStrategyName + "_Testing");
+}
+
+//+------------------------------------------------------------------+
 //| Check if we have an open position for this EA                    |
 //+------------------------------------------------------------------+
 bool HasOpenPositionForThisEA() {
-    // If multiple simultaneous orders are allowed, don't check for existing positions
-    if(AllowMultipleSimultaneousOrders) {
-        Print("🔍 Multiple simultaneous orders allowed - skipping position check");
-        return false;
-    }
+    return g_ml_interface.HasOpenPositionForThisEAUnified(AllowMultipleSimultaneousOrders);
+}
 
-    // Get the number of open positions
-    int total = PositionsTotal();
-    string ea_identifier = GenerateEAIdentifier();
-
-    Print("🔍 Checking for open positions - Total positions: ", total, ", EA Identifier: ", ea_identifier);
-
-    // Iterate through all open positions
-    for(int i = 0; i < total; i++) {
-        // Get the position ticket
-        ulong position_ticket = PositionGetTicket(i);
-
-        // Check if the position is for our symbol
-        if(PositionSelectByTicket(position_ticket)) {
-            if(PositionGetString(POSITION_SYMBOL) == _Symbol) {
-                // Check if this position belongs to our EA by checking the comment
-                string position_comment = PositionGetString(POSITION_COMMENT);
-
-                Print("🔍 Position ", i, " - Symbol: ", PositionGetString(POSITION_SYMBOL), ", Comment: ", position_comment);
-
-                // Enhanced filtering: Check for exact EA identifier match
-                if(StringFind(position_comment, ea_identifier) >= 0) {
-                    Print("✅ Found matching position - Ticket: ", position_ticket, ", Comment: ", position_comment);
-                    // Position is still open (if it exists in PositionsTotal, it's open)
-                    return true;
-                }
-            }
-        }
-    }
-
-    Print("❌ No matching positions found for EA identifier: ", ea_identifier);
-    return false;
+//+------------------------------------------------------------------+
+//| Print unified trade array status for debugging                    |
+//+------------------------------------------------------------------+
+void PrintUnifiedTradeArrayStatus() {
+    g_ml_interface.PrintUnifiedTradeArrayStatus(MaxTrackedPositions);
 }
 

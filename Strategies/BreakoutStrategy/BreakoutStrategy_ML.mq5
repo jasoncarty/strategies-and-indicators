@@ -22,6 +22,7 @@ input bool UseBreakoutFilter = true;           // Use breakout filter
 input int BreakoutPeriod = 20;                 // Period for breakout detection
 input double BreakoutThreshold = 0.001;        // Breakout threshold
 input bool AllowMultipleSimultaneousOrders = false; // Allow multiple simultaneous orders
+input int MaxTrackedPositions = 50;            // Maximum number of positions to track simultaneously
 
 //--- ML Parameters
 input group "ML Configuration"
@@ -41,11 +42,10 @@ double previousDayHigh = 0.0;
 double previousDayLow = 0.0;
 double newDayLow = 0; // New day low established after bearish breakout
 double newDayHigh = 0; // New day high established after bullish breakout
-bool hasOpenPosition = false;
+
 datetime lastDayCheck = 0;
 
-//--- Position tracking for closed position detection
-ulong lastKnownPositionTicket = 0;
+//--- Position tracking (unified system - no separate arrays needed)
 datetime lastPositionOpenTime = 0;
 string lastTradeID = ""; // Store the trade ID for matching close
 
@@ -54,15 +54,7 @@ MLPrediction lastMLPrediction;
 MLFeatures lastMarketFeatures;
 string lastTradeDirection = "";
 
-//--- Pending trade data for ML retraining
-bool pendingTradeData = false;
-MLPrediction pendingPrediction;
-MLFeatures pendingFeatures;
-string pendingDirection = "";
-double pendingEntry = 0.0;
-double pendingStopLoss = 0.0;
-double pendingTakeProfit = 0.0;
-double pendingLotSize = 0.0;
+//--- Pending trade data for ML retraining (unified system - no legacy variables needed)
 
 //--- State machine variables
 BREAKOUT_STATE currentState = WAITING_FOR_BREAKOUT;
@@ -156,6 +148,15 @@ int OnInit() {
         Print("✅ HTTP Analytics system initialized");
     }
 
+    // Initialize position tracking (unified system)
+    Print("✅ Position tracking initialized (unified system)");
+
+    // Scan for existing open positions and add them to tracking system
+    string ea_identifier = GenerateEAIdentifier();
+    Print("🔍 Scanning for existing open positions with identifier: '", ea_identifier, "'");
+    g_ml_interface.ScanForExistingOpenPositions(ea_identifier, MaxTrackedPositions,
+                                                   RecordTradeEntry, RecordMarketConditions, EnableHttpAnalytics, MLStrategyName + "_ML", SetTradeIDFromTicket);
+
     // Update previous day levels
     UpdatePreviousDayLevels();
 
@@ -163,6 +164,20 @@ int OnInit() {
     DrawPreviousDayLevels(previousDayHigh, previousDayLow, prevDayHighLine, prevDayLowLine);
 
     return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Check if we have an open position for this EA                    |
+//+------------------------------------------------------------------+
+bool HasOpenPositionForThisEA() {
+    return g_ml_interface.HasOpenPositionForThisEAUnified(AllowMultipleSimultaneousOrders);
+}
+
+//+------------------------------------------------------------------+
+//| Print unified trade array status for debugging                    |
+//+------------------------------------------------------------------+
+void PrintUnifiedTradeArrayStatus() {
+    g_ml_interface.PrintUnifiedTradeArrayStatus(MaxTrackedPositions);
 }
 
 //+------------------------------------------------------------------+
@@ -224,7 +239,7 @@ void CheckForTradeSignalsWithML() {
                 MLFeatures features;
                 g_ml_interface.CollectMarketFeatures(features);
                 string features_json = g_ml_interface.CreateFeatureJSON(features, "BUY");
-                RecordGeneralMLPrediction("buy_model_improved", "buy", prediction.probability, prediction.confidence, features_json);
+                RecordGeneralMLPrediction("buy_model_improved", "BUY", prediction.probability, prediction.confidence, features_json, "BreakoutStrategy_ML");
                 Print("📊 Recorded BUY prediction for analysis");
             }
 
@@ -255,7 +270,7 @@ void CheckForTradeSignalsWithML() {
                 MLFeatures features;
                 g_ml_interface.CollectMarketFeatures(features);
                 string features_json = g_ml_interface.CreateFeatureJSON(features, "SELL");
-                RecordGeneralMLPrediction("sell_model_improved", "sell", prediction.probability, prediction.confidence, features_json);
+                RecordGeneralMLPrediction("sell_model_improved", "SELL", prediction.probability, prediction.confidence, features_json, "BreakoutStrategy_ML");
                 Print("📊 Recorded SELL prediction for analysis");
             }
 
@@ -286,7 +301,7 @@ void CheckForTradeSignalsWithML() {
                 MLFeatures features;
                 g_ml_interface.CollectMarketFeatures(features);
                 string features_json = g_ml_interface.CreateFeatureJSON(features, "SELL");
-                RecordGeneralMLPrediction("sell_model_improved", "sell", prediction.probability, prediction.confidence, features_json);
+                RecordGeneralMLPrediction("sell_model_improved", "SELL", prediction.probability, prediction.confidence, features_json, "BreakoutStrategy_ML");
                 Print("📊 Recorded bounce SELL prediction for analysis");
             }
 
@@ -331,7 +346,7 @@ void CheckForTradeSignalsWithML() {
                 MLFeatures features;
                 g_ml_interface.CollectMarketFeatures(features);
                 string features_json = g_ml_interface.CreateFeatureJSON(features, "BUY");
-                RecordGeneralMLPrediction("buy_model_improved", "buy", prediction.probability, prediction.confidence, features_json);
+                RecordGeneralMLPrediction("buy_model_improved", "BUY", prediction.probability, prediction.confidence, features_json, "BreakoutStrategy_ML");
                 Print("📊 Recorded bounce BUY prediction for analysis");
             }
 
@@ -398,6 +413,14 @@ MLPrediction GetMLPrediction(string direction) {
 //| Place buy order with ML adjustments                              |
 //+------------------------------------------------------------------+
 void PlaceBuyOrderWithML(MLPrediction &prediction) {
+    // Check if we can track more trades (unified system)
+    if(!g_ml_interface.CanTrackMoreTrades(MaxTrackedPositions)) {
+        Print("❌ Cannot place buy order - unified trade array is full");
+        Print("⚠️ Wait for existing trades to be processed before placing new trades");
+        g_ml_interface.PrintUnifiedTradeArrayStatus(MaxTrackedPositions);
+        return;
+    }
+
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
     // Calculate base stop loss based on trade type
@@ -437,7 +460,7 @@ void PlaceBuyOrderWithML(MLPrediction &prediction) {
         Print("   ML Adjusted Lot Size: ", DoubleToString(adjustedLotSize, 2));
         Print("   ML Prediction: ", DoubleToString(prediction.probability, 3));
         Print("   ML Confidence: ", DoubleToString(prediction.confidence, 3));
-        hasOpenPosition = true;
+
 
         // Record analytics data
         if(EnableHttpAnalytics) {
@@ -450,17 +473,9 @@ void PlaceBuyOrderWithML(MLPrediction &prediction) {
             lastMarketFeatures = features;
             lastTradeDirection = "BUY";
 
-            // Store pending trade data for ML retraining (will be logged when we have actual MT5 ticket)
-            pendingTradeData = true;
-            pendingPrediction = prediction;
-            pendingFeatures = features;
-            pendingDirection = "BUY";
-            pendingEntry = entry;
-            pendingStopLoss = adjustedStopLoss;
-            pendingTakeProfit = takeProfit;
-            pendingLotSize = adjustedLotSize;
-
-            Print("📊 Trade data stored for ML retraining (waiting for MT5 ticket)");
+            // Register pending trade with ML interface for proper tracking
+            g_ml_interface.RegisterPendingTrade("BUY", entry, adjustedStopLoss, takeProfit, adjustedLotSize, prediction, features, MaxTrackedPositions);
+            Print("📊 Trade data registered for ML retraining (unified tracking system)");
         }
     } else {
         Print("❌ ML-enhanced buy order failed");
@@ -471,6 +486,14 @@ void PlaceBuyOrderWithML(MLPrediction &prediction) {
 //| Place sell order with ML adjustments                             |
 //+------------------------------------------------------------------+
 void PlaceSellOrderWithML(MLPrediction &prediction) {
+    // Check if we can track more trades (unified system)
+    if(!g_ml_interface.CanTrackMoreTrades(MaxTrackedPositions)) {
+        Print("❌ Cannot place sell order - unified trade array is full");
+        Print("⚠️ Wait for existing trades to be processed before placing new trades");
+        g_ml_interface.PrintUnifiedTradeArrayStatus(MaxTrackedPositions);
+        return;
+    }
+
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
     // Calculate base stop loss based on trade type
@@ -510,7 +533,7 @@ void PlaceSellOrderWithML(MLPrediction &prediction) {
         Print("   ML Adjusted Lot Size: ", DoubleToString(adjustedLotSize, 2));
         Print("   ML Prediction: ", DoubleToString(prediction.probability, 3));
         Print("   ML Confidence: ", DoubleToString(prediction.confidence, 3));
-        hasOpenPosition = true;
+
 
         // Record analytics data
         if(EnableHttpAnalytics) {
@@ -523,17 +546,11 @@ void PlaceSellOrderWithML(MLPrediction &prediction) {
             lastMarketFeatures = features;
             lastTradeDirection = "SELL";
 
-            // Store pending trade data for ML retraining (will be logged when we have actual MT5 ticket)
-            pendingTradeData = true;
-            pendingPrediction = prediction;
-            pendingFeatures = features;
-            pendingDirection = "SELL";
-            pendingEntry = entry;
-            pendingStopLoss = adjustedStopLoss;
-            pendingTakeProfit = takeProfit;
-            pendingLotSize = adjustedLotSize;
+            // Register pending trade with ML interface for proper tracking
+            g_ml_interface.RegisterPendingTrade("SELL", entry, adjustedStopLoss, takeProfit, adjustedLotSize, prediction, features, MaxTrackedPositions);
+            Print("📊 Trade data registered for ML retraining (unified tracking system)");
 
-            Print("📊 Trade data stored for ML retraining (waiting for MT5 ticket)");
+
         }
     } else {
         Print("❌ ML-enhanced sell order failed");
@@ -544,6 +561,14 @@ void PlaceSellOrderWithML(MLPrediction &prediction) {
 //| Place buy order (fallback without ML)                           |
 //+------------------------------------------------------------------+
 void PlaceBuyOrder() {
+    // Check if we can track more trades (unified system)
+    if(!g_ml_interface.CanTrackMoreTrades(MaxTrackedPositions)) {
+        Print("❌ Cannot place buy order - unified trade array is full");
+        Print("⚠️ Wait for existing trades to be processed before placing new trades");
+        g_ml_interface.PrintUnifiedTradeArrayStatus(MaxTrackedPositions);
+        return;
+    }
+
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
     // Calculate stop loss based on trade type
@@ -576,7 +601,7 @@ void PlaceBuyOrder() {
         Print("   Take Profit: ", DoubleToString(takeProfit, _Digits));
         Print("   Lot Size: ", DoubleToString(lotSize, 2));
         Print("   Risk: $", DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE) * (RiskPercent / 100.0), 2));
-        hasOpenPosition = true;
+
 
         // Record analytics data (without ML)
         if(EnableHttpAnalytics) {
@@ -600,6 +625,14 @@ void PlaceBuyOrder() {
 //| Place sell order (fallback without ML)                          |
 //+------------------------------------------------------------------+
 void PlaceSellOrder() {
+    // Check if we can track more trades (unified system)
+    if(!g_ml_interface.CanTrackMoreTrades(MaxTrackedPositions)) {
+        Print("❌ Cannot place sell order - unified trade array is full");
+        Print("⚠️ Wait for existing trades to be processed before placing new trades");
+        g_ml_interface.PrintUnifiedTradeArrayStatus(MaxTrackedPositions);
+        return;
+    }
+
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
     // Calculate stop loss based on trade type
@@ -632,7 +665,7 @@ void PlaceSellOrder() {
         Print("   Take Profit: ", DoubleToString(takeProfit, _Digits));
         Print("   Lot Size: ", DoubleToString(lotSize, 2));
         Print("   Risk: $", DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE) * (RiskPercent / 100.0), 2));
-        hasOpenPosition = true;
+
 
         // Record analytics data (without ML)
         if(EnableHttpAnalytics) {
@@ -814,20 +847,25 @@ string GenerateBreakoutTradeID() {
 void OnTradeTransaction(const MqlTradeTransaction& trans,
                         const MqlTradeRequest& request,
                         const MqlTradeResult& result) {
-    // Use unified trade transaction handler with position tracking
+    // Use unified trade transaction handler with position tracking (unified system)
     string ea_identifier = GenerateEAIdentifier();
-    g_ml_interface.HandleCompleteTradeTransactionWithPosition(trans, request, result,
-                                                            lastKnownPositionTicket, lastPositionOpenTime,
-                                                            lastTradeID, pendingTradeData, EnableHttpAnalytics,
+    g_ml_interface.HandleCompleteTradeTransactionUnified(trans, request, result,
+                                                            lastPositionOpenTime,
+                                                            lastTradeID, EnableHttpAnalytics,
                                                             ea_identifier, MLStrategyName + "_ML",
-                                                            pendingPrediction, pendingFeatures,
-                                                            pendingDirection, pendingEntry, pendingStopLoss, pendingTakeProfit, pendingLotSize,
                                                             lastMLPrediction, lastMarketFeatures, lastTradeDirection,
-                                                            hasOpenPosition,
-                                                            SetTradeIDFromTicket, RecordTradeEntry, RecordMarketConditions, RecordMLPrediction, RecordTradeExit);
+                                                            SetTradeIDFromTicket, RecordTradeEntry, RecordMarketConditions, MLPredictionCallback, RecordTradeExit,
+                                                            MaxTrackedPositions);
 
     // Note: Analytics and position status updates are handled by the utility function with callback
     // EA-specific trade exit analytics would go here if needed
+}
+
+//+------------------------------------------------------------------+
+//| ML Prediction Callback for analytics                              |
+//+------------------------------------------------------------------+
+void MLPredictionCallback(string model_name, string model_type, double probability, double confidence, string features_json) {
+    RecordGeneralMLPrediction(model_name, model_type, probability, confidence, features_json, "BreakoutStrategy_ML");
 }
 
 //+------------------------------------------------------------------+
@@ -861,52 +899,3 @@ string GenerateEAIdentifier() {
     return identifier;
 }
 
-//+------------------------------------------------------------------+
-//| Check if we have an open position for this EA                    |
-//+------------------------------------------------------------------+
-bool HasOpenPositionForThisEA() {
-    // If multiple simultaneous orders are allowed, don't check for existing positions
-    if(AllowMultipleSimultaneousOrders) {
-        Print("🔍 Multiple simultaneous orders allowed - skipping position check");
-        return false;
-    }
-
-    // Get the number of open positions
-    int total = PositionsTotal();
-    string ea_identifier = GenerateEAIdentifier();
-
-    // Iterate through all open positions
-    for(int i = 0; i < total; i++) {
-        // Get the position ticket
-        ulong position_ticket = PositionGetTicket(i);
-
-        // Check if the position is for our symbol
-        if(PositionSelectByTicket(position_ticket)) {
-            if(PositionGetString(POSITION_SYMBOL) == _Symbol) {
-                // Check if this position belongs to our EA by checking the comment
-                string position_comment = PositionGetString(POSITION_COMMENT);
-
-                // Enhanced filtering: Check for EA identifier match with truncation tolerance
-                bool comment_matches = false;
-                if(StringFind(position_comment, ea_identifier) >= 0) {
-                    comment_matches = true;
-                } else {
-                    // Check for partial match if comment might be truncated
-                    string comment_prefix = StringSubstr(ea_identifier, 0, MathMin(StringLen(ea_identifier), StringLen(position_comment)));
-                    if(StringLen(position_comment) >= StringLen(comment_prefix) - 2 && // Allow some tolerance
-                       StringFind(position_comment, comment_prefix) == 0) {
-                        comment_matches = true;
-                        Print("🔍 Using partial match for position detection (truncated comment)");
-                    }
-                }
-
-                if(comment_matches) {
-                    // Position is still open (if it exists in PositionsTotal, it's open)
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
-}
