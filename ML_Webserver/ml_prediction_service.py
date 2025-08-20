@@ -659,6 +659,52 @@ def list_models():
         'count': len(ml_service.models)
     })
 
+@app.route('/reload_models', methods=['POST'])
+def reload_models():
+    """Reload all models from the models directory"""
+    if ml_service is None:
+        return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
+
+    try:
+        logger.info("🔄 Reloading models from models directory...")
+
+        # Clear existing models
+        ml_service.models.clear()
+        ml_service.scalers.clear()
+        ml_service.feature_names.clear()
+        ml_service.model_metadata.clear()
+
+        # Reload all models
+        ml_service._load_all_models()
+
+        # Ensure consistent feature names
+        ml_service._ensure_consistent_feature_names()
+
+        models_count = len(ml_service.models)
+        logger.info(f"✅ Models reloaded successfully - {models_count} models loaded")
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Models reloaded successfully',
+            'models_loaded': models_count,
+            'available_models': list(ml_service.models.keys()),
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        error_msg = f"Failed to reload models: {str(e)}"
+        logger.error(f"❌ {error_msg}")
+        return jsonify({
+            'status': 'error',
+            'message': error_msg,
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+@app.route('/reload_models', methods=['GET'])
+def reload_models_get():
+    """Manual model reload endpoint (GET method for easy testing)"""
+    return reload_models()
+
 def main():
     """Main function to run the ML prediction service"""
     global ml_service

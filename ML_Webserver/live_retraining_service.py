@@ -81,6 +81,7 @@ class LiveRetrainingService:
 
         logger.info("🚀 Live Retraining Service initialized")
         logger.info(f"   Analytics URL: {self.analytics_url}")
+        logger.info(f"   ML Service URL: {self.config.get('ml_service_url', 'http://127.0.0.1:5003')}")
         logger.info(f"   Models Directory: {self.models_dir}")
         logger.info(f"   Retraining Interval: {self.retraining_interval} hours")
         logger.info(f"   Min Trades for Retraining: {self.min_trades_for_retraining}")
@@ -95,13 +96,14 @@ class LiveRetrainingService:
             # Default configuration
             default_config = {
                 "analytics_url": "http://127.0.0.1:5001",
+                "ml_service_url": "http://127.0.0.1:5003",
                 "models_dir": "ml_models",
                 "retraining_interval_hours": 24,
                 "min_trades_for_retraining": 50,
                 "performance_threshold": 0.55,
                 "backup_models": True,
-                "symbols": ["XAUUSD+", "EURUSD", "GBPUSD+", "USDJPY+", "USDCAD+", "BTCUSD", "ETHUSD"],
-                "timeframes": ["H1", "M15", "M30", "M5"]
+                "symbols": ["XAUUSD+", "EURUSD+", "GBPUSD+", "USDJPY+", "USDCAD+", "BTCUSD", "ETHUSD"],
+                "timeframes": ["H1", "M30", "M15", "M5"]
             }
 
             # Save default config
@@ -158,6 +160,9 @@ class LiveRetrainingService:
                     self.check_and_retrain_model(symbol, timeframe)
                 except Exception as e:
                     logger.error(f"❌ Error checking {symbol} {timeframe}: {e}")
+
+        # Reload models in ML service after all retraining is complete
+        self._reload_ml_service_models()
 
     def check_and_retrain_model(self, symbol: str, timeframe: str):
         """Check if a specific model needs retraining and retrain if needed"""
@@ -450,7 +455,50 @@ class LiveRetrainingService:
             return False
 
         # Force retraining regardless of performance
-        return self._retrain_model(symbol, timeframe, recent_trades)
+        success = self._retrain_model(symbol, timeframe, recent_trades)
+
+        return success
+
+    def force_reload_models(self):
+        """Force immediate reload of models"""
+        logger.info("🔧 Force reload requested")
+        self._reload_ml_service_models()
+
+    def _reload_ml_service_models(self):
+        """Reload models in the ML prediction service via API call"""
+        try:
+            # Get ML service URL from config or use default
+            ml_service_url = self.config.get("ml_service_url", "http://127.0.0.1:5003")
+
+            logger.info(f"🔄 Reloading models in ML prediction service at {ml_service_url}")
+
+            response = requests.post(
+                f"{ml_service_url}/reload_models",
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                models_loaded = result.get('models_loaded', 0)
+                logger.info(f"✅ ML service models reloaded successfully - {models_loaded} models loaded")
+
+                # Log available models for verification
+                available_models = result.get('available_models', [])
+                if available_models:
+                    logger.info(f"📊 Available models after reload: {len(available_models)}")
+                    # Show first few models as examples
+                    for model in available_models[:5]:
+                        logger.info(f"   📄 {model}")
+                    if len(available_models) > 5:
+                        logger.info(f"   ... and {len(available_models) - 5} more")
+
+            else:
+                logger.error(f"❌ Failed to reload ML service models: HTTP {response.status_code}")
+                logger.error(f"   Response: {response.text}")
+
+        except Exception as e:
+            logger.error(f"❌ Error reloading ML service models: {e}")
+            logger.warning("⚠️ ML prediction service may need manual restart to pick up new models")
 
 def main():
     """Main function to run the live retraining service"""
@@ -463,6 +511,7 @@ def main():
     parser.add_argument("--status", action="store_true", help="Show retraining status")
     parser.add_argument("--manual-retrain", help="Manually retrain model (format: SYMBOL_TIMEFRAME)")
     parser.add_argument("--check-all", action="store_true", help="Check all models for retraining")
+    parser.add_argument("--force-reload", action="store_true", help="Force immediate reload of models")
 
     args = parser.parse_args()
 
@@ -492,6 +541,9 @@ def main():
 
     elif args.check_all:
         service.check_and_retrain_all_models()
+
+    elif args.force_reload:
+        service.force_reload_models()
 
     else:
         parser.print_help()

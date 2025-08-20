@@ -3,6 +3,7 @@
 Flask web server for receiving analytics data from MT5 EA
 """
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import logging
 import json
 from datetime import datetime
@@ -41,6 +42,9 @@ logger.addHandler(console_handler)
 logger.propagate = False
 
 app = Flask(__name__)
+
+# Enable CORS for React dashboard
+CORS(app, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
 
 # Initialize database connection on startup
 def initialize_database():
@@ -529,6 +533,108 @@ def get_trades():
         logger.error(f"   Traceback: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/analytics/dashboard/trades', methods=['GET'])
+def get_dashboard_trades():
+    """Get trades for dashboard display - more flexible parameters"""
+    try:
+        # Get query parameters with defaults
+        symbol = request.args.get('symbol')
+        timeframe = request.args.get('timeframe')
+        status = request.args.get('status', 'CLOSED')
+        limit = int(request.args.get('limit', 100))
+        offset = int(request.args.get('offset', 0))
+
+        logger.info(f"📊 Retrieving dashboard trades - Symbol: {symbol}, Timeframe: {timeframe}, Status: {status}, Limit: {limit}")
+
+        # Query database for trades
+        analytics_db.connect()
+
+        # Build dynamic query based on provided parameters
+        query_parts = ["SELECT * FROM ml_trade_logs WHERE 1=1"]
+        params = []
+
+        # Exclude RANDOM_MODEL trades (test data) and invalid trade IDs
+        query_parts.append("AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')")
+        query_parts.append("AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL")
+        query_parts.append("AND strategy != 'TestStrategy'")
+
+        if symbol:
+            query_parts.append("AND symbol = %s")
+            params.append(symbol)
+
+        if timeframe:
+            query_parts.append("AND timeframe = %s")
+            params.append(timeframe)
+
+        if status:
+            query_parts.append("AND status = %s")
+            params.append(status)
+
+        # Add ordering and pagination
+        query_parts.append("ORDER BY close_time DESC")
+        query_parts.append("LIMIT %s OFFSET %s")
+        params.extend([limit, offset])
+
+        query = " ".join(query_parts)
+        logger.info(f"🔍 Query: {query}")
+        logger.info(f"🔍 Params: {params}")
+        result = analytics_db.execute_query(query, params)
+
+        if result:
+            # Transform the data to match dashboard expectations
+            transformed_trades = []
+            for row in result:
+                # Convert Unix timestamp to datetime string
+                entry_time = datetime.fromtimestamp(row['trade_time']).isoformat() if row['trade_time'] else None
+                exit_time = datetime.fromtimestamp(row['close_time']).isoformat() if row['close_time'] else None
+
+                # Calculate duration in seconds
+                duration_seconds = None
+                if entry_time and exit_time:
+                    duration_seconds = int((datetime.fromtimestamp(row['close_time']) - datetime.fromtimestamp(row['trade_time'])).total_seconds())
+
+                trade_data = {
+                    'id': row['id'],
+                    'trade_id': row['trade_id'],
+                    'symbol': row['symbol'],
+                    'timeframe': row['timeframe'],
+                    'direction': row['direction'],
+                    'entry_price': float(row['entry_price']),
+                    'exit_price': float(row['close_price']) if row['close_price'] else None,
+                    'stop_loss': float(row['stop_loss']),
+                    'take_profit': float(row['take_profit']),
+                    'lot_size': float(row['lot_size']),
+                    'profit_loss': float(row['profit_loss']) if row['profit_loss'] else None,
+                    'profit_loss_pips': float(row['profit_loss']) if row['profit_loss'] else None,  # Using profit_loss as pips for now
+                    'entry_time': entry_time,
+                    'exit_time': exit_time,
+                    'duration_seconds': duration_seconds,
+                    'status': row['status'],
+                    'strategy_name': row['strategy'],
+                    'strategy_version': '1.00',  # Default version
+                    'account_id': 'ML_Testing_EA',  # Default account ID
+                    'created_at': row['created_at'].isoformat() if row['created_at'] else None,
+                    'updated_at': row['updated_at'].isoformat() if row['updated_at'] else None,
+                }
+                transformed_trades.append(trade_data)
+
+            logger.info(f"✅ Retrieved and transformed {len(transformed_trades)} dashboard trades")
+            return jsonify(transformed_trades), 200
+        else:
+            logger.info(f"📭 No dashboard trades found")
+            return jsonify([]), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving dashboard trades: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        analytics_db.disconnect()
+        logger.info("   🔌 Disconnected from analytics database")
+
 @app.route('/analytics/ml_training_data', methods=['GET'])
 def get_ml_training_data():
     """Get combined trade and feature data for ML training"""
@@ -575,6 +681,9 @@ def get_ml_training_data():
         AND ml.status = 'CLOSED'
         AND ml.features_json IS NOT NULL
         AND ml.features_json != ''
+        AND ml.ml_model_key != 'test_model'
+        AND ml.trade_id != '0' AND ml.trade_id != '' AND ml.trade_id IS NOT NULL
+        AND ml.strategy != 'TestStrategy'
         ORDER BY ml.trade_time DESC
         """
 
@@ -651,8 +760,11 @@ def get_summary():
                 SUM(CASE WHEN profit_loss < 0 THEN 1 ELSE 0 END) as losing_trades,
                 AVG(profit_loss) as avg_profit_loss,
                 SUM(profit_loss) as total_profit_loss
-            FROM trades
+            FROM ml_trade_logs
             WHERE status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
         """)
 
         summary = {}
@@ -674,6 +786,252 @@ def get_summary():
 
     except Exception as e:
         logger.error(f"❌ Error getting summary: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        analytics_db.disconnect()
+        logger.info("   🔌 Disconnected from analytics database")
+
+@app.route('/analytics/ml_performance', methods=['GET'])
+def get_ml_performance():
+    """Get ML performance metrics for dashboard"""
+    try:
+        analytics_db.connect()
+        logger.info("📊 Retrieving ML performance metrics")
+
+        # Get ML performance summary
+        result = analytics_db.execute_query("""
+            SELECT
+                COUNT(*) as total_predictions,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as correct_predictions,
+                SUM(CASE WHEN profit_loss < 0 THEN 1 ELSE 0 END) as incorrect_predictions,
+                AVG(ml_prediction) as avg_prediction_probability,
+                AVG(ml_confidence) as avg_confidence_score,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss,
+                AVG(CASE WHEN profit_loss > 0 THEN profit_loss END) as avg_win,
+                AVG(CASE WHEN profit_loss < 0 THEN profit_loss END) as avg_loss
+            FROM ml_trade_logs
+            WHERE status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+        """)
+
+        # Get model performance breakdown
+        model_performance = analytics_db.execute_query("""
+            SELECT
+                ml_model_key,
+                ml_model_type,
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                AVG(ml_prediction) as avg_prediction,
+                AVG(ml_confidence) as avg_confidence,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss
+            FROM ml_trade_logs
+            WHERE status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            GROUP BY ml_model_key, ml_model_type
+            ORDER BY total_trades DESC
+        """)
+
+        # Get confidence vs accuracy correlation
+        confidence_accuracy = analytics_db.execute_query("""
+            SELECT
+                ROUND(ml_confidence * 10) / 10 as confidence_bucket,
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                AVG(profit_loss) as avg_profit_loss
+            FROM ml_trade_logs
+            WHERE status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            GROUP BY ROUND(ml_confidence * 10) / 10
+            ORDER BY confidence_bucket
+        """)
+
+        ml_performance = {}
+        if result:
+            stats = result[0]
+            total_predictions = int(stats['total_predictions'])
+            correct_predictions = int(stats['correct_predictions'])
+
+            ml_performance = {
+                "total_predictions": total_predictions,
+                "correct_predictions": correct_predictions,
+                "incorrect_predictions": int(stats['incorrect_predictions']),
+                "accuracy": (correct_predictions / total_predictions * 100) if total_predictions > 0 else 0,
+                "avg_prediction_probability": float(stats['avg_prediction_probability']) if stats['avg_prediction_probability'] else 0,
+                "avg_confidence_score": float(stats['avg_confidence_score']) if stats['avg_confidence_score'] else 0,
+                "avg_profit_loss": float(stats['avg_profit_loss']) if stats['avg_profit_loss'] else 0,
+                "total_profit_loss": float(stats['total_profit_loss']) if stats['total_profit_loss'] else 0,
+                "avg_win": float(stats['avg_win']) if stats['avg_win'] else 0,
+                "avg_loss": float(stats['avg_loss']) if stats['avg_loss'] else 0,
+                "model_performance": model_performance if model_performance else [],
+                "confidence_accuracy": confidence_accuracy if confidence_accuracy else []
+            }
+
+            logger.info(f"✅ Retrieved ML performance metrics: {total_predictions} predictions, {correct_predictions} correct")
+        else:
+            logger.warning("⚠️ No ML performance data found")
+
+        return jsonify(ml_performance), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving ML performance: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        analytics_db.disconnect()
+        logger.info("   🔌 Disconnected from analytics database")
+
+@app.route('/analytics/ml_predictions', methods=['GET'])
+def get_ml_predictions():
+    """Get detailed ML prediction metrics for dedicated analysis"""
+    try:
+        analytics_db.connect()
+        logger.info("📊 Retrieving detailed ML prediction metrics")
+
+        # Get prediction accuracy by model type (BUY/SELL)
+        prediction_by_type = analytics_db.execute_query("""
+            SELECT
+                ml_model_type,
+                COUNT(*) as total_predictions,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as correct_predictions,
+                AVG(ml_prediction) as avg_prediction_probability,
+                AVG(ml_confidence) as avg_confidence_score,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss,
+                AVG(CASE WHEN profit_loss > 0 THEN profit_loss END) as avg_win,
+                AVG(CASE WHEN profit_loss < 0 THEN profit_loss END) as avg_loss
+            FROM ml_trade_logs
+            WHERE status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            GROUP BY ml_model_type
+            ORDER BY total_predictions DESC
+        """)
+
+        # Get prediction accuracy by symbol
+        prediction_by_symbol = analytics_db.execute_query("""
+            SELECT
+                symbol,
+                COUNT(*) as total_predictions,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as correct_predictions,
+                AVG(ml_prediction) as avg_prediction_probability,
+                AVG(ml_confidence) as avg_confidence_score,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss
+            FROM ml_trade_logs
+            WHERE status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            GROUP BY symbol
+            HAVING total_predictions >= 5
+            ORDER BY total_predictions DESC
+        """)
+
+        # Get prediction accuracy by timeframe
+        prediction_by_timeframe = analytics_db.execute_query("""
+            SELECT
+                timeframe,
+                COUNT(*) as total_predictions,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as correct_predictions,
+                AVG(ml_prediction) as avg_prediction_probability,
+                AVG(ml_confidence) as avg_confidence_score,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss
+            FROM ml_trade_logs
+            WHERE status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            GROUP BY timeframe
+            HAVING total_predictions >= 5
+            ORDER BY total_predictions DESC
+        """)
+
+        # Get prediction accuracy by confidence buckets (more granular)
+        confidence_buckets = analytics_db.execute_query("""
+            SELECT
+                CASE
+                    WHEN ml_confidence < 0.3 THEN '0.0-0.3'
+                    WHEN ml_confidence < 0.4 THEN '0.3-0.4'
+                    WHEN ml_confidence < 0.5 THEN '0.4-0.5'
+                    WHEN ml_confidence < 0.6 THEN '0.5-0.6'
+                    WHEN ml_confidence < 0.7 THEN '0.6-0.7'
+                    WHEN ml_confidence < 0.8 THEN '0.7-0.8'
+                    WHEN ml_confidence < 0.9 THEN '0.8-0.9'
+                    ELSE '0.9-1.0'
+                END as confidence_range,
+                COUNT(*) as total_predictions,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as correct_predictions,
+                AVG(ml_confidence) as avg_confidence,
+                AVG(ml_prediction) as avg_prediction,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss
+            FROM ml_trade_logs
+            WHERE status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            GROUP BY confidence_range
+            HAVING total_predictions >= 3
+            ORDER BY avg_confidence
+        """)
+
+        # Get recent prediction performance (last 100 trades)
+        recent_performance = analytics_db.execute_query("""
+            SELECT
+                DATE(FROM_UNIXTIME(trade_time)) as trade_date,
+                COUNT(*) as total_predictions,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as correct_predictions,
+                AVG(ml_confidence) as avg_confidence,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss
+            FROM ml_trade_logs
+            WHERE status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            GROUP BY trade_date
+            ORDER BY trade_date DESC
+            LIMIT 30
+        """)
+
+        ml_predictions = {
+            "prediction_by_type": prediction_by_type if prediction_by_type else [],
+            "prediction_by_symbol": prediction_by_symbol if prediction_by_symbol else [],
+            "prediction_by_timeframe": prediction_by_timeframe if prediction_by_timeframe else [],
+            "confidence_buckets": confidence_buckets if confidence_buckets else [],
+            "recent_performance": recent_performance if recent_performance else []
+        }
+
+        logger.info(f"✅ Retrieved detailed ML prediction metrics")
+        return jsonify(ml_predictions), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving ML predictions: {e}")
         logger.error(f"   Exception type: {type(e).__name__}")
         logger.error(f"   Exception details: {str(e)}")
         import traceback

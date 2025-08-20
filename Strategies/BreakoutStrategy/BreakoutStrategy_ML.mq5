@@ -90,6 +90,11 @@ int barsSinceBreakout = 0;
 string prevDayHighLine = "PrevDayHigh";
 string prevDayLowLine = "PrevDayLow";
 
+//--- New day detection variables
+static int lastProcessedDay = -1;
+static int lastProcessedSession = -1;
+static datetime lastD1Bar = 0;
+
 //+------------------------------------------------------------------+
 //| Check if it's a new bar                                           |
 //+------------------------------------------------------------------+
@@ -194,8 +199,32 @@ void OnDeinit(const int reason) {
 //| Expert tick function                                             |
 //+------------------------------------------------------------------+
 void OnTick() {
-    // Check for new day (keep this on every tick for accurate day detection)
-    if(TimeCurrent() - lastDayCheck > 3600) { // Check every hour
+    // Check for new day (more flexible than just hourly)
+    bool isNewDay = false;
+
+    // Method 1: Check if we've moved to a new calendar day
+    MqlDateTime dt;
+    TimeToStruct(TimeCurrent(), dt);
+    if(dt.day != lastProcessedDay) {
+        isNewDay = true;
+        lastProcessedDay = dt.day;
+        Print("🔄 New calendar day detected - Day: ", dt.day);
+    }
+
+    // Method 2: Check if we've moved to a new D1 bar (most reliable for trading)
+    datetime currentD1Bar = iTime(_Symbol, PERIOD_D1, 0);
+    if(currentD1Bar != lastD1Bar && currentD1Bar > 0) {
+        isNewDay = true;
+        lastD1Bar = currentD1Bar;
+        Print("🔄 New D1 bar detected - New trading day");
+    }
+
+    if(isNewDay) {
+        Print("🔄 New day detected - Resetting EA state");
+        ResetDailyState();
+        UpdatePreviousDayLevels();
+        DrawPreviousDayLevels(previousDayHigh, previousDayLow, prevDayHighLine, prevDayLowLine);
+    } else if(TimeCurrent() - lastDayCheck > 3600) { // Keep hourly updates
         UpdatePreviousDayLevels();
         // Update chart lines when previous day levels change
         DrawPreviousDayLevels(previousDayHigh, previousDayLow, prevDayHighLine, prevDayLowLine);
@@ -840,6 +869,38 @@ string GenerateBreakoutTradeID() {
 }
 
 
+
+//+------------------------------------------------------------------+
+//| Reset all state variables for new trading day                   |
+//+------------------------------------------------------------------+
+void ResetDailyState() {
+    Print("🔄 Resetting daily state variables...");
+
+    // Reset breakout state variables
+    currentState = WAITING_FOR_BREAKOUT;
+    breakoutLevel = 0.0;
+    breakoutDirection = "";
+    swingPoint = 0.0;
+
+    // Reset retest tracking variables
+    bullishRetestDetected = false;
+    bearishRetestDetected = false;
+
+    // Reset new day levels (THIS IS THE KEY!)
+    newDayLow = 0;
+    newDayHigh = 0;
+
+    // Reset timing variables
+    lastStateChange = 0;
+
+    // Call the existing reset function to ensure all variables are reset
+    ResetBreakoutStateVariables();
+
+    Print("✅ Daily state reset complete");
+    Print("   State: WAITING_FOR_BREAKOUT");
+    Print("   Previous Day High: ", DoubleToString(previousDayHigh, _Digits));
+    Print("   Previous Day Low: ", DoubleToString(previousDayLow, _Digits));
+}
 
 //+------------------------------------------------------------------+
 //| Expert trade transaction event - called for each trade operation |
