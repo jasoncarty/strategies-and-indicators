@@ -12,7 +12,5 @@ __pycache__/
 .vscode/
 
 # Logs
-logs/
-ML_Webserver/logs/
-analytics/logs/
+
 webserver/instance/
