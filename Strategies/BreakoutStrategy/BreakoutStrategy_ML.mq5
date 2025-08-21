@@ -2,6 +2,7 @@
 //| BreakoutStrategy_ML.mq5                                           |
 //| Breakout strategy with ML integration                             |
 //| Uses the same state machine as the original strategy             |
+//| Includes news event filtering to avoid trading during high-impact news |
 //+------------------------------------------------------------------+
 
 #property copyright "Copyright 2024"
@@ -13,6 +14,7 @@
 #include "../../Include/BreakoutStrategy_Base.mqh"
 #include "../../Include/MLHttpInterface.mqh"
 #include "../../Analytics/ea_http_analytics.mqh"
+#include "../../Experts/TradeUtils.mqh"
 
 //--- Input parameters
 input double RiskPercent = 1.0;                // Risk per trade (% of balance)
@@ -34,6 +36,14 @@ input double MLMaxConfidence = 0.85;           // Maximum ML confidence
 input int MLRequestTimeout = 5000;             // ML request timeout (ms)
 input bool MLUseDirectionalModels = true;      // Use buy/sell specific models
 input bool MLUseCombinedModels = true;         // Use combined models
+
+//--- News Filtering Parameters
+input group "News Filtering"
+input bool EnableNewsFiltering = true;         // Enable news event filtering
+input int NewsMinutesBefore = 30;             // Minutes before news event to block trading
+input int NewsMinutesAfter = 30;              // Minutes after news event to block trading
+input bool NewsHighImpactOnly = true;         // Block only high-impact news events
+input bool NewsEnableDebugLogs = true;        // Enable debug logs for news filtering
 
 //--- Analytics Parameters (defined in header file)
 
@@ -96,20 +106,6 @@ static int lastProcessedSession = -1;
 static datetime lastD1Bar = 0;
 
 //+------------------------------------------------------------------+
-//| Check if it's a new bar                                           |
-//+------------------------------------------------------------------+
-bool IsNewBar() {
-    static datetime lastBarTime = 0;
-    datetime currentBarTime = iTime(_Symbol, _Period, 0);
-
-    if(currentBarTime != lastBarTime) {
-        lastBarTime = currentBarTime;
-        return true;
-    }
-    return false;
-}
-
-//+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit() {
@@ -118,6 +114,16 @@ int OnInit() {
     Print("   Risk:Reward ratio: ", RiskRewardRatio, ":1");
     Print("   Stop Loss Buffer: ", StopLossBuffer, " pips");
     Print("   ML Integration: ", UseML ? "Enabled" : "Disabled");
+
+    // Show news filtering configuration
+    Print("📰 News Filtering Configuration:");
+    Print("   Enabled: ", EnableNewsFiltering ? "Yes" : "No");
+    if(EnableNewsFiltering) {
+        Print("   Minutes before news: ", NewsMinutesBefore);
+        Print("   Minutes after news: ", NewsMinutesAfter);
+        Print("   High-impact only: ", NewsHighImpactOnly ? "Yes" : "No");
+        Print("   Debug logs: ", NewsEnableDebugLogs ? "Yes" : "No");
+    }
 
     // Initialize ML interface
     if(UseML) {
@@ -165,8 +171,8 @@ int OnInit() {
     // Update previous day levels
     UpdatePreviousDayLevels();
 
-    // Draw previous day levels on chart
-    DrawPreviousDayLevels(previousDayHigh, previousDayLow, prevDayHighLine, prevDayLowLine);
+            // Draw previous day levels on chart
+        TradeUtils::DrawPreviousDayLevels(previousDayHigh, previousDayLow, prevDayHighLine, prevDayLowLine);
 
     return(INIT_SUCCEEDED);
 }
@@ -190,7 +196,7 @@ void PrintUnifiedTradeArrayStatus() {
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason) {
     // Clear previous day level lines
-    ClearPreviousDayLines(prevDayHighLine, prevDayLowLine);
+            TradeUtils::ClearPreviousDayLines(prevDayHighLine, prevDayLowLine);
 
     Print("🛑 BreakoutStrategy_ML deinitialized");
 }
@@ -223,16 +229,16 @@ void OnTick() {
         Print("🔄 New day detected - Resetting EA state");
         ResetDailyState();
         UpdatePreviousDayLevels();
-        DrawPreviousDayLevels(previousDayHigh, previousDayLow, prevDayHighLine, prevDayLowLine);
+        TradeUtils::DrawPreviousDayLevels(previousDayHigh, previousDayLow, prevDayHighLine, prevDayLowLine);
     } else if(TimeCurrent() - lastDayCheck > 3600) { // Keep hourly updates
         UpdatePreviousDayLevels();
         // Update chart lines when previous day levels change
-        DrawPreviousDayLevels(previousDayHigh, previousDayLow, prevDayHighLine, prevDayLowLine);
+        TradeUtils::DrawPreviousDayLevels(previousDayHigh, previousDayLow, prevDayHighLine, prevDayLowLine);
         lastDayCheck = TimeCurrent();
     }
 
     // Only run main strategy logic on new candle close
-    if(!IsNewBar()) {
+    if(!TradeUtils::IsNewBar()) {
         return; // Exit early if not a new candle
     }
 
@@ -255,6 +261,20 @@ void OnTick() {
 void CheckForTradeSignalsWithML() {
     // Check if we have an open position for this EA specifically
     if(HasOpenPositionForThisEA()) return; // Don't open new positions if we have one
+
+    // Check for high-impact news events
+    if(EnableNewsFiltering) {
+        Print("📰 Checking for news events...");
+        if(TradeUtils::IsNewsTime(_Symbol, NewsMinutesBefore, NewsMinutesAfter, NewsHighImpactOnly, NewsEnableDebugLogs)) {
+            Print("⚠️ Skipping trade signals - news event detected");
+            Print("   News filtering: ", NewsMinutesBefore, " minutes before and ", NewsMinutesAfter, " minutes after");
+            Print("   High-impact only: ", NewsHighImpactOnly ? "Yes" : "No");
+            return;
+        }
+        Print("✅ No blocking news events detected - proceeding with trade signals");
+    } else {
+        Print("📰 News filtering disabled - proceeding with trade signals");
+    }
 
     // Check if we just completed a bullish confirmation
     if(currentState == WAITING_FOR_BREAKOUT && breakoutDirection == "bullish" && bullishRetestDetected) {
@@ -280,7 +300,7 @@ void CheckForTradeSignalsWithML() {
             }
         } else {
             Print("🔄 ML disabled - placing buy order");
-            PlaceBuyOrder();
+            TradeUtils::PlaceBuyOrder();
         }
 
         ResetBreakoutStateVariables();
@@ -311,7 +331,7 @@ void CheckForTradeSignalsWithML() {
             }
         } else {
             Print("🔄 ML disabled - placing sell order");
-            PlaceSellOrder();
+            TradeUtils::PlaceSellOrder();
         }
 
         ResetBreakoutStateVariables();
@@ -355,7 +375,7 @@ void CheckForTradeSignalsWithML() {
             }
         } else {
             Print("🔄 ML disabled - placing bounce sell order");
-            PlaceSellOrder();
+            TradeUtils::PlaceSellOrder();
 
             // Reset bounce state after trade
             currentState = WAITING_FOR_BREAKOUT;
@@ -400,7 +420,7 @@ void CheckForTradeSignalsWithML() {
             }
         } else {
             Print("🔄 ML disabled - placing bounce buy order");
-            PlaceBuyOrder();
+            TradeUtils::PlaceBuyOrder();
 
             // Reset bounce state after trade
             currentState = WAITING_FOR_BREAKOUT;
@@ -477,7 +497,7 @@ void PlaceBuyOrderWithML(MLPrediction &prediction) {
 
     // Use robust order placement function
     string tradeComment = GenerateEAIdentifier(); // Use the EA identifier as comment
-    bool success = PlaceBuyOrder(adjustedLotSize, adjustedStopLoss, takeProfit, 0, tradeComment);
+    bool success = TradeUtils::PlaceBuyOrder(adjustedLotSize, adjustedStopLoss, takeProfit, 0, tradeComment);
 
     if(success) {
         Print("✅ ML-enhanced buy order placed successfully");
@@ -550,7 +570,7 @@ void PlaceSellOrderWithML(MLPrediction &prediction) {
 
     // Use robust order placement function
     string tradeComment = GenerateEAIdentifier(); // Use the EA identifier as comment
-    bool success = PlaceSellOrder(adjustedLotSize, adjustedStopLoss, takeProfit, 0, tradeComment);
+    bool success = TradeUtils::PlaceSellOrder(adjustedLotSize, adjustedStopLoss, takeProfit, 0, tradeComment);
 
     if(success) {
         Print("✅ ML-enhanced sell order placed successfully");
@@ -621,7 +641,7 @@ void PlaceBuyOrder() {
 
     // Use robust order placement function
     string tradeComment = GenerateEAIdentifier(); // Use the EA identifier as comment
-    bool success = PlaceBuyOrder(lotSize, stopLoss, takeProfit, 0, tradeComment);
+    bool success = TradeUtils::PlaceBuyOrder(lotSize, stopLoss, takeProfit, 0, tradeComment);
 
     if(success) {
         Print("✅ Buy order placed successfully");
@@ -685,7 +705,7 @@ void PlaceSellOrder() {
 
     // Use robust order placement function
     string tradeComment = GenerateEAIdentifier(); // Use the EA identifier as comment
-    bool success = PlaceSellOrder(lotSize, stopLoss, takeProfit, 0, tradeComment);
+    bool success = TradeUtils::PlaceSellOrder(lotSize, stopLoss, takeProfit, 0, tradeComment);
 
     if(success) {
         Print("✅ Sell order placed successfully");
@@ -714,193 +734,7 @@ void PlaceSellOrder() {
     }
 }
 
-//+------------------------------------------------------------------+
-//| Place buy order with validation                                   |
-//+------------------------------------------------------------------+
-bool PlaceBuyOrder(double lot, double sl, double tp, ulong magic = 0, string comment = "")
-{
-   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double stopsLevel = MathMax(
-        SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL),
-        SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL)
-    ) * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-
-   // Normalize prices
-   sl = NormalizeDouble(sl, _Digits);
-   tp = NormalizeDouble(tp, _Digits);
-
-   // Validate SL/TP for buy order
-   if(sl >= ask) {
-      Print("SL is not below entry price for buy");
-      return false;
-   }
-   if(tp <= ask) {
-      Print("TP is not above entry price for buy");
-      return false;
-   }
-   if((ask - sl) < stopsLevel) {
-      Print("SL too close to entry for buy");
-      return false;
-   }
-   if((tp - ask) < stopsLevel) {
-      Print("TP too close to entry for buy");
-      return false;
-   }
-
-   // Place order
-   MqlTradeRequest req; ZeroMemory(req);
-   MqlTradeResult res; ZeroMemory(res);
-   req.action = TRADE_ACTION_DEAL;
-   req.symbol = _Symbol;
-   req.volume = lot;
-   req.type = ORDER_TYPE_BUY;
-   req.price = ask;
-   req.sl = sl;
-   req.tp = tp;
-   req.deviation = 10;
-   req.magic = magic;
-   req.comment = comment;
-   req.type_filling = ORDER_FILLING_IOC;
-
-   bool sent = OrderSend(req, res);
-   if(!sent || res.retcode != TRADE_RETCODE_DONE)
-   {
-      Print("Buy order failed: ", GetLastError(),
-            " retcode: ", res.retcode,
-            " comment: ", res.comment);
-      return false;
-   }
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| Place sell order with validation                                  |
-//+------------------------------------------------------------------+
-bool PlaceSellOrder(double lot, double sl, double tp, ulong magic = 0, string comment = "")
-{
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double stopsLevel = MathMax(
-        SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL),
-        SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL)
-    ) * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-
-   // Normalize prices
-   sl = NormalizeDouble(sl, _Digits);
-   tp = NormalizeDouble(tp, _Digits);
-
-   // Validate SL/TP for sell order
-   if(sl <= bid) {
-      Print("SL is not above entry price for sell");
-      return false;
-   }
-   if(tp >= bid) {
-      Print("TP is not below entry price for sell");
-      return false;
-   }
-   if((sl - bid) < stopsLevel) {
-      Print("SL too close to entry for sell");
-      return false;
-   }
-   if((bid - tp) < stopsLevel) {
-      Print("TP too close to entry for sell");
-      return false;
-   }
-
-   // Place order
-   MqlTradeRequest req; ZeroMemory(req);
-   MqlTradeResult res; ZeroMemory(res);
-   req.action = TRADE_ACTION_DEAL;
-   req.symbol = _Symbol;
-   req.volume = lot;
-   req.type = ORDER_TYPE_SELL;
-   req.price = bid;
-   req.sl = sl;
-   req.tp = tp;
-   req.deviation = 10;
-   req.magic = magic;
-   req.comment = comment;
-   req.type_filling = ORDER_FILLING_IOC;
-
-   bool sent = OrderSend(req, res);
-   if(!sent || res.retcode != TRADE_RETCODE_DONE)
-   {
-      Print("Sell order failed: ", GetLastError(),
-            " retcode: ", res.retcode,
-            " comment: ", res.comment);
-      return false;
-   }
-       return true;
-}
-
 // Note: Trade logging functions moved to MLHttpInterface.mqh to avoid duplication
-
-//+------------------------------------------------------------------+
-//| Clear previous day level lines                                    |
-//+------------------------------------------------------------------+
-void ClearPreviousDayLines(string highLineName, string lowLineName) {
-    ObjectDelete(0, highLineName);
-    ObjectDelete(0, lowLineName);
-}
-
-//+------------------------------------------------------------------+
-//| Draw previous day levels on chart                                 |
-//+------------------------------------------------------------------+
-void DrawPreviousDayLevels(double highLevel, double lowLevel, string highLineName, string lowLineName) {
-    // Draw high line
-    ObjectCreate(0, highLineName, OBJ_HLINE, 0, 0, highLevel);
-    ObjectSetInteger(0, highLineName, OBJPROP_COLOR, clrRed);
-    ObjectSetInteger(0, highLineName, OBJPROP_STYLE, STYLE_SOLID);
-    ObjectSetInteger(0, highLineName, OBJPROP_WIDTH, 2);
-
-    // Draw low line
-    ObjectCreate(0, lowLineName, OBJ_HLINE, 0, 0, lowLevel);
-    ObjectSetInteger(0, lowLineName, OBJPROP_COLOR, clrBlue);
-    ObjectSetInteger(0, lowLineName, OBJPROP_STYLE, STYLE_SOLID);
-    ObjectSetInteger(0, lowLineName, OBJPROP_WIDTH, 2);
-}
-
-//+------------------------------------------------------------------+
-//| Generate unique trade ID for this strategy (overrides header)    |
-//+------------------------------------------------------------------+
-string GenerateBreakoutTradeID() {
-    // Use MT5 position ticket as trade ID for consistency
-    // This will be set when a position is opened
-    return "0"; // Placeholder - will be replaced with actual ticket
-}
-
-
-
-//+------------------------------------------------------------------+
-//| Reset all state variables for new trading day                   |
-//+------------------------------------------------------------------+
-void ResetDailyState() {
-    Print("🔄 Resetting daily state variables...");
-
-    // Reset breakout state variables
-    currentState = WAITING_FOR_BREAKOUT;
-    breakoutLevel = 0.0;
-    breakoutDirection = "";
-    swingPoint = 0.0;
-
-    // Reset retest tracking variables
-    bullishRetestDetected = false;
-    bearishRetestDetected = false;
-
-    // Reset new day levels (THIS IS THE KEY!)
-    newDayLow = 0;
-    newDayHigh = 0;
-
-    // Reset timing variables
-    lastStateChange = 0;
-
-    // Call the existing reset function to ensure all variables are reset
-    ResetBreakoutStateVariables();
-
-    Print("✅ Daily state reset complete");
-    Print("   State: WAITING_FOR_BREAKOUT");
-    Print("   Previous Day High: ", DoubleToString(previousDayHigh, _Digits));
-    Print("   Previous Day Low: ", DoubleToString(previousDayLow, _Digits));
-}
 
 //+------------------------------------------------------------------+
 //| Expert trade transaction event - called for each trade operation |
@@ -959,4 +793,48 @@ string GenerateEAIdentifier() {
     Print("🔍 Generated EA identifier: '", identifier, "' (", StringLen(identifier), " chars)");
     return identifier;
 }
+
+//+------------------------------------------------------------------+
+//| Generate unique trade ID for this strategy (overrides header)    |
+//+------------------------------------------------------------------+
+string GenerateBreakoutTradeID() {
+    // Use MT5 position ticket as trade ID for consistency
+    // This will be set when a position is opened
+    return "0"; // Placeholder - will be replaced with actual ticket
+}
+
+//+------------------------------------------------------------------+
+//| Reset all state variables for new trading day                   |
+//+------------------------------------------------------------------+
+void ResetDailyState() {
+    Print("🔄 Resetting daily state variables...");
+
+    // Reset breakout state variables
+    currentState = WAITING_FOR_BREAKOUT;
+    breakoutLevel = 0.0;
+    breakoutDirection = "";
+    swingPoint = 0.0;
+
+    // Reset retest tracking variables
+    bullishRetestDetected = false;
+    bearishRetestDetected = false;
+
+    // Reset new day levels (THIS IS THE KEY!)
+    newDayLow = 0;
+    newDayHigh = 0;
+
+    // Reset timing variables
+    lastStateChange = 0;
+
+    // Call the existing reset function to ensure all variables are reset
+    ResetBreakoutStateVariables();
+
+    Print("✅ Daily state reset complete");
+    Print("   State: WAITING_FOR_BREAKOUT");
+    Print("   Previous Day High: ", DoubleToString(previousDayHigh, _Digits));
+    Print("   Previous Day Low: ", DoubleToString(previousDayLow, _Digits));
+}
+
+
+
 

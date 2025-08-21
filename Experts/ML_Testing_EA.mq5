@@ -44,6 +44,13 @@ input double MinTakeProfitPips = 40;           // Minimum take profit in pips (f
 input double MaxStopLossPips = 50;             // Maximum stop loss in pips (fallback if dynamic disabled)
 input double MaxTakeProfitPips = 100;          // Maximum take profit in pips (fallback if dynamic disabled)
 
+input group "News Filtering"
+input bool EnableNewsFiltering = true;         // Enable news event filtering
+input int NewsMinutesBefore = 30;             // Minutes before news event to block trading
+input int NewsMinutesAfter = 30;              // Minutes after news event to block trading
+input bool NewsHighImpactOnly = true;         // Block only high-impact news events
+input bool NewsEnableDebugLogs = true;        // Enable debug logs for news filtering
+
 input group "Analytics Configuration"
 // AnalyticsServerUrl is defined in ea_http_analytics.mqh
 
@@ -60,8 +67,8 @@ string lastTradeID = ""; // Store the trade ID for matching close
 //--- Pending trade data for ML retraining (unified system - no legacy variables needed)
 
 //--- Analytics tracking variables (for comprehensive recording)
-MLPrediction lastMLPrediction;
-MLFeatures lastMarketFeatures;
+MLPrediction lastMLPrediction;  // Use MLPrediction from MLHttpInterface.mqh
+MLFeatures lastMarketFeatures;  // Use MLFeatures from MLHttpInterface.mqh
 string lastTradeDirection = "";
 
 //--- ATR handle
@@ -111,6 +118,16 @@ int OnInit() {
     Print("   Min TP Distance: ", GetSymbolMinTpDistance(), " points (", DoubleToString(GetSymbolMinTpDistance() * SymbolInfoDouble(_Symbol, SYMBOL_POINT), _Digits), " price)");
     Print("   Broker Stops Level: ", SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL), " points");
     Print("   Broker Freeze Level: ", SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL), " points");
+
+    // Show news filtering configuration
+    Print("📰 News Filtering Configuration:");
+    Print("   Enabled: ", EnableNewsFiltering ? "Yes" : "No");
+    if(EnableNewsFiltering) {
+        Print("   Minutes before news: ", NewsMinutesBefore);
+        Print("   Minutes after news: ", NewsMinutesAfter);
+        Print("   High-impact only: ", NewsHighImpactOnly ? "Yes" : "No");
+        Print("   Debug logs: ", NewsEnableDebugLogs ? "Yes" : "No");
+    }
 
     // Check historical data availability
     Print("🔍 Historical Data Check:");
@@ -253,7 +270,7 @@ void RunMLTest() {
     Print("🧪 Running ML test #", testCount, " at ", TimeToString(TimeCurrent()));
 
     // Collect market features
-    MLFeatures features;
+    MLFeatures features;  // Use MLFeatures from MLHttpInterface.mqh
     g_ml_interface.CollectMarketFeatures(features);
 
     // Test buy prediction
@@ -359,6 +376,20 @@ void ExecuteTestTrade(MLPrediction &buyPrediction, MLPrediction &sellPrediction)
         return;
     }
 
+    // Check for high-impact news events
+    if(EnableNewsFiltering) {
+        Print("📰 Checking for news events...");
+        if(TradeUtils::IsNewsTime(_Symbol, NewsMinutesBefore, NewsMinutesAfter, NewsHighImpactOnly, NewsEnableDebugLogs)) {
+            Print("⚠️ Skipping trade - news event detected");
+            Print("   News filtering: ", NewsMinutesBefore, " minutes before and ", NewsMinutesAfter, " minutes after");
+            Print("   High-impact only: ", NewsHighImpactOnly ? "Yes" : "No");
+            return;
+        }
+        Print("✅ No blocking news events detected - proceeding with trade");
+    } else {
+        Print("📰 News filtering disabled - proceeding with trade");
+    }
+
     // Check if we can track more trades (unified system)
     if(!g_ml_interface.CanTrackMoreTrades(MaxTrackedPositions)) {
         Print("❌ Cannot place trade - unified trade array is full");
@@ -409,13 +440,13 @@ void ExecuteTestTrade(MLPrediction &buyPrediction, MLPrediction &sellPrediction)
         return;
     }
 
-    // Use TradeUtils functions for robust order placement
+    // Use ML Testing EA order placement functions
     bool success = false;
     string tradeComment = GenerateEAIdentifier(); // Use the EA identifier as comment
     if(tradeDirection == "BUY") {
-        success = PlaceBuyOrder(TestLotSize, stopLoss, takeProfit, 0, tradeComment);
+        success = PlaceMLTestingBuyOrder(TestLotSize, stopLoss, takeProfit, 0, tradeComment);
     } else {
-        success = PlaceSellOrder(TestLotSize, stopLoss, takeProfit, 0, tradeComment);
+        success = PlaceMLTestingSellOrder(TestLotSize, stopLoss, takeProfit, 0, tradeComment);
     }
 
     if(success) {
@@ -428,7 +459,7 @@ void ExecuteTestTrade(MLPrediction &buyPrediction, MLPrediction &sellPrediction)
 
         // Store trade data for ML retraining using the new array-based system
         if(EnableHttpAnalytics) {
-            MLFeatures features;
+            MLFeatures features;  // Use MLFeatures from MLHttpInterface.mqh
             g_ml_interface.CollectMarketFeatures(features);
 
             // Register pending trade with ML interface for proper tracking
@@ -686,9 +717,9 @@ double GetSymbolMinTpDistance()
 }
 
 //+------------------------------------------------------------------+
-//| Place buy order with validation                                   |
+//| Place buy order using TradeUtils                                  |
 //+------------------------------------------------------------------+
-bool PlaceBuyOrder(double lot, double sl, double tp, ulong magic = 0, string comment = "")
+bool PlaceMLTestingBuyOrder(double lot, double sl, double tp, ulong magic = 0, string comment = "")
 {
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double stopsLevel = MathMax(
@@ -747,7 +778,7 @@ bool PlaceBuyOrder(double lot, double sl, double tp, ulong magic = 0, string com
 //+------------------------------------------------------------------+
 //| Place sell order with validation                                  |
 //+------------------------------------------------------------------+
-bool PlaceSellOrder(double lot, double sl, double tp, ulong magic = 0, string comment = "")
+bool PlaceMLTestingSellOrder(double lot, double sl, double tp, ulong magic = 0, string comment = "")
 {
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double stopsLevel = MathMax(
@@ -860,13 +891,13 @@ void ExecuteRandomTrade() {
         return;
     }
 
-    // Use TradeUtils functions for robust order placement
+    // Use ML Testing EA order placement functions
     bool success = false;
     string tradeComment = GenerateEAIdentifier(); // Use consistent EA identifier
     if(tradeDirection == "BUY") {
-        success = PlaceBuyOrder(TestLotSize, stopLoss, takeProfit, 0, tradeComment);
+        success = PlaceMLTestingBuyOrder(TestLotSize, stopLoss, takeProfit, 0, tradeComment);
     } else {
-        success = PlaceSellOrder(TestLotSize, stopLoss, takeProfit, 0, tradeComment);
+        success = PlaceMLTestingSellOrder(TestLotSize, stopLoss, takeProfit, 0, tradeComment);
     }
 
     if(success) {
@@ -879,7 +910,7 @@ void ExecuteRandomTrade() {
 
         // Store trade data for ML retraining (will be logged when we have actual MT5 ticket)
         if(EnableHttpAnalytics) {
-            MLFeatures features;
+            MLFeatures features;  // Use MLFeatures from MLHttpInterface.mqh
             g_ml_interface.CollectMarketFeatures(features);
 
             // Create a dummy prediction for random trades
