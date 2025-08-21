@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Trade, MLPrediction, MarketConditions, Summary, MLTrainingData, MLPerformance, MLPredictions } from '../types/analytics';
+import { Trade, MLPrediction, MarketConditions, Summary, MLTrainingData, MLPerformance, MLPredictions, ModelRetrainingStatusResponse } from '../types/analytics';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
@@ -47,6 +47,45 @@ export const getMLPerformance = async (): Promise<MLPerformance> => {
 
 export const getMLPredictions = async (): Promise<MLPredictions> => {
   const response = await api.get('/analytics/ml_predictions');
+  return response.data;
+};
+
+export const getModelPerformance = async (modelKey: string, params?: {
+  start_date?: string;
+  end_date?: string;
+}): Promise<any> => {
+  const response = await api.get(`/analytics/model/${encodeURIComponent(modelKey)}/performance`, { params });
+  return response.data;
+};
+
+export const getModelDiagnostics = async (modelKey: string, params?: {
+  start_date?: string;
+  end_date?: string;
+}): Promise<any> => {
+  const response = await api.get(`/analytics/model/${encodeURIComponent(modelKey)}/diagnostics`, { params });
+  return response.data;
+};
+
+export const getModelHealthOverview = async (): Promise<any> => {
+  const response = await api.get('/analytics/model_health');
+  return response.data;
+};
+
+export const getModelCalibration = async (modelKey: string, params?: {
+  start_date?: string;
+  end_date?: string;
+}): Promise<any> => {
+  const response = await api.get(`/analytics/model/${encodeURIComponent(modelKey)}/calibration`, { params });
+  return response.data;
+};
+
+export const getModelAlerts = async (): Promise<any> => {
+  const response = await api.get('/analytics/model_alerts');
+  return response.data;
+};
+
+export const getModelRetrainingStatus = async (): Promise<ModelRetrainingStatusResponse> => {
+  const response = await api.get('/analytics/model_retraining_status');
   return response.data;
 };
 

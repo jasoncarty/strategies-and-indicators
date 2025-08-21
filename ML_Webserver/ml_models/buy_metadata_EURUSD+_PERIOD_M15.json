@@ -1,0 +1,39 @@
+{
+  "symbol": "EURUSD+",
+  "timeframe": "M15",
+  "direction": "buy",
+  "training_date": "2025-08-21T13:05:35.619566",
+  "last_retrained": "2025-08-21T13:05:35.619573",
+  "training_samples": 129,
+  "features_used": [
+    7,
+    15,
+    6,
+    8,
+    4,
+    18,
+    13,
+    14,
+    12,
+    16,
+    9,
+    0,
+    5,
+    10,
+    1
+  ],
+  "cv_accuracy": 0.625,
+  "cv_std": 0.15520483776824312,
+  "confidence_correlation": -0.18837595513354266,
+  "market_regime": {
+    "volatility_regime": "medium",
+    "trend_regime": "neutral",
+    "regime_stability": 0.9922480620155039,
+    "regime_changes": 2,
+    "is_stable": true
+  },
+  "health_score": 70,
+  "model_type": "advanced_retraining_framework",
+  "retrained_by": "automated_pipeline",
+  "model_version": 2.0
+}

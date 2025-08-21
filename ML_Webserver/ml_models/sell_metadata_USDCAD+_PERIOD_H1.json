@@ -1,0 +1,39 @@
+{
+  "symbol": "USDCAD+",
+  "timeframe": "H1",
+  "direction": "sell",
+  "training_date": "2025-08-21T13:05:37.884889",
+  "last_retrained": "2025-08-21T13:05:37.884896",
+  "training_samples": 80,
+  "features_used": [
+    1,
+    6,
+    11,
+    0,
+    3,
+    15,
+    10,
+    17,
+    16,
+    7,
+    18,
+    13,
+    8,
+    2,
+    4
+  ],
+  "cv_accuracy": 0.5,
+  "cv_std": 0.0,
+  "confidence_correlation": 0.0226568686976978,
+  "market_regime": {
+    "volatility_regime": "medium",
+    "trend_regime": "neutral",
+    "regime_stability": 0.9875,
+    "regime_changes": 2,
+    "is_stable": true
+  },
+  "health_score": 70,
+  "model_type": "advanced_retraining_framework",
+  "retrained_by": "automated_pipeline",
+  "model_version": 2.0
+}

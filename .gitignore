@@ -14,5 +14,8 @@ __pycache__/
 # Logs
 logs/
 ML_Webserver/logs/
+ML_Webserver/**/*.log
 analytics/logs/
 webserver/instance/
+
+

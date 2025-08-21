@@ -1,11 +1,16 @@
 import React from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { getSummary, getTrades, getMLPerformance, getMLPredictions } from './services/api';
 import SummaryCards from './components/SummaryCards';
 import ProfitLossChart from './components/ProfitLossChart';
 import TradesTable from './components/TradesTable';
 import MLPerformanceDashboard from './components/MLPerformanceDashboard';
+import ModelHealthDashboard from './components/ModelHealthDashboard';
 import MLPredictionsDashboard from './components/MLPredictionsDashboard';
+import ModelPerformanceView from './components/ModelPerformanceView';
+import ModelCalibrationView from './components/ModelCalibrationView';
+import ModelRetrainingDashboard from './components/ModelRetrainingDashboard';
 import { Summary, Trade, MLPerformance, MLPredictions } from './types/analytics';
 
 const queryClient = new QueryClient({
@@ -76,6 +81,12 @@ function Dashboard() {
                 Last updated: {new Date().toLocaleTimeString()}
               </div>
               <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
+              <a href="/model-health" className="ml-4 inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700">
+                Model Health
+              </a>
+              <a href="/model-retraining" className="ml-2 inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-700">
+                Retraining
+              </a>
             </div>
           </div>
         </div>
@@ -146,7 +157,15 @@ function Dashboard() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Dashboard />
+      <Router>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/model/:modelKey" element={<ModelPerformanceView />} />
+          <Route path="/model-health" element={<ModelHealthDashboard />} />
+          <Route path="/model-calibration/:modelKey" element={<ModelCalibrationView />} />
+          <Route path="/model-retraining" element={<ModelRetrainingDashboard />} />
+        </Routes>
+      </Router>
     </QueryClientProvider>
   );
 }

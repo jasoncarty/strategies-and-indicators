@@ -1,0 +1,39 @@
+{
+  "symbol": "GBPUSD+",
+  "timeframe": "M30",
+  "direction": "buy",
+  "training_date": "2025-08-21T13:05:36.652841",
+  "last_retrained": "2025-08-21T13:05:36.652849",
+  "training_samples": 248,
+  "features_used": [
+    12,
+    6,
+    1,
+    0,
+    7,
+    8,
+    15,
+    17,
+    2,
+    13,
+    10,
+    4,
+    14,
+    3,
+    5
+  ],
+  "cv_accuracy": 0.6935483870967744,
+  "cv_std": 0.08635687314090863,
+  "confidence_correlation": -0.19548056230568425,
+  "market_regime": {
+    "volatility_regime": "medium",
+    "trend_regime": "neutral",
+    "regime_stability": 0.9959677419354839,
+    "regime_changes": 2,
+    "is_stable": true
+  },
+  "health_score": 70,
+  "model_type": "advanced_retraining_framework",
+  "retrained_by": "automated_pipeline",
+  "model_version": 2.0
+}

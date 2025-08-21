@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -33,6 +34,12 @@ interface MLPerformanceDashboardProps {
 }
 
 const MLPerformanceDashboard: React.FC<MLPerformanceDashboardProps> = ({ mlPerformance, isLoading }) => {
+  const navigate = useNavigate();
+
+  const handleModelClick = (modelKey: string) => {
+    navigate(`/model/${encodeURIComponent(modelKey)}`);
+  };
+
   if (isLoading) {
     return (
       <div className="bg-white rounded-lg shadow p-6 mb-8">
@@ -219,7 +226,10 @@ const MLPerformanceDashboard: React.FC<MLPerformanceDashboardProps> = ({ mlPerfo
       {/* Model Performance Table */}
       {mlPerformance.model_performance.length > 0 && (
         <div className="mt-6">
-          <h4 className="text-md font-semibold text-gray-800 mb-3">Model Performance Details</h4>
+          <h4 className="text-md font-semibold text-gray-800 mb-3">
+            Model Performance Details
+            <span className="text-sm font-normal text-gray-500 ml-2">(Click any row to view detailed performance)</span>
+          </h4>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -234,7 +244,11 @@ const MLPerformanceDashboard: React.FC<MLPerformanceDashboardProps> = ({ mlPerfo
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {mlPerformance.model_performance.map((model, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
+                  <tr
+                    key={index}
+                    className="hover:bg-gray-50 cursor-pointer transition-colors duration-150"
+                    onClick={() => handleModelClick(model.ml_model_key)}
+                  >
                     <td className="px-4 py-3 text-sm text-gray-900 font-mono">{model.ml_model_key}</td>
                     <td className="px-4 py-3 text-sm text-gray-900">{model.ml_model_type}</td>
                     <td className="px-4 py-3 text-sm text-gray-900">{model.total_trades}</td>
@@ -247,7 +261,7 @@ const MLPerformanceDashboard: React.FC<MLPerformanceDashboardProps> = ({ mlPerfo
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      <span className={model.total_profit_loss >= 0 ? 'text-green-600' : 'text-red-600'}>
+                      <span className={model.avg_profit_loss >= 0 ? 'text-green-600' : 'text-red-600'}>
                         {formatCurrency(model.total_profit_loss)}
                       </span>
                     </td>

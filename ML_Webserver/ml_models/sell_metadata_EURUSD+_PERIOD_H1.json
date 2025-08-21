@@ -1,0 +1,39 @@
+{
+  "symbol": "EURUSD+",
+  "timeframe": "H1",
+  "direction": "sell",
+  "training_date": "2025-08-21T13:05:37.352859",
+  "last_retrained": "2025-08-21T13:05:37.352870",
+  "training_samples": 303,
+  "features_used": [
+    0,
+    1,
+    7,
+    12,
+    15,
+    8,
+    16,
+    4,
+    6,
+    11,
+    2,
+    14,
+    17,
+    3,
+    9
+  ],
+  "cv_accuracy": 0.6977777777777779,
+  "cv_std": 0.19515109688977914,
+  "confidence_correlation": 0.11152768942865965,
+  "market_regime": {
+    "volatility_regime": "medium",
+    "trend_regime": "neutral",
+    "regime_stability": 0.9966996699669967,
+    "regime_changes": 2,
+    "is_stable": true
+  },
+  "health_score": 70,
+  "model_type": "advanced_retraining_framework",
+  "retrained_by": "automated_pipeline",
+  "model_version": 2.0
+}

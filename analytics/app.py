@@ -681,7 +681,7 @@ def get_ml_training_data():
         AND ml.status = 'CLOSED'
         AND ml.features_json IS NOT NULL
         AND ml.features_json != ''
-        AND ml.ml_model_key != 'test_model'
+        AND ml.ml_model_key NOT IN ('test_model')
         AND ml.trade_id != '0' AND ml.trade_id != '' AND ml.trade_id IS NOT NULL
         AND ml.strategy != 'TestStrategy'
         ORDER BY ml.trade_time DESC
@@ -1040,6 +1040,982 @@ def get_ml_predictions():
     finally:
         analytics_db.disconnect()
         logger.info("   🔌 Disconnected from analytics database")
+
+@app.route('/analytics/model_health', methods=['GET'])
+def get_model_health_overview():
+    """Get comprehensive model health overview for all models"""
+    try:
+        analytics_db.connect()
+        logger.info("🏥 Retrieving model health overview")
+
+        # Get all unique models
+        models = analytics_db.execute_query("""
+            SELECT DISTINCT ml_model_key, ml_model_type, symbol, timeframe
+            FROM ml_trade_logs
+            WHERE ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            ORDER BY ml_model_key
+        """)
+
+        if not models:
+            return jsonify({"models": [], "summary": "No models found"}), 200
+
+        model_health = []
+        total_models = len(models)
+        healthy_models = 0
+        warning_models = 0
+        critical_models = 0
+
+        for model in models:
+            model_key = model['ml_model_key']
+
+            # Get recent performance (last 30 days)
+            recent_performance = analytics_db.execute_query("""
+                SELECT
+                    COUNT(*) as total_trades,
+                    SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                    AVG(ml_confidence) as avg_confidence,
+                    AVG(ml_prediction) as avg_prediction,
+                    AVG(profit_loss) as avg_profit_loss,
+                    SUM(profit_loss) as total_profit_loss,
+                    STDDEV(profit_loss) as profit_loss_std
+                FROM ml_trade_logs
+                WHERE ml_model_key = %s
+                AND status = 'CLOSED'
+                AND profit_loss IS NOT NULL
+                AND trade_time >= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 30 DAY))
+            """, (model_key,))
+
+            if not recent_performance or recent_performance[0]['total_trades'] == 0:
+                model_health.append({
+                    'model_key': model_key,
+                    'model_type': model['ml_model_type'],
+                    'symbol': model['symbol'],
+                    'timeframe': model['timeframe'],
+                    'status': 'no_data',
+                    'total_trades': 0,
+                    'win_rate': 0,
+                    'avg_confidence': 0,
+                    'avg_profit_loss': 0,
+                    'total_profit_loss': 0,
+                    'health_score': 0,
+                    'issues': ['No recent trades']
+                })
+                continue
+
+            perf = recent_performance[0]
+            total_trades = perf['total_trades']
+            winning_trades = perf['winning_trades']
+            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+            avg_confidence = float(perf['avg_confidence']) if perf['avg_confidence'] else 0
+            avg_profit_loss = float(perf['avg_profit_loss']) if perf['avg_profit_loss'] else 0
+            total_profit_loss = float(perf['total_profit_loss']) if perf['total_profit_loss'] else 0
+
+            # Calculate health score (0-100)
+            health_score = 0
+            issues = []
+
+            # Win rate component (40% of score)
+            if win_rate >= 60:
+                health_score += 40
+            elif win_rate >= 50:
+                health_score += 30
+            elif win_rate >= 40:
+                health_score += 20
+            elif win_rate >= 30:
+                health_score += 10
+            else:
+                issues.append(f"Low win rate: {win_rate:.1f}%")
+
+            # Profit component (30% of score)
+            if avg_profit_loss > 0:
+                health_score += 30
+            elif avg_profit_loss > -1:
+                health_score += 20
+            elif avg_profit_loss > -2:
+                health_score += 10
+            else:
+                issues.append(f"High average loss: ${avg_profit_loss:.2f}")
+
+            # Confidence correlation component (30% of score)
+            # Check if higher confidence trades perform better
+            confidence_analysis = analytics_db.execute_query("""
+                SELECT
+                    CASE
+                        WHEN ml_confidence < 0.5 THEN 'low'
+                        ELSE 'high'
+                    END as confidence_level,
+                    AVG(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as win_rate
+                FROM ml_trade_logs
+                WHERE ml_model_key = %s
+                AND status = 'CLOSED'
+                AND profit_loss IS NOT NULL
+                AND trade_time >= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 30 DAY))
+                GROUP BY confidence_level
+                HAVING COUNT(*) >= 5
+            """, (model_key,))
+
+            if len(confidence_analysis) >= 2:
+                low_conf = next((x for x in confidence_analysis if x['confidence_level'] == 'low'), None)
+                high_conf = next((x for x in confidence_analysis if x['confidence_level'] == 'high'), None)
+
+                if low_conf and high_conf:
+                    low_win_rate = float(low_conf['win_rate']) * 100
+                    high_win_rate = float(high_conf['win_rate']) * 100
+
+                    if high_win_rate > low_win_rate:
+                        health_score += 30
+                    elif high_win_rate == low_win_rate:
+                        health_score += 15
+                    else:
+                        health_score += 0
+                        issues.append("Higher confidence trades perform worse")
+                else:
+                    health_score += 15
+            else:
+                health_score += 15
+
+            # Determine status
+            if health_score >= 80:
+                status = 'healthy'
+                healthy_models += 1
+            elif health_score >= 60:
+                status = 'warning'
+                warning_models += 1
+            else:
+                status = 'critical'
+                critical_models += 1
+
+            model_health.append({
+                'model_key': model_key,
+                'model_type': model['ml_model_type'],
+                'symbol': model['symbol'],
+                'timeframe': model['timeframe'],
+                'status': status,
+                'total_trades': total_trades,
+                'win_rate': win_rate,
+                'avg_confidence': avg_confidence,
+                'avg_profit_loss': avg_profit_loss,
+                'total_profit_loss': total_profit_loss,
+                'health_score': health_score,
+                'issues': issues
+            })
+
+        # Sort by health score (worst first)
+        model_health.sort(key=lambda x: x['health_score'])
+
+        summary = {
+            'total_models': total_models,
+            'healthy_models': healthy_models,
+            'warning_models': warning_models,
+            'critical_models': critical_models,
+            'overall_health': (healthy_models / total_models * 100) if total_models > 0 else 0
+        }
+
+        result = {
+            'summary': summary,
+            'models': model_health,
+            'timestamp': datetime.now().isoformat()
+        }
+
+        logger.info(f"✅ Retrieved health overview for {total_models} models")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving model health: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        analytics_db.disconnect()
+        logger.info("   🔌 Disconnected from analytics database")
+
+@app.route('/analytics/model/<model_key>/calibration', methods=['GET'])
+def get_model_calibration(model_key):
+    """Get confidence calibration analysis for a specific model"""
+    try:
+        analytics_db.connect()
+        logger.info(f"🎯 Retrieving confidence calibration for {model_key}")
+
+        # Get query parameters
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+
+        # Default to last 90 days if no dates provided
+        if not start_date or not end_date:
+            from datetime import datetime, timedelta
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=90)
+        else:
+            from datetime import datetime
+            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+        # Get confidence buckets with actual vs expected performance
+        calibration_data = analytics_db.execute_query("""
+            SELECT
+                CASE
+                    WHEN ml_confidence < 0.1 THEN '0.0-0.1'
+                    WHEN ml_confidence < 0.2 THEN '0.1-0.2'
+                    WHEN ml_confidence < 0.3 THEN '0.2-0.3'
+                    WHEN ml_confidence < 0.4 THEN '0.3-0.4'
+                    WHEN ml_confidence < 0.5 THEN '0.4-0.5'
+                    WHEN ml_confidence < 0.6 THEN '0.5-0.6'
+                    WHEN ml_confidence < 0.7 THEN '0.6-0.7'
+                    WHEN ml_confidence < 0.8 THEN '0.7-0.8'
+                    WHEN ml_confidence < 0.9 THEN '0.8-0.9'
+                    ELSE '0.9-1.0'
+                END as confidence_bucket,
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                AVG(ml_confidence) as avg_confidence,
+                AVG(ml_prediction) as avg_prediction,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss,
+                STDDEV(profit_loss) as profit_loss_std
+            FROM ml_trade_logs
+            WHERE ml_model_key = %s
+            AND status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            AND trade_time >= UNIX_TIMESTAMP(%s)
+            AND trade_time <= UNIX_TIMESTAMP(%s)
+            GROUP BY confidence_bucket
+            HAVING total_trades >= 3
+            ORDER BY confidence_bucket
+        """, (model_key, start_date, end_date))
+
+        if not calibration_data:
+            return jsonify({
+                "error": "No calibration data available for this model",
+                "model_key": model_key,
+                "date_range": {"start": start_date.isoformat(), "end": end_date.isoformat()}
+            }), 404
+
+        # Calculate calibration metrics
+        calibration_metrics = []
+        total_trades = 0
+        total_wins = 0
+
+        for bucket in calibration_data:
+            bucket_trades = int(bucket['total_trades'])
+            bucket_wins = int(bucket['winning_trades'])
+            avg_confidence = float(bucket['avg_confidence']) if bucket['avg_confidence'] else 0
+
+            # Calculate actual win rate
+            actual_win_rate = (bucket_wins / bucket_trades) if bucket_trades > 0 else 0
+
+            # Expected win rate should be close to confidence if well-calibrated
+            expected_win_rate = avg_confidence
+
+            # Calibration error (difference between expected and actual)
+            calibration_error = abs(expected_win_rate - actual_win_rate)
+
+            # Determine if this bucket is well-calibrated
+            if calibration_error < 0.1:
+                calibration_status = 'well_calibrated'
+            elif calibration_error < 0.2:
+                calibration_status = 'moderately_calibrated'
+            else:
+                calibration_status = 'poorly_calibrated'
+
+            total_trades += bucket_trades
+            total_wins += bucket_wins
+
+            calibration_metrics.append({
+                'confidence_bucket': bucket['confidence_bucket'],
+                'total_trades': bucket_trades,
+                'winning_trades': bucket_wins,
+                'actual_win_rate': actual_win_rate,
+                'expected_win_rate': expected_win_rate,
+                'calibration_error': calibration_error,
+                'calibration_status': calibration_status,
+                'avg_confidence': avg_confidence,
+                'avg_prediction': float(bucket['avg_prediction']) if bucket['avg_prediction'] else 0,
+                'avg_profit_loss': float(bucket['avg_profit_loss']) if bucket['avg_profit_loss'] else 0,
+                'total_profit_loss': float(bucket['total_profit_loss']) if bucket['total_profit_loss'] else 0
+            })
+
+        # Calculate overall calibration score
+        overall_win_rate = (total_wins / total_trades) if total_trades > 0 else 0
+
+        # Calculate weighted average calibration error
+        weighted_calibration_error = sum(
+            bucket['calibration_error'] * bucket['total_trades']
+            for bucket in calibration_metrics
+        ) / total_trades if total_trades > 0 else 0
+
+        # Overall calibration score (0-100, higher is better)
+        overall_calibration_score = max(0, 100 - (weighted_calibration_error * 100))
+
+        # Determine overall calibration status
+        if overall_calibration_score >= 80:
+            overall_status = 'well_calibrated'
+        elif overall_calibration_score >= 60:
+            overall_status = 'moderately_calibrated'
+        else:
+            overall_status = 'poorly_calibrated'
+
+        # Check for confidence inversion (higher confidence = worse performance)
+        confidence_performance_correlation = analytics_db.execute_query("""
+            SELECT
+                AVG(CASE WHEN ml_confidence < 0.5 THEN
+                    CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END
+                ELSE NULL END) as low_conf_win_rate,
+                AVG(CASE WHEN ml_confidence >= 0.5 THEN
+                    CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END
+                ELSE NULL END) as high_conf_win_rate
+            FROM ml_trade_logs
+            WHERE ml_model_key = %s
+            AND status = 'CLOSED'
+            AND profit_loss IS NOT NULL
+            AND trade_time >= UNIX_TIMESTAMP(%s)
+            AND trade_time <= UNIX_TIMESTAMP(%s)
+        """, (model_key, start_date, end_date))
+
+        confidence_inversion = False
+        if confidence_performance_correlation and len(confidence_performance_correlation) > 0:
+            low_conf_win_rate = float(confidence_performance_correlation[0]['low_conf_win_rate']) if confidence_performance_correlation[0]['low_conf_win_rate'] else 0
+            high_conf_win_rate = float(confidence_performance_correlation[0]['high_conf_win_rate']) if confidence_performance_correlation[0]['high_conf_win_rate'] else 0
+
+            # Check if higher confidence trades perform worse (inversion)
+            if high_conf_win_rate < low_conf_win_rate:
+                confidence_inversion = True
+
+        result = {
+            'model_key': model_key,
+            'date_range': {
+                'start': start_date.isoformat(),
+                'end': end_date.isoformat()
+            },
+            'overall_metrics': {
+                'total_trades': total_trades,
+                'total_wins': total_wins,
+                'overall_win_rate': overall_win_rate,
+                'overall_calibration_score': overall_calibration_score,
+                'overall_calibration_status': overall_status,
+                'weighted_calibration_error': weighted_calibration_error,
+                'confidence_inversion_detected': confidence_inversion
+            },
+            'calibration_buckets': calibration_metrics,
+            'timestamp': datetime.now().isoformat()
+        }
+
+        logger.info(f"✅ Retrieved calibration data for {model_key}: {overall_calibration_score:.1f}% calibrated")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving calibration data for {model_key}: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        analytics_db.disconnect()
+        logger.info("   🔌 Disconnected from analytics database")
+
+@app.route('/analytics/model/<model_key>/diagnostics', methods=['GET'])
+def get_model_diagnostics(model_key):
+    """Get detailed diagnostics for a specific model to identify root causes"""
+    try:
+        analytics_db.connect()
+        logger.info(f"🔍 Retrieving diagnostics for model: {model_key}")
+
+        # Get query parameters
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+
+        # Default to last 90 days if no dates provided
+        if not start_date or not end_date:
+            from datetime import datetime, timedelta
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=90)
+        else:
+            from datetime import datetime
+            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+        # 1. Performance by confidence levels
+        confidence_analysis = analytics_db.execute_query("""
+            SELECT
+                CASE
+                    WHEN ml_confidence < 0.3 THEN '0.0-0.3'
+                    WHEN ml_confidence < 0.4 THEN '0.3-0.4'
+                    WHEN ml_confidence < 0.5 THEN '0.4-0.5'
+                    WHEN ml_confidence < 0.6 THEN '0.5-0.6'
+                    WHEN ml_confidence < 0.7 THEN '0.6-0.7'
+                    WHEN ml_confidence < 0.8 THEN '0.7-0.8'
+                    WHEN ml_confidence < 0.9 THEN '0.8-0.9'
+                    ELSE '0.9-1.0'
+                END as confidence_bucket,
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss,
+                MIN(profit_loss) as min_profit_loss,
+                MAX(profit_loss) as max_profit_loss,
+                STDDEV(profit_loss) as profit_loss_std
+            FROM ml_trade_logs
+            WHERE ml_model_key = %s
+            AND status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            AND trade_time >= UNIX_TIMESTAMP(%s)
+            AND trade_time <= UNIX_TIMESTAMP(%s)
+            GROUP BY confidence_bucket
+            ORDER BY confidence_bucket
+        """, (model_key, start_date, end_date))
+
+        # 2. Performance by prediction probability
+        prediction_analysis = analytics_db.execute_query("""
+            SELECT
+                CASE
+                    WHEN ml_prediction < 0.3 THEN '0.0-0.3'
+                    WHEN ml_prediction < 0.4 THEN '0.3-0.4'
+                    WHEN ml_prediction < 0.5 THEN '0.4-0.5'
+                    WHEN ml_prediction < 0.6 THEN '0.5-0.6'
+                    WHEN ml_prediction < 0.7 THEN '0.6-0.7'
+                    WHEN ml_prediction < 0.8 THEN '0.7-0.8'
+                    WHEN ml_prediction < 0.9 THEN '0.8-0.9'
+                    ELSE '0.9-1.0'
+                END as prediction_bucket,
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss
+            FROM ml_trade_logs
+            WHERE ml_model_key = %s
+            AND status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            AND trade_time >= UNIX_TIMESTAMP(%s)
+            AND trade_time <= UNIX_TIMESTAMP(%s)
+            GROUP BY prediction_bucket
+            ORDER BY prediction_bucket
+        """, (model_key, start_date, end_date))
+
+        # 3. Performance by market conditions (time-based)
+        time_analysis = analytics_db.execute_query("""
+            SELECT
+                HOUR(FROM_UNIXTIME(trade_time)) as hour_of_day,
+                DAYOFWEEK(FROM_UNIXTIME(trade_time)) as day_of_week,
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss
+            FROM ml_trade_logs
+            WHERE ml_model_key = %s
+            AND status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            AND trade_time >= UNIX_TIMESTAMP(%s)
+            AND trade_time <= UNIX_TIMESTAMP(%s)
+            GROUP BY hour_of_day, day_of_week
+            ORDER BY day_of_week, hour_of_day
+        """, (model_key, start_date, end_date))
+
+        # 4. Risk analysis - stop loss vs take profit effectiveness
+        risk_analysis = analytics_db.execute_query("""
+            SELECT
+                CASE
+                    WHEN profit_loss <= -ABS(stop_loss - entry_price) * lot_size * 100000 THEN 'Stop Loss Hit'
+                    WHEN profit_loss >= ABS(take_profit - entry_price) * lot_size * 100000 THEN 'Take Profit Hit'
+                    ELSE 'Other Exit'
+                END as exit_type,
+                COUNT(*) as total_trades,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss
+            FROM ml_trade_logs
+            WHERE ml_model_key = %s
+            AND status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            AND trade_time >= UNIX_TIMESTAMP(%s)
+            AND trade_time <= UNIX_TIMESTAMP(%s)
+            GROUP BY exit_type
+        """, (model_key, start_date, end_date))
+
+        # 5. Feature correlation analysis (extract from JSON)
+        feature_analysis = analytics_db.execute_query("""
+            SELECT
+                JSON_EXTRACT(features_json, '$.rsi') as rsi,
+                JSON_EXTRACT(features_json, '$.stoch_main') as stoch_main,
+                JSON_EXTRACT(features_json, '$.macd_main') as macd_main,
+                JSON_EXTRACT(features_json, '$.bb_upper') as bb_upper,
+                JSON_EXTRACT(features_json, '$.bb_lower') as bb_lower,
+                profit_loss,
+                ml_confidence,
+                ml_prediction
+            FROM ml_trade_logs
+            WHERE ml_model_key = %s
+            AND status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            AND trade_time >= UNIX_TIMESTAMP(%s)
+            AND trade_time <= UNIX_TIMESTAMP(%s)
+            AND features_json IS NOT NULL
+            AND features_json != ''
+            LIMIT 1000
+        """, (model_key, start_date, end_date))
+
+        # 6. Performance degradation over time
+        performance_trend = analytics_db.execute_query("""
+            SELECT
+                DATE(FROM_UNIXTIME(trade_time)) as trade_date,
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                AVG(ml_confidence) as avg_confidence,
+                AVG(ml_prediction) as avg_prediction,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss
+            FROM ml_trade_logs
+            WHERE ml_model_key = %s
+            AND status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            AND trade_time >= UNIX_TIMESTAMP(%s)
+            AND trade_time <= UNIX_TIMESTAMP(%s)
+            GROUP BY trade_date
+            ORDER BY trade_date DESC
+            LIMIT 30
+        """, (model_key, start_date, end_date))
+
+        result = {
+            'model_key': model_key,
+            'date_range': {
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat()
+            },
+            'confidence_analysis': confidence_analysis if confidence_analysis else [],
+            'prediction_analysis': prediction_analysis if prediction_analysis else [],
+            'time_analysis': time_analysis if time_analysis else [],
+            'risk_analysis': risk_analysis if risk_analysis else [],
+            'feature_analysis': feature_analysis if feature_analysis else [],
+            'performance_trend': performance_trend if performance_trend else []
+        }
+
+        logger.info(f"✅ Retrieved diagnostics for {model_key}")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving model diagnostics: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        analytics_db.disconnect()
+        logger.info("   🔌 Disconnected from analytics database")
+
+@app.route('/analytics/model/<model_key>/performance', methods=['GET'])
+def get_model_performance_over_time(model_key):
+    """Get individual model performance over time"""
+    try:
+        analytics_db.connect()
+        logger.info(f"📊 Retrieving performance over time for model: {model_key}")
+
+        # Get query parameters
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+
+        # Default to last 30 days if no dates provided
+        if not start_date or not end_date:
+            from datetime import datetime, timedelta
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=30)
+        else:
+            from datetime import datetime
+            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+            end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+
+        # Get daily performance for the specific model
+        daily_performance = analytics_db.execute_query("""
+            SELECT
+                DATE(FROM_UNIXTIME(trade_time)) as trade_date,
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                AVG(ml_prediction) as avg_prediction,
+                AVG(ml_confidence) as avg_confidence,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss,
+                SUM(CASE WHEN profit_loss > 0 THEN profit_loss ELSE 0 END) as daily_profit,
+                SUM(CASE WHEN profit_loss < 0 THEN ABS(profit_loss) ELSE 0 END) as daily_loss
+            FROM ml_trade_logs
+            WHERE ml_model_key = %s
+            AND status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            AND trade_time >= UNIX_TIMESTAMP(%s)
+            AND trade_time <= UNIX_TIMESTAMP(%s)
+            GROUP BY DATE(FROM_UNIXTIME(trade_time))
+            ORDER BY trade_date ASC
+        """, (model_key, start_date, end_date))
+
+        # Get cumulative performance over time
+        cumulative_data = []
+        running_total = 0
+
+        if daily_performance:
+            for day in daily_performance:
+                running_total += day['total_profit_loss']
+                cumulative_data.append({
+                    'date': day['trade_date'].isoformat() if hasattr(day['trade_date'], 'isoformat') else str(day['trade_date']),
+                    'total_trades': day['total_trades'],
+                    'winning_trades': day['winning_trades'],
+                    'win_rate': (day['winning_trades'] / day['total_trades'] * 100) if day['total_trades'] > 0 else 0,
+                    'avg_profit_loss': float(day['avg_profit_loss']) if day['avg_profit_loss'] else 0,
+                    'daily_profit_loss': float(day['total_profit_loss']) if day['total_profit_loss'] else 0,
+                    'cumulative_profit_loss': float(running_total),
+                    'avg_prediction': float(day['avg_prediction']) if day['avg_prediction'] else 0,
+                    'avg_confidence': float(day['avg_confidence']) if day['avg_confidence'] else 0
+                })
+
+        # Get model summary stats
+        model_summary = analytics_db.execute_query("""
+            SELECT
+                ml_model_key,
+                ml_model_type,
+                symbol,
+                timeframe,
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                AVG(ml_prediction) as avg_prediction,
+                AVG(ml_confidence) as avg_confidence,
+                AVG(profit_loss) as avg_profit_loss,
+                SUM(profit_loss) as total_profit_loss,
+                MIN(profit_loss) as min_profit_loss,
+                MAX(profit_loss) as max_profit_loss
+            FROM ml_trade_logs
+            WHERE ml_model_key = %s
+            AND status = 'CLOSED'
+            AND ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            AND profit_loss IS NOT NULL
+            GROUP BY ml_model_key, ml_model_type, symbol, timeframe
+        """, (model_key,))
+
+        model_info = {}
+        if model_summary:
+            summary = model_summary[0]
+            model_info = {
+                'ml_model_key': summary['ml_model_key'],
+                'ml_model_type': summary['ml_model_type'],
+                'symbol': summary['symbol'],
+                'timeframe': summary['timeframe'],
+                'total_trades': summary['total_trades'],
+                'winning_trades': summary['winning_trades'],
+                'win_rate': (summary['winning_trades'] / summary['total_trades'] * 100) if summary['total_trades'] > 0 else 0,
+                'avg_prediction': float(summary['avg_prediction']) if summary['avg_prediction'] else 0,
+                'avg_confidence': float(summary['avg_confidence']) if summary['avg_confidence'] else 0,
+                'avg_profit_loss': float(summary['avg_profit_loss']) if summary['avg_profit_loss'] else 0,
+                'total_profit_loss': float(summary['total_profit_loss']) if summary['total_profit_loss'] else 0,
+                'min_profit_loss': float(summary['min_profit_loss']) if summary['min_profit_loss'] else 0,
+                'max_profit_loss': float(summary['max_profit_loss']) if summary['max_profit_loss'] else 0
+            }
+
+        result = {
+            'model_info': model_info,
+            'daily_performance': cumulative_data,
+            'date_range': {
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat()
+            }
+        }
+
+        logger.info(f"✅ Retrieved performance data for {model_key}: {len(cumulative_data)} days")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving model performance: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        analytics_db.disconnect()
+        logger.info("   🔌 Disconnected from analytics database")
+
+@app.route('/analytics/model_alerts', methods=['GET'])
+def get_model_degradation_alerts():
+    """Get automated alerts for model degradation and confidence issues"""
+    try:
+        analytics_db.connect()
+        logger.info("🚨 Retrieving model degradation alerts")
+
+        # Get all models with recent performance data
+        models = analytics_db.execute_query("""
+            SELECT DISTINCT ml_model_key, ml_model_type, symbol, timeframe
+            FROM ml_trade_logs
+            WHERE ml_model_key NOT IN ('RANDOM_MODEL','test_model')
+            AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+            AND strategy != 'TestStrategy'
+            ORDER BY ml_model_key
+        """)
+
+        if not models:
+            return jsonify({"alerts": [], "summary": "No models found"}), 200
+
+        alerts = []
+        critical_alerts = 0
+        warning_alerts = 0
+        info_alerts = 0
+
+        for model in models:
+            model_key = model['ml_model_key']
+
+            # Get recent performance (last 7 days for faster alerting)
+            recent_performance = analytics_db.execute_query("""
+                SELECT
+                    COUNT(*) as total_trades,
+                    SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                    AVG(ml_confidence) as avg_confidence,
+                    AVG(ml_prediction) as avg_prediction,
+                    AVG(profit_loss) as avg_profit_loss,
+                    SUM(profit_loss) as total_profit_loss,
+                    STDDEV(profit_loss) as profit_loss_std,
+                    MIN(trade_time) as earliest_trade,
+                    MAX(trade_time) as latest_trade
+                FROM ml_trade_logs
+                WHERE ml_model_key = %s
+                AND status = 'CLOSED'
+                AND profit_loss IS NOT NULL
+                AND trade_time >= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 7 DAY))
+            """, (model_key,))
+
+            if not recent_performance or recent_performance[0]['total_trades'] == 0:
+                continue
+
+            perf = recent_performance[0]
+            total_trades = perf['total_trades']
+            winning_trades = perf['winning_trades']
+            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+            avg_confidence = float(perf['avg_confidence']) if perf['avg_confidence'] else 0
+            avg_profit_loss = float(perf['avg_profit_loss']) if perf['avg_profit_loss'] else 0
+
+            # Check for confidence inversion (higher confidence = worse performance)
+            confidence_analysis = analytics_db.execute_query("""
+                SELECT
+                    CASE
+                        WHEN ml_confidence < 0.5 THEN 'low'
+                        ELSE 'high'
+                    END as confidence_level,
+                    AVG(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as win_rate,
+                    COUNT(*) as trade_count
+                FROM ml_trade_logs
+                WHERE ml_model_key = %s
+                AND status = 'CLOSED'
+                AND profit_loss IS NOT NULL
+                AND trade_time >= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 7 DAY))
+                GROUP BY confidence_level
+                HAVING trade_count >= 3
+            """, (model_key,))
+
+            model_alerts = []
+            alert_level = 'info'
+
+            # Alert 1: Confidence Inversion (Critical)
+            if len(confidence_analysis) >= 2:
+                low_conf = next((x for x in confidence_analysis if x['confidence_level'] == 'low'), None)
+                high_conf = next((x for x in confidence_analysis if x['confidence_level'] == 'high'), None)
+
+                if low_conf and high_conf:
+                    low_win_rate = float(low_conf['win_rate']) * 100
+                    high_win_rate = float(high_conf['win_rate']) * 100
+
+                    if high_win_rate < low_win_rate:
+                        model_alerts.append({
+                            'type': 'confidence_inversion',
+                            'level': 'critical',
+                            'message': f'Confidence system broken: High confidence trades ({high_win_rate:.1f}% win rate) perform worse than low confidence trades ({low_win_rate:.1f}% win rate)',
+                            'recommendation': 'Model confidence is unreliable - needs immediate retraining from scratch'
+                        })
+                        alert_level = 'critical'
+                        critical_alerts += 1
+
+            # Alert 2: Low Win Rate (Warning)
+            if win_rate < 40:
+                model_alerts.append({
+                    'type': 'low_win_rate',
+                    'level': 'warning',
+                    'message': f'Low win rate: {win_rate:.1f}% (threshold: 40%)',
+                    'recommendation': 'Consider retraining or adjusting strategy parameters'
+                })
+                if alert_level == 'info':
+                    alert_level = 'warning'
+                    warning_alerts += 1
+
+            # Alert 3: High Average Loss (Warning)
+            if avg_profit_loss < -2.0:
+                model_alerts.append({
+                    'type': 'high_average_loss',
+                    'level': 'warning',
+                    'message': f'High average loss: ${avg_profit_loss:.2f} (threshold: -$2.00)',
+                    'recommendation': 'Review risk management and consider retraining'
+                })
+                if alert_level == 'info':
+                    alert_level = 'warning'
+                    warning_alerts += 1
+
+            # Alert 4: Confidence Mismatch (Info)
+            if avg_confidence > 0.7 and win_rate < 50:
+                model_alerts.append({
+                    'type': 'confidence_mismatch',
+                    'level': 'info',
+                    'message': f'High confidence ({avg_confidence:.1%}) but low performance ({win_rate:.1f}% win rate)',
+                    'recommendation': 'Monitor closely - confidence may be overestimated'
+                })
+                if alert_level == 'info':
+                    info_alerts += 1
+
+            # Alert 5: Insufficient Recent Data (Info)
+            if total_trades < 10:
+                model_alerts.append({
+                    'type': 'insufficient_data',
+                    'level': 'info',
+                    'message': f'Limited recent data: {total_trades} trades in last 7 days',
+                    'recommendation': 'Wait for more data or check if model is still active'
+                })
+                if alert_level == 'info':
+                    info_alerts += 1
+
+            # Add model alerts if any exist
+            if model_alerts:
+                alerts.append({
+                    'model_key': model_key,
+                    'model_type': model['ml_model_type'],
+                    'symbol': model['symbol'],
+                    'timeframe': model['timeframe'],
+                    'alert_level': alert_level,
+                    'alerts': model_alerts,
+                    'current_metrics': {
+                        'total_trades': total_trades,
+                        'win_rate': win_rate,
+                        'avg_confidence': avg_confidence,
+                        'avg_profit_loss': avg_profit_loss
+                    }
+                })
+
+        # Sort alerts by severity (critical first)
+        severity_order = {'critical': 0, 'warning': 1, 'info': 2}
+        alerts.sort(key=lambda x: severity_order.get(x['alert_level'], 3))
+
+        summary = {
+            'total_models_checked': len(models),
+            'models_with_alerts': len(alerts),
+            'critical_alerts': critical_alerts,
+            'warning_alerts': warning_alerts,
+            'info_alerts': info_alerts,
+            'requires_immediate_action': critical_alerts > 0
+        }
+
+        result = {
+            'summary': summary,
+            'alerts': alerts,
+            'timestamp': datetime.now().isoformat()
+        }
+
+        logger.info(f"✅ Retrieved alerts for {len(models)} models: {critical_alerts} critical, {warning_alerts} warning, {info_alerts} info")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving model alerts: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/analytics/model_retraining_status', methods=['GET'])
+def get_model_retraining_status():
+    """Get retraining status from metadata files"""
+    try:
+        import os
+        import json
+        from pathlib import Path
+
+        logger.info("📁 Retrieving model retraining status from metadata files")
+
+        # Look for metadata files in the ML_Webserver/ml_models directory
+        ml_models_dir = Path(__file__).parent.parent / "ML_Webserver" / "ml_models"
+
+        if not ml_models_dir.exists():
+            return jsonify({"models": [], "summary": "No ML models directory found"}), 200
+
+        retraining_status = []
+
+        # Find all metadata files
+        for metadata_file in ml_models_dir.glob("*_metadata_*.json"):
+            try:
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+
+                # Extract model information
+                model_info = {
+                    'model_key': f"{metadata.get('direction', 'buy')}_{metadata.get('symbol')}_PERIOD_{metadata.get('timeframe')}",
+                    'symbol': metadata.get('symbol'),
+                    'timeframe': metadata.get('timeframe'),
+                    'direction': metadata.get('direction'),
+                    'last_retrained': metadata.get('last_retrained'),
+                    'training_date': metadata.get('training_date'),
+                    'health_score': metadata.get('health_score'),
+                    'cv_accuracy': metadata.get('cv_accuracy'),
+                    'confidence_correlation': metadata.get('confidence_correlation'),
+                    'training_samples': metadata.get('training_samples'),
+                    'model_type': metadata.get('model_type'),
+                    'retrained_by': metadata.get('retrained_by'),
+                    'model_version': metadata.get('model_version', 1.0)
+                }
+
+                retraining_status.append(model_info)
+
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to read metadata file {metadata_file}: {e}")
+                continue
+
+        # Sort by last retrained date (most recent first)
+        retraining_status.sort(key=lambda x: x.get('last_retrained', ''), reverse=True)
+
+        summary = {
+            'total_retrained_models': len(retraining_status),
+            'retrained_models': len([m for m in retraining_status if m.get('retrained_by')]),
+            'avg_health_score': sum(m.get('health_score', 0) for m in retraining_status) / len(retraining_status) if retraining_status else 0
+        }
+
+        result = {
+            'models': retraining_status,
+            'summary': summary,
+            'timestamp': datetime.now().isoformat()
+        }
+
+        logger.info(f"✅ Retrieved retraining status for {len(retraining_status)} models")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving model retraining status: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     # Initialize database connection

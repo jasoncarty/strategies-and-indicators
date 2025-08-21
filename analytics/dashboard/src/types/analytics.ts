@@ -195,3 +195,29 @@ export interface RecentPerformance {
   avg_profit_loss: number;
   total_profit_loss: number;
 }
+
+export interface ModelRetrainingStatus {
+  model_key: string;
+  symbol: string;
+  timeframe: string;
+  direction: string;
+  last_retrained: string | null;
+  training_date: string | null;
+  health_score: number | null;
+  cv_accuracy: number | null;
+  confidence_correlation: number | null;
+  training_samples: number | null;
+  model_type: string | null;
+  retrained_by: string | null;
+  model_version: number | null;
+}
+
+export interface ModelRetrainingStatusResponse {
+  models: ModelRetrainingStatus[];
+  summary: {
+    total_retrained_models: number;
+    retrained_models: number;
+    avg_health_score: number;
+  };
+  timestamp: string;
+}
