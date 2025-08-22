@@ -41,6 +41,10 @@ struct MLPrediction {
     string error_message;           // Error message if prediction failed
     datetime timestamp;             // When prediction was made
 
+    // Enhanced fields for trade decision endpoint
+    bool should_trade;              // Whether we should execute a trade
+    double confidence_threshold;    // Dynamic confidence threshold based on model health
+
     // Copy constructor to avoid deprecated assignment warnings
     MLPrediction(const MLPrediction& other) {
         confidence = other.confidence;
@@ -51,6 +55,8 @@ struct MLPrediction {
         is_valid = other.is_valid;
         error_message = other.error_message;
         timestamp = other.timestamp;
+        should_trade = other.should_trade;
+        confidence_threshold = other.confidence_threshold;
     }
 
     // Default constructor
@@ -63,6 +69,8 @@ struct MLPrediction {
         is_valid = false;
         error_message = "";
         timestamp = 0;
+        should_trade = false;
+        confidence_threshold = 0.3;
     }
 };
 
@@ -105,6 +113,12 @@ struct MLFeatures {
     bool is_ny_session;       // True if NY session (13-22)
     bool is_asian_session;    // True if Asian session (1-10)
     bool is_session_overlap;  // True if London/NY overlap
+
+    // Trade calculation features (required for enhanced endpoint)
+    double current_price;            // Current market price
+    double atr;                     // Average True Range for stop loss calculation
+    double account_balance;         // Account balance for lot size calculation
+    double risk_per_pip;            // Risk per pip for lot size calculation
 
     // Additional features can be added as needed
 };
@@ -319,14 +333,120 @@ public:
                     prediction.error_message = "Service unavailable - ML server may be down";
                     break;
                 default:
-                    prediction.error_message = "HTTP request failed with code: " + IntegerToString(res);
+                    prediction.error_message = "HTTP error " + IntegerToString(res) + " - " + response;
+                    break;
             }
-
-            Print("❌ HTTP request failed: ", res, " - ", prediction.error_message);
         }
 
         return prediction;
     }
+
+    // Get enhanced trade decision via HTTP API (new /trade_decision endpoint)
+    MLPrediction GetEnhancedTradeDecision(MLFeatures &features, string direction = "") {
+        MLPrediction prediction;
+        prediction.is_valid = false;
+        prediction.timestamp = TimeCurrent();
+
+        Print("🚀 Enhanced Trade Decision Request - Direction: ", direction, ", Symbol: ", config.symbol, ", Timeframe: ", config.timeframe);
+
+        if(!config.enabled) {
+            prediction.error_message = "ML is disabled";
+            Print("❌ ML is disabled");
+            return prediction;
+        }
+
+        if(!TestConnection()) {
+            prediction.error_message = "API server not connected";
+            Print("❌ API server not connected");
+            return prediction;
+        }
+
+        // Prepare JSON request
+        string json_request = PrepareJsonRequest(features, direction);
+
+        // Validate JSON request
+        if(StringLen(json_request) == 0) {
+            prediction.error_message = "Failed to prepare JSON request";
+            Print("❌ Failed to prepare JSON request");
+            return prediction;
+        }
+
+        Print("📤 Enhanced JSON Request length: ", StringLen(json_request), " characters");
+
+        // Send HTTP request to enhanced endpoint
+        string url = config.api_url + "/trade_decision";
+        string headers = "Content-Type: application/json\r\nAccept: application/json\r\n";
+        uchar post_data[];
+        uchar result[];
+        string result_headers;
+
+        // Convert JSON to UTF-8 uchar array
+        StringToCharArray(json_request, post_data, 0, WHOLE_ARRAY, CP_UTF8);
+        ArrayRemove(post_data, ArraySize(post_data)-1);
+
+        Print("🌐 Sending enhanced request to: ", url);
+        Print("   Data length: ", ArraySize(post_data), " bytes");
+
+        int res = WebRequest("POST", url, headers, request_timeout, post_data, result, result_headers);
+
+        Print("📥 Enhanced Response Code: ", res);
+        Print("📥 Response data size: ", ArraySize(result), " bytes");
+
+        if(res == 200) {
+            string response = CharArrayToString(result);
+            Print("📥 Enhanced Response: ", response);
+            prediction = ParseEnhancedJsonResponse(response);
+
+            // Cache the prediction
+            prediction_cache[cache_index] = prediction;
+            cache_index = (cache_index + 1) % 10;
+
+            last_prediction = prediction;
+
+            if(prediction.is_valid) {
+                Print("✅ Enhanced Trade Decision: ", prediction.direction, " (",
+                      DoubleToString(prediction.probability, 3), " confidence: ",
+                      DoubleToString(prediction.confidence, 3), ")");
+                Print("   Should Trade: ", prediction.should_trade ? "Yes" : "No");
+                Print("   Confidence Threshold: ", DoubleToString(prediction.confidence_threshold, 3));
+            } else {
+                Print("❌ Enhanced Trade Decision failed: ", prediction.error_message);
+            }
+        } else {
+            string response = CharArrayToString(result);
+            Print("❌ Enhanced Response (Error): ", response);
+
+            // Provide more specific error messages based on response code
+            switch(res) {
+                case -1:
+                    prediction.error_message = "WebRequest failed - check internet connection and URL";
+                    break;
+                case 400:
+                    prediction.error_message = "Bad request - check JSON format and data";
+                    break;
+                case 404:
+                    prediction.error_message = "Enhanced endpoint not found - check if ML service is updated";
+                    break;
+                case 500:
+                    prediction.error_message = "Server error - check ML service logs";
+                    break;
+                case 502:
+                case 503:
+                case 504:
+                    prediction.error_message = "Service unavailable - ML server may be down";
+                    break;
+                default:
+                    prediction.error_message = "HTTP error " + IntegerToString(res) + " - " + response;
+                    break;
+            }
+        }
+
+        return prediction;
+    }
+
+
+
+
 
 public:
     // Check if a signal is valid based on confidence thresholds
@@ -911,6 +1031,29 @@ public:
             features.force_index = 0.0;
         }
 
+        // Trade calculation features (required for enhanced endpoint)
+        features.current_price = (SymbolInfoDouble(_Symbol, SYMBOL_ASK) + SymbolInfoDouble(_Symbol, SYMBOL_BID)) / 2.0;
+
+        // Calculate ATR
+        int atr_handle = iATR(_Symbol, _Period, 14);
+        if(atr_handle == INVALID_HANDLE) {
+            Print("❌ Failed to create ATR indicator handle");
+            features.atr = features.current_price * 0.001; // Default to 0.1% of price
+        } else {
+            double atr_buffer[];
+            ArraySetAsSeries(atr_buffer, true);
+            if(CopyBuffer(atr_handle, 0, 0, 1, atr_buffer) <= 0) {
+                Print("❌ Failed to copy ATR data");
+                features.atr = features.current_price * 0.001; // Default to 0.1% of price
+            } else {
+                features.atr = atr_buffer[0];
+            }
+        }
+
+        // Account balance and risk per pip
+        features.account_balance = AccountInfoDouble(ACCOUNT_BALANCE);
+        features.risk_per_pip = 1.0; // Default $1 per pip (can be made configurable later)
+
         // Validate features
         ValidateFeatures(features);
 
@@ -918,6 +1061,10 @@ public:
               ", MACD: ", DoubleToString(features.macd_main, 2),
               ", BB_Upper: ", DoubleToString(features.bb_upper, _Digits),
               ", Price Change: ", DoubleToString(features.price_change * 100, 3), "%");
+        Print("   Trade Calc - Price: ", DoubleToString(features.current_price, _Digits),
+              ", ATR: ", DoubleToString(features.atr, _Digits),
+              ", Balance: $", DoubleToString(features.account_balance, 2),
+              ", Risk/Pip: $", DoubleToString(features.risk_per_pip, 2));
     }
 
     //+------------------------------------------------------------------+
@@ -931,7 +1078,9 @@ public:
            !MathIsValidNumber(features.cci) || !MathIsValidNumber(features.momentum) ||
            !MathIsValidNumber(features.volume_ratio) || !MathIsValidNumber(features.price_change) ||
            !MathIsValidNumber(features.volatility) || !MathIsValidNumber(features.force_index) ||
-           !MathIsValidNumber(features.spread)) {
+           !MathIsValidNumber(features.spread) || !MathIsValidNumber(features.current_price) ||
+           !MathIsValidNumber(features.atr) || !MathIsValidNumber(features.account_balance) ||
+           !MathIsValidNumber(features.risk_per_pip)) {
 
             Print("❌ Invalid feature values detected - using fallback values");
             Print("   RSI: ", features.rsi, " (valid: ", MathIsValidNumber(features.rsi), ")");
@@ -949,6 +1098,10 @@ public:
             Print("   Volatility: ", features.volatility, " (valid: ", MathIsValidNumber(features.volatility), ")");
             Print("   Force Index: ", features.force_index, " (valid: ", MathIsValidNumber(features.force_index), ")");
             Print("   Spread: ", features.spread, " (valid: ", MathIsValidNumber(features.spread), ")");
+            Print("   Current Price: ", features.current_price, " (valid: ", MathIsValidNumber(features.current_price), ")");
+            Print("   ATR: ", features.atr, " (valid: ", MathIsValidNumber(features.atr), ")");
+            Print("   Account Balance: ", features.account_balance, " (valid: ", MathIsValidNumber(features.account_balance), ")");
+            Print("   Risk Per Pip: ", features.risk_per_pip, " (valid: ", MathIsValidNumber(features.risk_per_pip), ")");
 
             // Set fallback values for invalid features
             if(!MathIsValidNumber(features.rsi)) features.rsi = 50.0;
@@ -966,6 +1119,10 @@ public:
             if(!MathIsValidNumber(features.volatility)) features.volatility = 0.001;
             if(!MathIsValidNumber(features.force_index)) features.force_index = 0.0;
             if(!MathIsValidNumber(features.spread)) features.spread = 1.0;
+            if(!MathIsValidNumber(features.current_price)) features.current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+            if(!MathIsValidNumber(features.atr)) features.atr = features.current_price * 0.001;
+            if(!MathIsValidNumber(features.account_balance)) features.account_balance = 10000.0;
+            if(!MathIsValidNumber(features.risk_per_pip)) features.risk_per_pip = 1.0;
         }
     }
 
@@ -1533,6 +1690,12 @@ private:
         json_request["day_of_week"] = features.day_of_week;
         json_request["month"] = features.month;
 
+        // Add trade calculation features (required for enhanced endpoint)
+        json_request["current_price"] = features.current_price;
+        json_request["atr"] = features.atr;
+        json_request["account_balance"] = features.account_balance;
+        json_request["risk_per_pip"] = features.risk_per_pip;
+
         // Serialize to string
         string json_string;
         json_request.Serialize(json_string);
@@ -1592,6 +1755,66 @@ private:
         } else {
             prediction.error_message = "Missing essential prediction fields";
             Print("❌ JSON parsing failed: ", prediction.error_message);
+        }
+
+        return prediction;
+    }
+
+    // Parse enhanced JSON response from /trade_decision endpoint
+    MLPrediction ParseEnhancedJsonResponse(string response) {
+        Print("🔍 Parsing enhanced JSON response using JSON library");
+
+        MLPrediction prediction;
+        prediction.is_valid = false;
+        prediction.timestamp = TimeCurrent();
+
+        // Parse JSON using the library
+        CJAVal json_response;
+        if(!json_response.Deserialize(response)) {
+            prediction.error_message = "Failed to deserialize enhanced JSON response";
+            return prediction;
+        }
+
+        // Check status
+        if(json_response["status"].ToStr() != "success") {
+            prediction.error_message = "API returned status: " + json_response["status"].ToStr();
+            if(json_response["message"].ToStr() != "") {
+                prediction.error_message += " - " + json_response["message"].ToStr();
+            }
+            return prediction;
+        }
+
+                // Extract enhanced prediction data
+        CJAVal prediction_obj = json_response["prediction"];
+
+        prediction.direction = prediction_obj["direction"].ToStr();
+        prediction.probability = prediction_obj["probability"].ToDbl();
+        prediction.confidence = prediction_obj["confidence"].ToDbl();
+        prediction.model_type = prediction_obj["model_type"].ToStr();
+        prediction.model_key = prediction_obj["model_key"].ToStr();
+
+        // Extract enhanced fields
+        prediction.should_trade = json_response["should_trade"].ToInt() == 1;  // Convert int (0/1) to bool
+        prediction.confidence_threshold = json_response["confidence_threshold"].ToDbl();
+
+        // Validate essential fields
+        if(StringLen(prediction.direction) > 0 &&
+           prediction.confidence > 0 &&
+           prediction.probability > 0) {
+            prediction.is_valid = true;
+            prediction.error_message = "";
+
+            Print("✅ Enhanced JSON parsing successful using library");
+            Print("   Direction: ", prediction.direction);
+            Print("   Probability: ", DoubleToString(prediction.probability, 4));
+            Print("   Confidence: ", DoubleToString(prediction.confidence, 4));
+            Print("   Model Type: ", prediction.model_type);
+            Print("   Model Key: ", prediction.model_key);
+            Print("   Should Trade: ", prediction.should_trade ? "Yes" : "No");
+            Print("   Confidence Threshold: ", DoubleToString(prediction.confidence_threshold, 4));
+        } else {
+            prediction.error_message = "Missing essential prediction fields";
+            Print("❌ Enhanced JSON parsing failed: ", prediction.error_message);
         }
 
         return prediction;

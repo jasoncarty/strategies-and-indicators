@@ -12,6 +12,7 @@
 // Include ML interface and analytics
 #include "../../Include/MLHttpInterface.mqh"
 #include "../../Analytics/ea_http_analytics.mqh"
+#include "../../Experts/TradeUtils.mqh"
 
 //--- Input parameters
 input group "ML Configuration"
@@ -22,6 +23,7 @@ input double MLMaxConfidence = 0.85;           // Maximum ML confidence
 input int MLRequestTimeout = 5000;             // ML request timeout (ms)
 input bool MLUseDirectionalModels = true;      // Use buy/sell specific models
 input bool MLUseCombinedModels = true;         // Use combined models
+input bool MLUseEnhancedEndpoint = true;       // Use enhanced /trade_decision endpoint
 
 input group "Testing Configuration"
 input int TestIntervalMinutes = 5;             // Test interval in minutes
@@ -80,6 +82,7 @@ int atrHandle = INVALID_HANDLE;
 int OnInit() {
     Print("🧪 ML Testing EA initialized");
     Print("   API URL: ", MLApiUrl);
+    Print("   Enhanced Endpoint: ", MLUseEnhancedEndpoint ? "Yes (/trade_decision)" : "No (/predict)");
     Print("   Test Interval: ", TestIntervalMinutes, " minutes");
     Print("   Trading Enabled: ", EnableTrading ? "Yes" : "No");
     Print("   Multiple Orders Allowed: ", AllowMultipleSimultaneousOrders ? "Yes" : "No");
@@ -273,19 +276,36 @@ void RunMLTest() {
     MLFeatures features;  // Use MLFeatures from MLHttpInterface.mqh
     g_ml_interface.CollectMarketFeatures(features);
 
-    // Test buy prediction
-    Print("📤 Requesting BUY prediction...");
-    MLPrediction buyPrediction = g_ml_interface.GetPrediction(features, "buy");
+            // Test buy prediction
+        Print("📤 Requesting BUY prediction...");
+        if(MLUseEnhancedEndpoint) {
+            Print("   Using enhanced endpoint with trade calculation data:");
+            Print("     Current Price: ", DoubleToString(features.current_price, _Digits));
+            Print("     ATR: ", DoubleToString(features.atr, _Digits));
+            Print("     Account Balance: $", DoubleToString(features.account_balance, 2));
+            Print("     Risk Per Pip: $", DoubleToString(features.risk_per_pip, 2));
+        }
+        MLPrediction buyPrediction;
+        if(MLUseEnhancedEndpoint) {
+            buyPrediction = g_ml_interface.GetEnhancedTradeDecision(features, "buy");
+        } else {
+            buyPrediction = g_ml_interface.GetPrediction(features, "buy");
+        }
 
-    // Test sell prediction
-    Print("📤 Requesting SELL prediction...");
-    MLPrediction sellPrediction = g_ml_interface.GetPrediction(features, "sell");
+        // Test sell prediction
+        Print("📤 Requesting SELL prediction...");
+        MLPrediction sellPrediction;
+        if(MLUseEnhancedEndpoint) {
+            sellPrediction = g_ml_interface.GetEnhancedTradeDecision(features, "sell");
+        } else {
+            sellPrediction = g_ml_interface.GetPrediction(features, "sell");
+        }
 
     // Log results
     LogPredictionResults("BUY", buyPrediction);
     LogPredictionResults("SELL", sellPrediction);
 
-        // Analyze results
+    // Analyze results
     AnalyzePredictions(buyPrediction, sellPrediction);
 
     // Record analytics data
@@ -316,8 +336,13 @@ void LogPredictionResults(string direction, MLPrediction &prediction) {
         Print("   Confidence: ", DoubleToString(prediction.confidence, 3));
         Print("   Probability: ", DoubleToString(prediction.probability, 3));
         Print("   Direction: ", prediction.direction);
-        Print("   Model Type: ", prediction.model_type);
-        Print("   Model Key: ", prediction.model_key);
+
+        // Show only essential trade decision information
+        if(MLUseEnhancedEndpoint) {
+            Print("   Should Trade: ", prediction.should_trade ? "Yes" : "No");
+            Print("   Confidence Threshold: ", DoubleToString(prediction.confidence_threshold, 3));
+        }
+
         successCount++;
     } else {
         Print("❌ ", direction, " prediction failed:");
@@ -325,6 +350,8 @@ void LogPredictionResults(string direction, MLPrediction &prediction) {
         errorCount++;
     }
 }
+
+
 
 //+------------------------------------------------------------------+
 //| Analyze predictions and make decisions                           |
@@ -374,6 +401,17 @@ void ExecuteTestTrade(MLPrediction &buyPrediction, MLPrediction &sellPrediction)
     if(HasOpenPositionForThisEA()) {
         Print("⚠️ Skipping trade - position already open for this EA");
         return;
+    }
+
+    // Check enhanced trade decision if using enhanced endpoint
+    if(MLUseEnhancedEndpoint) {
+        MLPrediction bestPrediction = (buyPrediction.confidence > sellPrediction.confidence) ? buyPrediction : sellPrediction;
+        if(!bestPrediction.should_trade) {
+            Print("⚠️ Skipping trade - ML service recommends not trading");
+            Print("   Confidence: ", DoubleToString(bestPrediction.confidence, 3));
+            Print("   Threshold: ", DoubleToString(bestPrediction.confidence_threshold, 3));
+            return;
+        }
     }
 
     // Check for high-impact news events

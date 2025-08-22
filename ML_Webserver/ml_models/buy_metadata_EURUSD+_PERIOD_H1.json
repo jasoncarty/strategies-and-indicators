@@ -2,8 +2,8 @@
   "symbol": "EURUSD+",
   "timeframe": "H1",
   "direction": "buy",
-  "training_date": "2025-08-22T01:05:48.723200",
-  "last_retrained": "2025-08-22T01:05:48.723206",
+  "training_date": "2025-08-22T13:06:01.611675",
+  "last_retrained": "2025-08-22T13:06:01.611681",
   "training_samples": 393,
   "features_used": [
     7,
