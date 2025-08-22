@@ -75,6 +75,8 @@ class MLPredictionService:
         self.prediction_count = 0
         self.error_count = 0
         self.start_time = time.time()
+        self.response_times = []
+        self.avg_response_time = 0
 
         # Analytics service connection for model health
         self.analytics_url = os.getenv('ANALYTICS_URL', 'http://localhost:5001')
@@ -336,6 +338,7 @@ class MLPredictionService:
         Returns:
             Dictionary with prediction results
         """
+        start_time = time.time()
         try:
             self.prediction_count += 1
 
@@ -387,7 +390,7 @@ class MLPredictionService:
 
                 result = {
                     'status': 'success',
-                    'should_trade': should_trade,
+                    'should_trade': int(should_trade),  # Convert to int (0 or 1) for JSON serialization
                     'confidence_threshold': float(confidence_threshold),
                     'model_health': health_data,
                     'prediction': {
@@ -429,6 +432,13 @@ class MLPredictionService:
                         'loaded_at': metadata.get('loaded_at', 'unknown')
                     }
                 }
+
+            # Track response time
+            response_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+            self.response_times.append(response_time)
+            if len(self.response_times) > 100:  # Keep only last 100 measurements
+                self.response_times.pop(0)
+            self.avg_response_time = sum(self.response_times) / len(self.response_times)
 
             logger.info(f"✅ Prediction successful - Probability: {probability:.3f}, Confidence: {confidence:.3f}")
             return result
@@ -741,12 +751,31 @@ def health_check():
     if ml_service is None:
         return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
 
+    # Check if models are loaded
+    if not ml_service.models:
+        return jsonify({'status': 'unhealthy', 'message': 'No models loaded'}), 500
+
+    # Check if analytics service is reachable
+    try:
+        response = requests.get(f"{ml_service.analytics_url}/health", timeout=5)
+        analytics_healthy = response.status_code == 200
+    except:
+        analytics_healthy = False
+
+    # Get basic performance metrics
+    uptime = time.time() - ml_service.start_time
+    success_rate = round((ml_service.prediction_count - ml_service.error_count) / max(ml_service.prediction_count, 1) * 100, 2)
+
     return jsonify({
         'status': 'healthy',
         'service': 'ML Prediction Service',
         'models_loaded': len(ml_service.models),
-        'available_models': list(ml_service.models.keys()),
-        'uptime': time.time() - ml_service.start_time
+        'analytics_service': 'healthy' if analytics_healthy else 'unreachable',
+        'uptime_seconds': int(uptime),
+        'total_predictions': ml_service.prediction_count,
+        'success_rate_percent': success_rate,
+        'avg_response_time_ms': round(ml_service.avg_response_time, 2),
+        'timestamp': datetime.now().isoformat()
     })
 
 @app.route('/predict', methods=['POST'])
@@ -833,7 +862,24 @@ def trade_decision():
         if result.get('status') == 'error':
             return jsonify(result), 400  # Return 400 Bad Request for validation errors
         else:
-            return jsonify(result)
+            # Ensure all values are JSON serializable
+            try:
+                return jsonify(result)
+            except Exception as json_error:
+                logger.error(f"❌ JSON serialization error: {json_error}")
+                logger.error(f"   Result structure: {result}")
+                # Try to create a simplified response
+                simplified_result = {
+                    'status': 'success',
+                    'should_trade': int(should_trade),
+                    'confidence_threshold': float(confidence_threshold),
+                    'prediction': {
+                        'probability': float(probability),
+                        'confidence': float(confidence),
+                        'direction': direction
+                    }
+                }
+                return jsonify(simplified_result)
 
     except Exception as e:
         logger.error(f"❌ Error in trade_decision endpoint: {e}")
@@ -861,7 +907,150 @@ def list_models():
         'count': len(ml_service.models)
     })
 
-@app.route('/reload_models', methods=['POST'])
+@app.route('/performance', methods=['GET'])
+def get_performance_metrics():
+    """Get service performance metrics"""
+    if ml_service is None:
+        return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
+
+    uptime = time.time() - ml_service.start_time
+
+    return jsonify({
+        'status': 'success',
+        'metrics': {
+            'uptime_seconds': int(uptime),
+            'uptime_formatted': f"{int(uptime // 3600)}h {int((uptime % 3600) // 60)}m {int(uptime % 60)}s",
+            'total_predictions': ml_service.prediction_count,
+            'total_errors': ml_service.error_count,
+            'success_rate': round((ml_service.prediction_count - ml_service.error_count) / max(ml_service.prediction_count, 1) * 100, 2),
+            'models_loaded': len(ml_service.models),
+            'avg_response_time_ms': getattr(ml_service, 'avg_response_time', 0)
+        },
+        'timestamp': datetime.now().isoformat()
+    })
+
+@app.route('/bulk_predict', methods=['POST'])
+def bulk_predict():
+    """Get predictions for multiple symbols/timeframes at once"""
+    if ml_service is None:
+        return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
+
+    try:
+        data = request.get_json()
+        if not data or 'requests' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'Missing "requests" array in request body'
+            }), 400
+
+        requests_list = data['requests']
+        if not isinstance(requests_list, list) or len(requests_list) == 0:
+            return jsonify({
+                'status': 'error',
+                'message': 'Requests must be a non-empty array'
+            }), 400
+
+        if len(requests_list) > 10:  # Limit to prevent abuse
+            return jsonify({
+                'status': 'error',
+                'message': 'Maximum 10 requests allowed per call'
+            }), 400
+
+        results = []
+        for req in requests_list:
+            try:
+                # Extract required fields
+                symbol = req.get('symbol')
+                timeframe = req.get('timeframe')
+                direction = req.get('direction', 'buy')
+                features = req.get('features', {})
+                enhanced = req.get('enhanced', False)
+
+                if not symbol or not timeframe:
+                    results.append({
+                        'status': 'error',
+                        'message': 'Missing required fields: symbol and timeframe',
+                        'request': req
+                    })
+                    continue
+
+                # Get prediction
+                result = ml_service.get_prediction(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    direction=direction,
+                    features=features,
+                    enhanced=enhanced
+                )
+
+                results.append({
+                    'status': 'success',
+                    'request': req,
+                    'result': result
+                })
+
+            except Exception as e:
+                results.append({
+                    'status': 'error',
+                    'message': str(e),
+                    'request': req
+                })
+
+        return jsonify({
+            'status': 'success',
+            'results': results,
+            'total_requests': len(requests_list),
+            'successful': len([r for r in results if r['status'] == 'success']),
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error in bulk_predict endpoint: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Bulk prediction failed: {str(e)}'
+        }), 500
+
+@app.route('/model_versions', methods=['GET'])
+def get_model_versions():
+    """Get version information for all models"""
+    if ml_service is None:
+        return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
+
+    try:
+        versions = {}
+        for model_key in ml_service.models.keys():
+            metadata = ml_service.model_metadata.get(model_key, {})
+            versions[model_key] = {
+                'model_type': metadata.get('model_type', 'unknown'),
+                'training_date': metadata.get('training_date', 'unknown'),
+                'last_retrained': metadata.get('last_retrained', 'unknown'),
+                'model_version': metadata.get('model_version', 1.0),
+                'retrained_by': metadata.get('retrained_by', 'unknown'),
+                'health_score': metadata.get('health_score', 0),
+                'cv_accuracy': metadata.get('cv_accuracy', 0),
+                'confidence_correlation': metadata.get('confidence_correlation', 0),
+                'training_samples': metadata.get('training_samples', 0),
+                'features_used': metadata.get('features_used', []),
+                'file_path': metadata.get('file_path', 'unknown'),
+                'loaded_at': metadata.get('loaded_at', 'unknown')
+            }
+
+        return jsonify({
+            'status': 'success',
+            'model_versions': versions,
+            'total_models': len(versions),
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error getting model versions: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to get model versions: {str(e)}'
+        }), 500
+
+@app.route('/reload_models', methods=['POST', 'GET'])
 def reload_models():
     """Reload all models from the models directory"""
     if ml_service is None:
@@ -901,11 +1090,6 @@ def reload_models():
             'message': error_msg,
             'timestamp': datetime.now().isoformat()
         }), 500
-
-@app.route('/reload_models', methods=['GET'])
-def reload_models_get():
-    """Manual model reload endpoint (GET method for easy testing)"""
-    return reload_models()
 
 def main():
     """Main function to run the ML prediction service"""

@@ -39,7 +39,8 @@ def discover_test_files():
     test_files['special'] = [
         'integration/test_feature_engineering_integration.py',
         'integration/test_enhanced_ml_prediction_integration.py',
-        'integration/test_dashboard_endpoints_integration.py'
+        'integration/test_dashboard_endpoints_integration.py',
+        'unit/ml_service/test_enhanced_service_endpoints.py'
     ]
 
     return test_files
