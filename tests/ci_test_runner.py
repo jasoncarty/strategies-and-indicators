@@ -10,7 +10,39 @@ import time
 import subprocess
 import signal
 import requests
+import glob
 from pathlib import Path
+
+def discover_test_files():
+    """Dynamically discover test files in the tests directory"""
+    tests_dir = Path(__file__).parent
+
+    test_files = {
+        'unit': [],
+        'integration': [],
+        'special': []  # For tests that need special handling
+    }
+
+    # Discover unit tests
+    unit_dir = tests_dir / "unit"
+    if unit_dir.exists():
+        for test_file in unit_dir.rglob("test_*.py"):
+            test_files['unit'].append(str(test_file.relative_to(tests_dir)))
+
+    # Discover integration tests
+    integration_dir = tests_dir / "integration"
+    if integration_dir.exists():
+        for test_file in integration_dir.glob("test_*.py"):
+            test_files['integration'].append(str(test_file.relative_to(tests_dir)))
+
+    # Special tests that need custom execution
+    test_files['special'] = [
+        'integration/test_feature_engineering_integration.py',
+        'integration/test_enhanced_ml_prediction_integration.py',
+        'integration/test_dashboard_endpoints_integration.py'
+    ]
+
+    return test_files
 
 def wait_for_service(url: str, timeout: int = 30) -> bool:
     """Wait for a service to be ready"""
@@ -101,7 +133,7 @@ def stop_services(analytics_process, ml_process):
     print("✅ Services stopped")
 
 def run_tests():
-    """Run all tests in CI environment"""
+    """Run all tests in CI environment using dynamic test discovery"""
     print("🧪 Running tests in CI environment...")
 
     # Start services
@@ -110,66 +142,92 @@ def run_tests():
         return False
 
     try:
-        # Run tests
+        # Discover test files dynamically
+        test_files = discover_test_files()
+        print(f"\n📋 Discovered test files:")
+        print(f"   Unit tests: {len(test_files['unit'])}")
+        print(f"   Integration tests: {len(test_files['integration'])}")
+        print(f"   Special tests: {len(test_files['special'])}")
+
         test_results = []
 
         # Run unit tests
         print("\n📋 Running unit tests...")
-        result = subprocess.run([
-            sys.executable, "-m", "pytest", "tests/unit/", "-v", "--tb=short"
-        ], capture_output=True, text=True)
-        test_results.append(("unit", result.returncode == 0))
-        print(result.stdout)
-        if result.stderr:
-            print("STDERR:", result.stderr)
+        if test_files['unit']:
+            result = subprocess.run([
+                sys.executable, "-m", "pytest", "tests/unit/", "-v", "--tb=short"
+            ], capture_output=True, text=True)
+            test_results.append(("unit", result.returncode == 0))
+            print(result.stdout)
+            if result.stderr:
+                print("STDERR:", result.stderr)
+        else:
+            print("⚠️  No unit tests found")
+            test_results.append(("unit", True))
 
-        # Run feature engineering tests
-        print("\n🔧 Running feature engineering tests...")
-        result = subprocess.run([
-            sys.executable, "-c", """
+        # Run integration tests
+        print("\n🔄 Running integration tests...")
+        if test_files['integration']:
+            result = subprocess.run([
+                sys.executable, "-m", "pytest", "tests/integration/", "-v", "--tb=short"
+            ], capture_output=True, text=True)
+            test_results.append(("integration", result.returncode == 0))
+            print(result.stdout)
+            if result.stderr:
+                print("STDERR:", result.stderr)
+        else:
+            print("⚠️  No integration tests found")
+            test_results.append(("integration", True))
+
+        # Run special tests that need custom execution
+        print("\n🔧 Running special tests...")
+        for special_test in test_files['special']:
+            test_name = Path(special_test).stem
+            print(f"   Running {test_name}...")
+
+            if special_test == 'integration/test_feature_engineering_integration.py':
+                result = subprocess.run([
+                    sys.executable, "-c", """
 import sys
 sys.path.insert(0, 'ML_Webserver')
 sys.path.insert(0, '.')
 from tests.integration.test_feature_engineering_integration import run_feature_engineering_integration_tests
 success = run_feature_engineering_integration_tests()
 exit(0 if success else 1)
-            """
-        ], capture_output=True, text=True)
-        test_results.append(("feature_engineering", result.returncode == 0))
-        print(result.stdout)
-        if result.stderr:
-            print("STDERR:", result.stderr)
+                    """
+                ], capture_output=True, text=True)
+            elif special_test == 'integration/test_enhanced_ml_prediction_integration.py':
+                result = subprocess.run([
+                    sys.executable, "-c", """
+import sys
+sys.path.insert(0, 'ML_Webserver')
+sys.path.insert(0, '.')
+from tests.integration.test_enhanced_ml_prediction_integration import run_enhanced_ml_prediction_integration_tests
+success = run_enhanced_ml_prediction_integration_tests()
+exit(0 if success else 1)
+                    """
+                ], capture_output=True, text=True)
+            elif special_test == 'integration/test_dashboard_endpoints_integration.py':
+                result = subprocess.run([
+                    sys.executable, "-c", """
+import sys
+sys.path.insert(0, 'ML_Webserver')
+sys.path.insert(0, '.')
+from tests.integration.test_dashboard_endpoints_integration import run_dashboard_endpoints_integration_tests
+success = run_dashboard_endpoints_integration_tests()
+exit(0 if success else 1)
+                    """
+                ], capture_output=True, text=True)
+            else:
+                # Default pytest execution for other special tests
+                result = subprocess.run([
+                    sys.executable, "-m", "pytest", f"tests/{special_test}", "-v", "--tb=short"
+                ], capture_output=True, text=True)
 
-        # Run database tests
-        print("\n🗄️ Running database tests...")
-        for test_file in ["test_database_migrations.py", "test_database_scenarios.py", "test_database_verification.py"]:
-            result = subprocess.run([
-                sys.executable, "-m", "pytest", f"tests/integration/{test_file}", "-v", "--tb=short"
-            ], capture_output=True, text=True)
-            test_results.append((test_file, result.returncode == 0))
+            test_results.append((test_name, result.returncode == 0))
             print(result.stdout)
             if result.stderr:
                 print("STDERR:", result.stderr)
-
-        # Run end-to-end tests
-        print("\n🔄 Running end-to-end tests...")
-        result = subprocess.run([
-            sys.executable, "-m", "pytest", "tests/integration/test_end_to_end_workflow.py", "-v", "--tb=short"
-        ], capture_output=True, text=True)
-        test_results.append(("end_to_end", result.returncode == 0))
-        print(result.stdout)
-        if result.stderr:
-            print("STDERR:", result.stderr)
-
-        # Run ML retraining tests
-        print("\n🤖 Running ML retraining tests...")
-        result = subprocess.run([
-            sys.executable, "-m", "pytest", "tests/integration/test_ml_retraining_integration.py", "-v", "--tb=short"
-        ], capture_output=True, text=True)
-        test_results.append(("ml_retraining", result.returncode == 0))
-        print(result.stdout)
-        if result.stderr:
-            print("STDERR:", result.stderr)
 
         # Print summary
         print("\n" + "="*60)

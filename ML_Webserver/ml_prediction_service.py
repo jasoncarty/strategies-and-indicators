@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import warnings
+import requests
 from flask import Flask, request, jsonify
 import threading
 warnings.filterwarnings('ignore')
@@ -75,12 +76,16 @@ class MLPredictionService:
         self.error_count = 0
         self.start_time = time.time()
 
+        # Analytics service connection for model health
+        self.analytics_url = os.getenv('ANALYTICS_URL', 'http://localhost:5001')
+
         # Load models
         self._load_all_models()
 
         logger.info(f"ML Prediction Service initialized")
         logger.info(f"Models directory: {self.models_dir}")
         logger.info(f"Loaded {len(self.models)} models")
+        logger.info(f"Analytics service URL: {self.analytics_url}")
 
     def _ensure_consistent_feature_names(self):
         """Ensure all feature names files contain the complete 28 universal features"""
@@ -317,7 +322,7 @@ class MLPredictionService:
         logger.info(f"✅ Model loading completed - {len(self.models)} models loaded")
 
     def get_prediction(self, strategy: str, symbol: str, timeframe: str,
-                      features: Dict, direction: str = "") -> Dict:
+                      features: Dict, direction: str = "", enhanced: bool = False) -> Dict:
         """
         Get ML prediction for given features
 
@@ -362,32 +367,68 @@ class MLPredictionService:
             else:  # Multi-class or regression
                 probability = prediction[0]
 
-            # Calculate confidence (simplified - could be enhanced)
-            confidence = abs(probability - 0.5) * 2  # Scale to 0-1
+            # Calculate confidence (corrected - distance from 0.5, scaled to 0-1)
+            confidence = abs(probability - 0.5) * 2  # This is actually correct!
+            # Alternative: confidence = max(probability, 1 - probability)
 
-            # Get model metadata
+                        # Get model metadata
             metadata = self.model_metadata.get(model_key, {})
             model_type = metadata.get('model_type', 'unknown')
 
-            result = {
-                'status': 'success',
-                'prediction': {
-                    'probability': float(probability),
-                    'confidence': float(confidence),
-                    'model_key': model_key,
-                    'model_type': model_type,
-                    'direction': direction,
-                    'strategy': strategy,
-                    'symbol': symbol,
-                    'timeframe': timeframe,
-                    'timestamp': datetime.now().isoformat()
-                },
-                'metadata': {
-                    'features_used': len(prepared_features[0]),
-                    'model_file': metadata.get('file_path', 'unknown'),
-                    'loaded_at': metadata.get('loaded_at', 'unknown')
+            if enhanced:
+                # Enhanced response with trade decision
+                health_data, confidence_threshold = self._get_model_health_and_threshold(model_key)
+                should_trade = confidence >= confidence_threshold
+
+                # Calculate trade parameters if we should trade
+                trade_params = {}
+                if should_trade:
+                    trade_params = self._calculate_trade_parameters(symbol, direction, features)
+
+                result = {
+                    'status': 'success',
+                    'should_trade': should_trade,
+                    'confidence_threshold': float(confidence_threshold),
+                    'model_health': health_data,
+                    'prediction': {
+                        'probability': float(probability),
+                        'confidence': float(confidence),
+                        'model_key': model_key,
+                        'model_type': model_type,
+                        'direction': direction,
+                        'strategy': strategy,
+                        'symbol': symbol,
+                        'timeframe': timeframe,
+                        'timestamp': datetime.now().isoformat()
+                    },
+                    'trade_parameters': trade_params if should_trade else None,
+                    'metadata': {
+                        'features_used': len(prepared_features[0]),
+                        'model_file': metadata.get('file_path', 'unknown'),
+                        'loaded_at': metadata.get('loaded_at', 'unknown')
+                    }
                 }
-            }
+            else:
+                # Legacy response format (backward compatible)
+                result = {
+                    'status': 'success',
+                    'prediction': {
+                        'probability': float(probability),
+                        'confidence': float(confidence),
+                        'model_key': model_key,
+                        'model_type': model_type,
+                        'direction': direction,
+                        'strategy': strategy,
+                        'symbol': symbol,
+                        'timeframe': timeframe,
+                        'timestamp': datetime.now().isoformat()
+                    },
+                    'metadata': {
+                        'features_used': len(prepared_features[0]),
+                        'model_file': metadata.get('file_path', 'unknown'),
+                        'loaded_at': metadata.get('loaded_at', 'unknown')
+                    }
+                }
 
             logger.info(f"✅ Prediction successful - Probability: {probability:.3f}, Confidence: {confidence:.3f}")
             return result
@@ -482,8 +523,24 @@ class MLPredictionService:
                     logger.info(f"Model expects {X.shape[1]} features, scaler expects {self.scalers[model_key].n_features_in_}")
                     return X_scaled
                 except Exception as e:
-                    logger.warning(f"Scaler mismatch, using unscaled features: {e}")
-                    return X
+                    logger.warning(f"Scaler mismatch for {model_key}: {e}")
+                    logger.warning(f"Model expects {X.shape[1]} features, scaler expects {self.scalers[model_key].n_features_in_}")
+                    # Try to handle feature mismatch by truncating or padding
+                    if X.shape[1] > self.scalers[model_key].n_features_in_:
+                        logger.warning(f"Truncating features from {X.shape[1]} to {self.scalers[model_key].n_features_in_}")
+                        X = X[:, :self.scalers[model_key].n_features_in_]
+                    elif X.shape[1] < self.scalers[model_key].n_features_in_:
+                        logger.warning(f"Padding features from {X.shape[1]} to {self.scalers[model_key].n_features_in_}")
+                        padding = np.zeros((1, self.scalers[model_key].n_features_in_ - X.shape[1]))
+                        X = np.hstack([X, padding])
+
+                    try:
+                        X_scaled = self.scalers[model_key].transform(X)
+                        logger.info(f"Successfully scaled features after adjustment")
+                        return X_scaled
+                    except Exception as e2:
+                        logger.warning(f"Still failed after adjustment, using unscaled features: {e2}")
+                        return X
             else:
                 logger.warning(f"No scaler found for {model_key}, using unscaled features")
                 return X
@@ -551,6 +608,45 @@ class MLPredictionService:
             'timestamp': datetime.now().isoformat()
         }
 
+    def _get_model_health_and_threshold(self, model_key: str) -> Tuple[Dict, float]:
+        """
+        Get model health information and determine confidence threshold
+
+        Args:
+            model_key: The model key to check
+
+        Returns:
+            Tuple of (health_data, confidence_threshold)
+        """
+        try:
+            # Try to get model health from analytics service
+            response = requests.get(
+                f"{self.analytics_url}/analytics/model_health",
+                timeout=5
+            )
+
+            if response.status_code == 200:
+                health_data = response.json()
+                for model in health_data.get('models', []):
+                    if model['model_key'] == model_key:
+                        # Determine confidence threshold based on health status
+                        if model['status'] == 'critical':
+                            threshold = 0.7  # Broken confidence system
+                        elif model['status'] == 'warning':
+                            threshold = 0.6  # Concerning but not broken
+                        else:
+                            threshold = 0.3  # Healthy model
+
+                        return model, threshold
+
+            # Fallback: return default health data and threshold
+            return {'status': 'unknown', 'health_score': 50}, 0.5
+
+        except Exception as e:
+            logger.warning(f"Could not fetch model health for {model_key}: {e}")
+            # Fallback: return default health data and threshold
+            return {'status': 'unknown', 'health_score': 50}, 0.5
+
     def get_status(self) -> Dict:
         """Get service status and statistics"""
         return {
@@ -562,6 +658,74 @@ class MLPredictionService:
             'uptime': time.time() - self.start_time,
             'timestamp': datetime.now().isoformat()
         }
+
+    def _calculate_trade_parameters(self, symbol: str, direction: str, features: Dict) -> Dict:
+        """
+        Calculate trade parameters based on features and market conditions
+
+        Args:
+            symbol: Trading symbol
+            direction: Trade direction (BUY/SELL)
+            features: Market features including current price
+
+        Returns:
+            Dictionary with trade parameters
+        """
+        try:
+            # Extract current price from features (assuming it's provided)
+            current_price = features.get('current_price', 0.0)
+
+            if current_price <= 0:
+                logger.warning("No current price provided, using default trade parameters")
+                return {
+                    'entry_price': 0.0,
+                    'stop_loss': 0.0,
+                    'take_profit': 0.0,
+                    'lot_size': 0.1
+                }
+
+            # Calculate ATR-based stop loss and take profit
+            atr = features.get('atr', 0.001)  # Average True Range
+            if atr <= 0:
+                atr = current_price * 0.001  # Default to 0.1% of price
+
+            # Risk management: 2:1 reward-to-risk ratio
+            stop_loss_distance = atr * 2
+            take_profit_distance = atr * 4
+
+            if direction.upper() == 'BUY':
+                stop_loss = current_price - stop_loss_distance
+                take_profit = current_price + take_profit_distance
+            else:  # SELL
+                stop_loss = current_price + stop_loss_distance
+                take_profit = current_price - take_profit_distance
+
+            # Calculate lot size based on risk (1% risk per trade)
+            account_balance = features.get('account_balance', 10000)  # Default $10k
+            risk_amount = account_balance * 0.01  # 1% risk
+            risk_per_pip = features.get('risk_per_pip', 1.0)  # Default $1 per pip
+
+            if risk_per_pip > 0:
+                lot_size = risk_amount / (stop_loss_distance * risk_per_pip * 100)  # Convert to lots
+                lot_size = max(0.01, min(lot_size, 10.0))  # Clamp between 0.01 and 10.0
+            else:
+                lot_size = 0.1  # Default lot size
+
+            return {
+                'entry_price': round(current_price, 5),
+                'stop_loss': round(stop_loss, 5),
+                'take_profit': round(take_profit, 5),
+                'lot_size': round(lot_size, 2)
+            }
+
+        except Exception as e:
+            logger.error(f"Error calculating trade parameters: {e}")
+            return {
+                'entry_price': 0.0,
+                'stop_loss': 0.0,
+                'take_profit': 0.0,
+                'lot_size': 0.1
+            }
 
 def initialize_ml_service():
     """Initialize the ML service globally"""
@@ -635,6 +799,44 @@ def predict():
 
     except Exception as e:
         logger.error(f"❌ Error in predict endpoint: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/trade_decision', methods=['POST'])
+def trade_decision():
+    """Enhanced trade decision endpoint - returns complete trade decision"""
+    if ml_service is None:
+        return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No JSON data provided'}), 400
+
+        # Extract parameters
+        strategy = data.get('strategy', '')
+        symbol = data.get('symbol', '')
+        timeframe = data.get('timeframe', '')
+        direction = data.get('direction', '')
+
+        # Features are at the top level, not nested - filter out non-feature fields
+        features = {k: v for k, v in data.items() if k not in ['strategy', 'symbol', 'timeframe', 'direction']}
+
+        if not all([strategy, symbol, timeframe]):
+            return jsonify({'status': 'error', 'message': 'Missing required parameters: strategy, symbol, timeframe'}), 400
+
+        # Get enhanced prediction with trade decision
+        result = ml_service.get_prediction(strategy, symbol, timeframe, features, direction, enhanced=True)
+
+        # Check if the result indicates an error and return appropriate HTTP status code
+        if result.get('status') == 'error':
+            return jsonify(result), 400  # Return 400 Bad Request for validation errors
+        else:
+            return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"❌ Error in trade_decision endpoint: {e}")
         logger.error(f"   Exception type: {type(e).__name__}")
         logger.error(f"   Exception details: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
