@@ -18,7 +18,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('automated_retraining.log'),
+        logging.FileHandler('logs/automated_retraining.log'),
         logging.StreamHandler()
     ]
 )
