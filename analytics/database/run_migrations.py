@@ -8,10 +8,12 @@ import logging
 from pathlib import Path
 import pymysql
 
-# Add the analytics directory to the path
-sys.path.append(str(Path(__file__).parent.parent))
+# Add the project root to the path for config access
+project_root = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(project_root))
 
-from config import db_config
+from analytics.database.config import DatabaseConfig
+db_config = DatabaseConfig()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

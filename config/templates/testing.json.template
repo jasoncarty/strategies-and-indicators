@@ -1,0 +1,31 @@
+{
+  "environment": "testing",
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "name": "test_breakout_analytics",
+    "user": "breakout_user",
+    "password": "breakout_password_2024"
+  },
+  "services": {
+    "analytics": {
+      "host": "0.0.0.0",
+      "port": 5002
+    },
+    "ml_service": {
+      "host": "0.0.0.0",
+      "port": 5004
+    }
+  },
+  "logging": {
+    "analytics": "logs/test_analytics.log",
+    "ml_service": "logs/test_ml_service.log",
+    "webserver": "logs/test_webserver.log",
+    "general": "logs/test_general.log",
+    "dashboard": "logs/test_dashboard.log"
+  },
+  "ml_models": {
+    "models_dir": "tests/test_models",
+    "backup_dir": "tests/test_models/backups"
+  }
+}

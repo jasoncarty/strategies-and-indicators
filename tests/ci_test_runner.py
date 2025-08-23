@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
 CI Test Runner for GitHub Actions
-Handles running tests in the CI environment with proper service management
+Handles running tests in the CI environment using the new configuration system
 """
 
 import os
 import sys
 import time
 import subprocess
-import signal
 import requests
-import glob
 from pathlib import Path
+
+# Add project root to path for config access
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from config import get_config
 
 def discover_test_files():
     """Dynamically discover test files in the tests directory"""
@@ -61,15 +64,29 @@ def wait_for_service(url: str, timeout: int = 30) -> bool:
     return False
 
 def start_services():
-    """Start Flask services for CI testing"""
+    """Start Flask services for CI testing using test configuration"""
     print("🚀 Starting Flask services for CI testing...")
 
+    try:
+        # Load test configuration
+        from config import Config
+        config = Config('testing')
+        analytics_port = config.get_test_analytics_port()
+        ml_port = config.get_test_ml_port()
+
+        print(f"📊 Test configuration loaded - Analytics: {analytics_port}, ML: {ml_port}")
+
+    except Exception as e:
+        print(f"⚠️ Could not load test config, using defaults: {e}")
+        analytics_port = 5002
+        ml_port = 5004
+
     # Start analytics service
-    print("📊 Starting analytics service...")
+    print(f"📊 Starting analytics service on port {analytics_port}...")
     analytics_process = subprocess.Popen([
         sys.executable, "analytics/app.py"
     ],
-    env=os.environ.copy(),
+    env={**os.environ.copy(), 'ENVIRONMENT': 'testing'},
     cwd=Path(__file__).parent.parent,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
@@ -77,11 +94,11 @@ def start_services():
     )
 
     # Start ML service
-    print("🤖 Starting ML service...")
+    print(f"🤖 Starting ML service on port {ml_port}...")
     ml_process = subprocess.Popen([
         sys.executable, "ML_Webserver/ml_prediction_service.py"
     ],
-    env=os.environ.copy(),
+    env={**os.environ.copy(), 'ENVIRONMENT': 'testing'},
     cwd=Path(__file__).parent.parent,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
@@ -92,9 +109,9 @@ def start_services():
     print("⏳ Waiting for services to start...")
     time.sleep(10)
 
-    # Check if services are ready
-    analytics_ready = wait_for_service("http://127.0.0.1:5001/health")
-    ml_ready = wait_for_service("http://127.0.0.1:5003/health")
+    # Check if services are ready using configured ports
+    analytics_ready = wait_for_service(f"http://127.0.0.1:{analytics_port}/health")
+    ml_ready = wait_for_service(f"http://127.0.0.1:{ml_port}/health")
 
     if not analytics_ready:
         print("❌ Analytics service failed to start")

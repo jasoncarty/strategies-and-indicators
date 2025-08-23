@@ -1,193 +1,145 @@
-# Trading System Test Suite
+# Testing Framework
 
-This directory contains comprehensive unit and integration tests for the trading system components.
+This directory contains the testing framework for the trading strategies project. The framework has been simplified to use the new configuration system, eliminating complex conditional logic and duplicated code.
 
-## Test Structure
+## 🎯 **Key Features**
 
-```
-tests/
-├── unit/                    # Unit tests for individual components
-│   ├── ea/                 # MT5 EA tests (MQL5)
-│   ├── ml_service/         # ML Prediction Service tests
-│   └── analytics/          # Analytics Service tests
-├── integration/            # Integration tests for end-to-end workflows
-├── conftest.py            # Pytest configuration and shared fixtures
-├── requirements.txt        # Test dependencies
-└── README.md              # This file
-```
+- **Configuration-based**: Uses `config/testing.json` for all test settings
+- **Simple fixtures**: Clean pytest fixtures for database, services, and clients
+- **No complex managers**: Eliminated `test_db_manager.py` and `test_webserver_manager.py`
+- **Environment isolation**: Tests run in isolated environment with separate database
 
-## Test Categories
+## 🚀 **Quick Start**
 
-### Unit Tests
-- **ML Service Tests**: Test the ML prediction service functionality
-- **Analytics Tests**: Test the analytics service and database operations
-- **EA Tests**: Test MQL5 EA functionality (when available)
-
-### Integration Tests
-- **End-to-End Workflow**: Test complete data flow from MT5 EA → ML Service → Analytics
-- **Service Connectivity**: Test service health and communication
-- **Data Structure Consistency**: Ensure data formats are consistent across services
-
-## Running Tests
-
-### Prerequisites
-1. Install test dependencies:
-   ```bash
-   pip install -r tests/requirements.txt
-   ```
-
-2. Ensure services are running (for integration tests):
-   - ML Prediction Service (port 5003)
-   - Analytics Service (port 5000)
-
-### Running All Tests
+### 1. Setup Test Environment
 ```bash
-python run_tests.py
+# From project root
+./scripts/setup_test_env.sh
 ```
 
-### Running Specific Test Categories
+### 2. Run Tests
 ```bash
-# Unit tests only
-python run_tests.py tests/unit/
-
-# Integration tests only
-python run_tests.py tests/integration/
-
-# Specific test file
-python run_tests.py tests/unit/ml_service/
-```
-
-### Using Pytest (Alternative)
-```bash
-# Install pytest
-pip install pytest
-
 # Run all tests
-pytest tests/
+python -m pytest tests/ -v
 
-# Run with coverage
-pytest tests/ --cov=ML_Webserver --cov=analytics --cov-report=html
+# Run specific test categories
+python -m pytest tests/unit/ -v
+python -m pytest tests/integration/ -v
+
+# Run specific test file
+python -m pytest tests/example_test.py -v
 ```
 
-## Test Coverage
+## 📋 **Available Fixtures**
 
-### ML Prediction Service
-- ✅ Service initialization
-- ✅ Feature preparation (19 → 28 features)
-- ✅ Model loading and selection
-- ✅ Prediction workflow
-- ✅ Error handling
-- ✅ Service status
+### **Session-scoped fixtures** (created once for all tests)
+- `test_config`: Loads test configuration from `config/testing.json`
+- `test_database`: Creates and manages test database lifecycle
+- `test_services`: Starts test services (analytics, ML) on configured ports
 
-### Analytics Service
-- ✅ Database connectivity
-- ✅ Data structure validation
-- ✅ JSON serialization
-- ✅ Error handling
-- ✅ Timestamp handling
+### **Function-scoped fixtures** (created for each test)
+- `test_db_connection`: Database connection for individual tests
+- `test_analytics_client`: HTTP client for testing analytics endpoints
+- `test_ml_client`: HTTP client for testing ML endpoints
 
-### Integration Tests
-- ✅ Service connectivity
-- ✅ Complete prediction workflow
-- ✅ Data structure consistency
-- ✅ Feature count validation
-- ✅ Error handling across services
+## 🔧 **Configuration**
 
-## Test Data
+The test configuration is defined in `config/templates/testing.json.template` and generated as `config/testing.json`:
 
-### Sample Features (MT5 EA → ML Service)
-```python
+```json
 {
-    'rsi': 50.0,
-    'stoch_main': 50.0,
-    'stoch_signal': 50.0,
-    'macd_main': 0.0,
-    'macd_signal': 0.0,
-    'bb_upper': 50000.0,
-    'bb_lower': 49000.0,
-    'williams_r': 50.0,
-    'cci': 0.0,
-    'momentum': 100.0,
-    'force_index': 0.0,
-    'volume_ratio': 1.0,
-    'price_change': 0.001,
-    'volatility': 0.001,
-    'spread': 1.0,
-    'session_hour': 12,
-    'is_news_time': False,
-    'day_of_week': 1,
-    'month': 7
+  "environment": "testing",
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "name": "test_breakout_analytics",
+    "user": "breakout_user",
+    "password": "breakout_password_2024"
+  },
+  "services": {
+    "analytics": {
+      "host": "0.0.0.0",
+      "port": 5002
+    },
+    "ml_service": {
+      "host": "0.0.0.0",
+      "port": 5004
+    }
+  }
 }
 ```
 
-### Expected ML Service Output (28 Features)
-The ML service adds 9 engineered features to the 19 basic features:
-- **Base features**: 17 technical indicators
-- **Time features**: 2 (day_of_week, month)
-- **Engineered features**: 9 (regimes, sessions, etc.)
+## 📝 **Writing Tests**
 
-## Continuous Integration
+### **Basic Test Structure**
+```python
+def test_something(test_config, test_db_connection):
+    """Example test using fixtures"""
+    # test_config provides configuration
+    # test_db_connection provides database access
 
-Tests are automatically run on:
-- Push to main/master branch
-- Pull requests to main/master branch
-
-### GitHub Actions
-- Runs on Ubuntu with Python 3.8, 3.9, 3.10
-- Installs all dependencies
-- Runs unit and integration tests
-- Uploads test results as artifacts
-
-## Adding New Tests
-
-### Unit Tests
-1. Create test file in appropriate directory: `tests/unit/[service]/test_[component].py`
-2. Inherit from `unittest.TestCase`
-3. Use descriptive test method names
-4. Include setup and teardown methods
-
-### Integration Tests
-1. Create test file in `tests/integration/`
-2. Test complete workflows
-3. Mock external dependencies when needed
-4. Test error conditions
-
-### Test Naming Convention
-- Test files: `test_[component].py`
-- Test classes: `Test[Component]`
-- Test methods: `test_[functionality]`
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Import Errors**: Ensure Python path includes project directories
-2. **Service Connection Errors**: Check if services are running on correct ports
-3. **Missing Dependencies**: Install requirements from `tests/requirements.txt`
-4. **Mock Data Issues**: Update sample data to match current feature sets
-
-### Debug Mode
-Run tests with verbose output:
-```bash
-python -m pytest tests/ -v -s
+    with test_db_connection.cursor() as cursor:
+        cursor.execute("SELECT 1")
+        result = cursor.fetchone()
+        assert result[0] == 1
 ```
 
-## Test Maintenance
+### **Testing Services**
+```python
+def test_analytics_endpoint(test_analytics_client):
+    """Test analytics service endpoint"""
+    response = test_analytics_client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "healthy"
+```
 
-### When to Update Tests
-- When feature sets change
-- When service APIs change
-- When data structures are modified
-- When new components are added
+### **Testing ML Service**
+```python
+def test_ml_endpoint(test_ml_client):
+    """Test ML service endpoint"""
+    response = test_ml_client.get("/health")
+    assert response.status_code == 200
+```
 
-### Test Data Updates
-- Keep sample data current with actual feature sets
-- Update expected feature counts when models change
-- Maintain realistic test scenarios
+## 🗄️ **Test Database**
 
-## Performance Considerations
+- **Name**: `test_breakout_analytics`
+- **Lifecycle**: Created fresh for each test session, dropped after completion
+- **Migrations**: Automatically run on test database setup
+- **Isolation**: Completely separate from development/production databases
 
-- Unit tests should run quickly (< 1 second each)
-- Integration tests may take longer due to service startup
-- Use mocks for external dependencies in unit tests
-- Consider parallel test execution for large test suites
+## 🔄 **Service Management**
+
+- **Analytics Service**: Runs on port 5002 (configurable)
+- **ML Service**: Runs on port 5004 (configurable)
+- **Startup**: Services start automatically when tests begin
+- **Cleanup**: Services stop automatically when tests complete
+
+## 🧹 **Cleanup**
+
+All test resources are automatically cleaned up:
+- Test database is dropped
+- Service processes are terminated
+- Database connections are closed
+- HTTP sessions are closed
+
+## 📚 **Examples**
+
+See `tests/example_test.py` for complete examples of how to use all fixtures and write tests.
+
+## 🚨 **Troubleshooting**
+
+### **Configuration Issues**
+- Ensure `config/testing.json` exists (run `./scripts/setup_test_env.sh`)
+- Check that MySQL is accessible with test credentials
+- Verify test ports (5002, 5004) are available
+
+### **Service Startup Issues**
+- Check if ports are already in use
+- Verify environment variables are set correctly
+- Check service logs for startup errors
+
+### **Database Issues**
+- Ensure MySQL server is running
+- Verify user permissions for test database
+- Check migration script exists and is executable

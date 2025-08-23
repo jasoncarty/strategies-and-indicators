@@ -1,33 +1,35 @@
-# Comprehensive requirements for the entire trading strategies project
-# Consolidated from analytics/, ML_Webserver/, webserver/, and tests/ requirements
-
-# Core web framework
+# Core Flask dependencies
 Flask==3.0.0
-Flask-SQLAlchemy==3.0.5
 Flask-CORS==4.0.0
-Flask-Testing==0.8.0
+Flask-Limiter==3.5.0
+Werkzeug==3.0.1
 
 # Database
+mysqlclient==2.2.0
 pymysql==1.1.0
+SQLAlchemy==2.0.23
+
+# ML and Data Processing
+scikit-learn==1.3.2
+pandas==2.1.4
+numpy==1.25.2
+joblib==1.3.2
+
+# HTTP and API
+requests==2.31.0
+urllib3==2.1.0
+
+# Configuration and Environment
 python-dotenv==1.0.0
-cryptography>=41.0.0
 
-# Data processing and ML
-numpy>=1.26.0
-pandas>=2.2.0
-scikit-learn>=1.4.0
-scipy>=1.7.0
-joblib>=1.3.0
-matplotlib>=3.8.0
-seaborn>=0.13.0
+# Logging and Monitoring
+structlog==23.2.0
 
-# File monitoring and utilities
-watchdog==4.0.1
-pathlib2>=2.3.0
-requests>=2.31.0
+# Development and Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-mock==3.12.0
 
-# Testing
-pytest>=6.0.0
-pytest-cov>=2.10.0
-pytest-mock>=3.3.0
-pytest-html>=2.1.0
+# Production
+gunicorn==21.2.0
+gevent==23.9.1

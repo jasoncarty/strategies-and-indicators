@@ -1,0 +1,138 @@
+# Environment Variables:
+# This docker-compose file uses environment variables for configuration.
+# Set these in your docker.env file or export them before running docker-compose.
+#
+# Database:
+#   DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, MYSQL_ROOT_PASSWORD
+#
+# Service Ports:
+#   ANALYTICS_PORT, ML_SERVICE_PORT, REDIS_PORT, NGINX_HTTP_PORT, NGINX_HTTPS_PORT
+#
+# Environment:
+#   ENVIRONMENT (development, testing, production)
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: ${CONTAINER_PREFIX:-trading}_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-breakout_root_2024}
+      MYSQL_DATABASE: ${DB_NAME:-breakout_analytics}
+      MYSQL_USER: ${DB_USER:-breakout_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-breakout_password_2024}
+    ports:
+      - "${DB_PORT:-3307}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./config/mysql/${MYSQL_INIT_SCRIPT:-init.sql}:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - trading_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Analytics Service
+  analytics:
+    build:
+      context: .
+      dockerfile: docker/analytics.Dockerfile
+    container_name: ${CONTAINER_PREFIX:-trading}_analytics
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - FLASK_APP=analytics/app.py
+      - FLASK_ENV=${ENVIRONMENT:-development}
+      - ANALYTICS_PORT=${ANALYTICS_PORT:-5004}
+      - DB_HOST=${DB_HOST:-mysql}
+      - DB_PORT=3306
+      - DB_NAME=${DB_NAME:-breakout_analytics}
+      - DB_USER=${DB_USER:-breakout_user}
+      - DB_PASSWORD=${DB_PASSWORD:-breakout_password_2024}
+    ports:
+      - "${ANALYTICS_PORT:-5004}:${ANALYTICS_PORT:-5004}"
+    volumes:
+      - ./analytics:/app/analytics
+      - ./logs:/app/logs
+      - ./config:/app/config
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - trading_network
+    restart: unless-stopped
+
+  # ML Prediction Service
+  ml_service:
+    build:
+      context: .
+      dockerfile: docker/ml_service.Dockerfile
+    container_name: ${CONTAINER_PREFIX:-trading}_ml_service
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - FLASK_APP=ML_Webserver/ml_prediction_service.py
+      - FLASK_ENV=${ENVIRONMENT:-development}
+      - ML_SERVICE_PORT=${ML_SERVICE_PORT:-5005}
+      - DB_HOST=${DB_HOST:-mysql}
+      - DB_PORT=3306
+      - DB_NAME=${DB_NAME:-breakout_analytics}
+      - DB_USER=${DB_USER:-breakout_user}
+      - DB_PASSWORD=${DB_PASSWORD:-breakout_password_2024}
+    ports:
+      - "${ML_SERVICE_PORT:-5005}:${ML_SERVICE_PORT:-5005}"
+    volumes:
+      - ./ML_Webserver:/app/ML_Webserver
+      - ./logs:/app/logs
+      - ./config:/app/config
+    depends_on:
+      - analytics
+    networks:
+      - trading_network
+    restart: unless-stopped
+
+
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: ${CONTAINER_PREFIX:-trading}_nginx
+    environment:
+      - ANALYTICS_PORT=${ANALYTICS_PORT:-5004}
+      - ML_SERVICE_PORT=${ML_SERVICE_PORT:-5005}
+      - NGINX_WORKER_CONNECTIONS=${NGINX_WORKER_CONNECTIONS:-1024}
+      - NGINX_KEEPALIVE_TIMEOUT=${NGINX_KEEPALIVE_TIMEOUT:-65}
+      - NGINX_TYPES_HASH_MAX_SIZE=${NGINX_TYPES_HASH_MAX_SIZE:-2048}
+      - NGINX_CLIENT_MAX_BODY_SIZE=${NGINX_CLIENT_MAX_BODY_SIZE:-16M}
+      - NGINX_GZIP_LEVEL=${NGINX_GZIP_LEVEL:-6}
+      - NGINX_API_RATE_LIMIT=${NGINX_API_RATE_LIMIT:-10}
+      - NGINX_ML_RATE_LIMIT=${NGINX_ML_RATE_LIMIT:-5}
+      - NGINX_API_BURST=${NGINX_API_BURST:-20}
+      - NGINX_ML_BURST=${NGINX_ML_BURST:-10}
+      - NGINX_PROXY_CONNECT_TIMEOUT=${NGINX_PROXY_CONNECT_TIMEOUT:-30}
+      - NGINX_PROXY_SEND_TIMEOUT=${NGINX_PROXY_SEND_TIMEOUT:-30}
+      - NGINX_PROXY_READ_TIMEOUT=${NGINX_PROXY_READ_TIMEOUT:-30}
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./docker/nginx/nginx.conf.template:/etc/nginx/nginx.conf.template
+      - ./docker/nginx/ssl:/etc/nginx/ssl
+    command: >
+      sh -c "envsubst '$$ANALYTICS_PORT $$ML_SERVICE_PORT $$NGINX_WORKER_CONNECTIONS $$NGINX_KEEPALIVE_TIMEOUT $$NGINX_TYPES_HASH_MAX_SIZE $$NGINX_CLIENT_MAX_BODY_SIZE $$NGINX_GZIP_LEVEL $$NGINX_API_RATE_LIMIT $$NGINX_ML_RATE_LIMIT $$NGINX_API_BURST $$NGINX_ML_BURST $$NGINX_PROXY_CONNECT_TIMEOUT $$NGINX_PROXY_SEND_TIMEOUT $$NGINX_PROXY_READ_TIMEOUT' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"
+    depends_on:
+      - analytics
+      - ml_service
+    networks:
+      - trading_network
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+    name: ${CONTAINER_PREFIX:-trading}_mysql_data
+    driver: local
+
+networks:
+  trading_network:
+    name: ${CONTAINER_PREFIX:-trading}_network
+    driver: bridge

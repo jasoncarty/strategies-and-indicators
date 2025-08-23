@@ -18,4 +18,24 @@ ML_Webserver/**/*.log
 analytics/logs/
 webserver/instance/
 
+# Configuration and Environment Files
+.env
+docker.dev.env
+docker.test.env
+docker.prod.env
+analytics/dashboard/.env
+config/production.json
+!config/templates/
+!config/__init__.py
+
+# Temporary files
+*.tmp
+*.bak
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+docker/build.env
+docker/nginx/nginx.conf
+
 
