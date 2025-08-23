@@ -270,22 +270,22 @@ const TradesTable: React.FC<TradesTableProps> = ({ trades, isLoading }) => {
           <tbody className="bg-white divide-y divide-gray-200">
             {paginatedTrades.map((trade) => (
               <tr key={trade.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
                   {formatDate(trade.entry_time)}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
                   {trade.exit_time ? formatDate(trade.exit_time) : '-'}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-mono">
+                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 font-mono">
                   {trade.trade_id}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
                   {trade.symbol}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
                   {trade.strategy_name}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="px-4 py-2 whitespace-nowrap">
                   <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                     trade.direction === 'BUY'
                       ? 'bg-success-100 text-success-800'
@@ -294,13 +294,13 @@ const TradesTable: React.FC<TradesTableProps> = ({ trades, isLoading }) => {
                     {trade.direction}
                   </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
                   {trade.entry_price.toFixed(5)}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
                   {trade.exit_price ? trade.exit_price.toFixed(5) : '-'}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                <td className="px-4 py-2 whitespace-nowrap text-sm">
                   {trade.profit_loss !== null ? (
                     <span className={getProfitLossColor(trade.profit_loss)}>
                       {formatCurrency(trade.profit_loss)}
@@ -309,7 +309,7 @@ const TradesTable: React.FC<TradesTableProps> = ({ trades, isLoading }) => {
                     '-'
                   )}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="px-4 py-2 whitespace-nowrap">
                   <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                     trade.status === 'OPEN'
                       ? 'bg-blue-100 text-blue-800'
