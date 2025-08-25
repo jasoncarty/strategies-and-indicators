@@ -1,6 +1,0 @@
-combined_min_prediction_threshold=0.5500
-combined_max_prediction_threshold=0.4500
-combined_min_confidence=0.3500
-combined_max_confidence=0.9000
-combined_position_sizing_multiplier=0.9000
-combined_stop_loss_adjustment=1.0000

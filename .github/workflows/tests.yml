@@ -10,43 +10,48 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    env:
-      TEST_DATABASE: test_breakout_analytics
-      TEST_DB_HOST: 127.0.0.1
-      TEST_DB_PORT: 3306
-      TEST_DB_USER: root
-      TEST_DB_PASSWORD: rootpassword
-      FLASK_RUN_PORT: 5001
-      ML_SERVICE_PORT: 5003
-
     strategy:
       matrix:
         python-version: ['3.11']
-
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: rootpassword
-          MYSQL_DATABASE: test_breakout_analytics
-          MYSQL_USER: testuser
-          MYSQL_PASSWORD: testpass
-        ports:
-          - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
 
     steps:
     - uses: actions/checkout@v4
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
+
+    - name: Set up Docker
+      uses: docker/setup-buildx-action@v3
+
+    - name: Install Docker Compose
+      run: |
+        # Install Docker Compose
+        sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+
+        # Verify Docker Compose installation
+        docker-compose --version
+
+    - name: Check Docker and Docker Compose
+      run: |
+        docker --version
+        docker-compose --version
 
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y default-mysql-client
+        sudo apt-get install -y jq curl
+
+    - name: Show Docker Compose configuration
+      run: |
+        echo "📋 Docker Compose configuration:"
+        docker-compose --env-file docker.test.env config
+
+        echo ""
+        echo "🔧 Environment variables from docker.test.env:"
+        cat docker.test.env
 
     - name: Install Python dependencies
       run: |
@@ -60,17 +65,96 @@ jobs:
         mkdir -p ML_Webserver/logs
         mkdir -p analytics/logs
 
-    - name: Wait for MySQL to be ready
+    - name: Start Docker services with docker-compose
+      timeout-minutes: 10
       run: |
-        while ! mysqladmin ping -h"127.0.0.1" -P"3306" -u"root" -p"rootpassword" --silent; do
-          echo "Waiting for MySQL..."
-          sleep 2
-        done
-        echo "MySQL is ready!"
+        # Source environment variables for use in this step
+        echo "🔧 Loading environment variables..."
+        export $(cat docker.test.env | grep -v '^#' | xargs)
+        echo "✅ Environment variables loaded:"
+        echo "   MYSQL_ROOT_PASSWORD: $MYSQL_ROOT_PASSWORD"
+        echo "   ANALYTICS_PORT: $ANALYTICS_PORT"
+        echo "   ML_SERVICE_PORT: $ML_SERVICE_PORT"
 
-    - name: Run all tests with CI test runner
+        # Build the custom services first
+        echo "🔨 Building Docker services..."
+        docker-compose --env-file docker.test.env build analytics ml_service
+
+        # Start all services using docker-compose with test profile
+        echo "🚀 Starting Docker services..."
+        docker-compose --env-file docker.test.env up -d mysql analytics ml_service
+
+        # Show running containers
+        echo "📋 Running containers:"
+        docker-compose --env-file docker.test.env ps
+
+        # Wait for MySQL to be ready (with timeout)
+        echo "⏳ Waiting for MySQL to be ready..."
+        timeout=120
+        counter=0
+        while ! docker-compose --env-file docker.test.env exec -T mysql mysqladmin ping -h"localhost" -u"root" -p"$MYSQL_ROOT_PASSWORD" --silent; do
+          echo "Waiting for MySQL... (${counter}s/${timeout}s)"
+          sleep 5
+          counter=$((counter + 5))
+          if [ $counter -ge $timeout ]; then
+            echo "❌ MySQL failed to start within ${timeout}s"
+            docker-compose --env-file docker.test.env logs mysql
+            exit 1
+          fi
+        done
+        echo "✅ MySQL is ready!"
+
+        # Wait for analytics service to be ready (with timeout)
+        echo "⏳ Waiting for analytics service to be ready..."
+        counter=0
+        while ! curl -f "http://localhost:$ANALYTICS_PORT/health" > /dev/null 2>&1; do
+          echo "Waiting for analytics service... (${counter}s/${timeout}s)"
+          sleep 5
+          counter=$((counter + 5))
+          if [ $counter -ge $timeout ]; then
+            echo "❌ Analytics service failed to start within ${timeout}s"
+            docker-compose --env-file docker.test.env logs analytics
+            exit 1
+          fi
+        done
+        echo "✅ Analytics service is ready!"
+
+        # Wait for ML service to be ready (with timeout)
+        echo "⏳ Waiting for ML service to be ready..."
+        counter=0
+        while ! curl -f "http://localhost:$ML_SERVICE_PORT/health" > /dev/null 2>&1; do
+          echo "Waiting for ML service... (${counter}s/${timeout}s)"
+          sleep 5
+          counter=$((counter + 5))
+          if [ $counter -ge $timeout ]; then
+            echo "❌ ML service failed to start within ${timeout}s"
+            docker-compose --env-file docker.test.env logs ml_service
+            exit 1
+          fi
+        done
+        echo "✅ ML service is ready!"
+
+        echo "🎉 All services are ready!"
+
+        # Final status check
+        echo "📊 Final service status:"
+        docker-compose --env-file docker.test.env ps
+        echo "🔍 Service health checks:"
+        curl -s "http://localhost:$ANALYTICS_PORT/health" | jq . || echo "Analytics health check failed"
+        curl -s "http://localhost:$ML_SERVICE_PORT/health" | jq . || echo "ML service health check failed"
+
+    - name: Run all tests
       run: |
-        python tests/ci_test_runner.py
+        # Make the test script executable
+        chmod +x scripts/run_tests.sh
+
+        # Run the test suite
+        ./scripts/run_tests.sh
+
+    - name: Stop Docker services
+      if: always()
+      run: |
+        docker-compose --env-file docker.test.env down -v
 
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3

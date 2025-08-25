@@ -1,110 +1,150 @@
 """
-Pytest configuration and shared fixtures
+Pytest configuration and fixtures for the trading strategies project
+Uses Docker services for clean, maintainable integration testing
 """
 
+import os
+import sys
 import pytest
-import tempfile
-import shutil
+import requests
+import time
 from pathlib import Path
-from unittest.mock import Mock, patch
+from typing import Dict, Any
+
+def load_test_environment():
+    """Load test environment variables from docker.test.env"""
+    try:
+        from dotenv import load_dotenv
+        project_root = Path(__file__).parent.parent
+        test_env_file = project_root / "docker.test.env"
+
+        if test_env_file.exists():
+            load_dotenv(test_env_file)
+            print(f"✅ Loaded test environment from {test_env_file}")
+            print(f"   Analytics Port: {os.getenv('ANALYTICS_PORT', '5001')}")
+            print(f"   ML Service Port: {os.getenv('ML_SERVICE_PORT', '5003')}")
+            print(f"   Database Port: {os.getenv('DB_PORT', '3306')}")
+            print(f"   Environment: {os.getenv('ENVIRONMENT', 'testing')}")
+        else:
+            print(f"⚠️  {test_env_file} not found, using defaults")
+    except ImportError:
+        print("⚠️  python-dotenv not installed, skipping .env file loading")
+    except Exception as e:
+        print(f"⚠️  Error loading .env file: {e}")
+
+# Load test environment variables at module import
+load_test_environment()
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 @pytest.fixture(scope="session")
-def temp_test_dir():
-    """Create a temporary directory for tests"""
-    temp_dir = tempfile.mkdtemp()
-    yield temp_dir
-    shutil.rmtree(temp_dir)
+def test_services():
+    """Get Docker test service URLs from environment variables"""
+    analytics_url = os.getenv("ANALYTICS_EXTERNAL_URL", "http://localhost:5001")
+    ml_service_url = os.getenv("ML_SERVICE_EXTERNAL_URL", "http://localhost:5003")
 
-@pytest.fixture(scope="session")
-def mock_ml_service():
-    """Mock ML service for testing"""
-    with patch('requests.get') as mock_get, \
-         patch('requests.post') as mock_post:
-
-        # Mock health check response
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = {
-            'status': 'running',
-            'models_loaded': 10
-        }
-
-        # Mock prediction response
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.json.return_value = {
-            'status': 'success',
-            'prediction': {
-                'confidence': 0.75,
-                'direction': 'buy',
-                'probability': 0.80
-            },
-            'metadata': {
-                'features_used': 28,
-                'model_name': 'buy_BTCUSD_PERIOD_M5'
-            }
-        }
-
-        yield mock_get, mock_post
-
-@pytest.fixture(scope="session")
-def sample_features():
-    """Sample features for testing"""
-    return {
-        'rsi': 50.0,
-        'stoch_main': 50.0,
-        'stoch_signal': 50.0,
-        'macd_main': 0.0,
-        'macd_signal': 0.0,
-        'bb_upper': 50000.0,
-        'bb_lower': 49000.0,
-        'williams_r': 50.0,
-        'cci': 0.0,
-        'momentum': 100.0,
-        'force_index': 0.0,
-        'volume_ratio': 1.0,
-        'price_change': 0.001,
-        'volatility': 0.001,
-        'spread': 1.0,
-        'session_hour': 12,
-        'is_news_time': False,
-        'day_of_week': 1,
-        'month': 7
+    services = {
+        'analytics': analytics_url,
+        'ml_service': ml_service_url
     }
 
-@pytest.fixture(scope="session")
-def sample_trade_data():
-    """Sample trade data for testing"""
-    return {
-        'trade_id': '12345',
-        'symbol': 'BTCUSD',
-        'timeframe': 'M5',
-        'direction': 'buy',
-        'entry_price': 50000.0,
-        'stop_loss': 49000.0,
-        'take_profit': 51000.0,
-        'lot_size': 0.1
-    }
+    print(f"🎯 Using Docker test services:")
+    print(f"   Analytics: {services['analytics']}")
+    print(f"   ML Service: {services['ml_service']}")
 
-@pytest.fixture(scope="session")
-def sample_market_conditions():
-    """Sample market conditions data for testing"""
+    # Verify services are accessible
+    analytics_ready = wait_for_service(f"{services['analytics']}/health")
+    ml_ready = wait_for_service(f"{services['ml_service']}/health")
+
+    if not analytics_ready or not ml_ready:
+        raise Exception("Docker test services are not accessible")
+
+    print("✅ Docker test services are ready")
+    yield services
+
+    # No cleanup needed - Docker services are managed externally
+    print("ℹ️ Docker test services will continue running")
+
+def wait_for_service(url: str, timeout: int = 30) -> bool:
+    """Wait for a service to be ready"""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                print(f"✅ Service ready: {url}")
+                return True
+        except requests.exceptions.RequestException:
+            pass
+        time.sleep(2)
+    print(f"❌ Service not ready after {timeout}s: {url}")
+    return False
+
+@pytest.fixture
+def test_analytics_client(test_services):
+    """Get requests session for testing analytics endpoints"""
+    import requests
+
+    # Create a session with the base URL
+    base_url = test_services['analytics']
+
+    # Create a custom session that prepends the base URL
+    class TestClient:
+        def __init__(self, base_url):
+            self.base_url = base_url
+            self.session = requests.Session()
+
+        def get(self, path):
+            url = f"{self.base_url}{path}"
+            return self.session.get(url)
+
+        def post(self, path, **kwargs):
+            url = f"{self.base_url}{path}"
+            return self.session.post(url, **kwargs)
+
+    client = TestClient(base_url)
+    yield client
+    client.session.close()
+
+@pytest.fixture
+def test_ml_client(test_services):
+    """Get requests session for testing ML endpoints"""
+    import requests
+
+    # Create a session with the base URL
+    base_url = test_services['ml_service']
+
+    # Create a custom session that prepends the base URL
+    class TestClient:
+        def __init__(self, base_url):
+            self.base_url = base_url
+            self.session = requests.Session()
+
+        def get(self, path):
+            url = f"{self.base_url}{path}"
+            return self.session.get(url)
+
+        def post(self, path, **kwargs):
+            url = f"{self.base_url}{path}"
+            return self.session.post(url, **kwargs)
+
+    client = TestClient(base_url)
+    yield client
+    client.session.close()
+
+@pytest.fixture
+def test_database_config():
+    """Get test database configuration from environment variables"""
+    # For tests running on host machine, use localhost instead of 'mysql'
+    db_host = os.getenv('DB_HOST', 'localhost')
+    if db_host == 'mysql':
+        db_host = 'localhost'  # Use localhost for host machine tests
+
     return {
-        'trade_id': '12345',
-        'symbol': 'BTCUSD',
-        'timeframe': 'M5',
-        'rsi': 50.0,
-        'stoch_main': 50.0,
-        'stoch_signal': 50.0,
-        'macd_main': 0.0,
-        'macd_signal': 0.0,
-        'bb_upper': 50000.0,
-        'bb_lower': 49000.0,
-        'cci': 0.0,
-        'momentum': 100.0,
-        'volume_ratio': 1.0,
-        'price_change': 0.001,
-        'volatility': 0.001,
-        'spread': 1.0,
-        'session_hour': 12,
-        'day_of_week': 1,
-        'month': 7
+        'host': db_host,
+        'port': int(os.getenv('DB_PORT', '3306')),
+        'name': os.getenv('DB_NAME', 'test_breakout_analytics'),
+        'user': os.getenv('DB_USER', 'test_user'),
+        'password': os.getenv('DB_PASSWORD', 'test_password_2024')
     }

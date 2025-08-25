@@ -47,12 +47,6 @@ else:
     )
 logger = logging.getLogger(__name__)
 
-# Initialize Flask app with increased request size limits
-app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit
-app.config['JSON_MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB JSON limit
-ml_service = None
-
 class MLPredictionService:
     """Main ML prediction service for real-time trading predictions"""
 
@@ -79,7 +73,9 @@ class MLPredictionService:
         self.avg_response_time = 0
 
         # Analytics service connection for model health
-        self.analytics_url = os.getenv('ANALYTICS_URL', 'http://localhost:5001')
+        analytics_url = os.getenv('ANALYTICS_URL', 'http://localhost:5001')
+        logger.info(f'analytics_url: {analytics_url}')
+        self.analytics_url = analytics_url
 
         # Load models
         self._load_all_models()
@@ -741,9 +737,17 @@ def initialize_ml_service():
     """Initialize the ML service globally"""
     global ml_service
     # Use models directory from environment variable or default to local ml_models
-    models_dir = os.getenv('ML_MODELS_DIR', "ml_models")
+    models_dir = os.getenv('ML_MODELS_DIR', "/app/ml_models")
     ml_service = MLPredictionService(models_dir=str(models_dir))
     return ml_service
+
+# Initialize Flask app with increased request size limits
+app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit
+app.config['JSON_MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB JSON limit
+
+# Initialize ML service on app startup
+ml_service = initialize_ml_service()
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -757,7 +761,7 @@ def health_check():
 
     # Check if analytics service is reachable
     try:
-        response = requests.get(f"{ml_service.analytics_url}/health", timeout=5)
+        response = requests.get(f"{ml_service.analytics_url}/health", timeout=30)
         analytics_healthy = response.status_code == 200
     except:
         analytics_healthy = False

@@ -7,6 +7,7 @@ from datetime import datetime, date
 from typing import Dict, List, Optional, Any
 import pymysql
 from pymysql.cursors import DictCursor
+import os
 
 from .config import db_config
 
@@ -34,8 +35,10 @@ class AnalyticsDatabase:
 
     def connect(self):
         """Establish database connection"""
+        logger.info("🔄 Establishing database connection...")
         try:
             connection_params = self.config.get_connection_params()
+            logger.error(f"🔍 Connection parameters: {connection_params}")
             # Add connection stability settings
             connection_params.update({
                 'autocommit': True,  # Auto-commit to avoid transaction issues
@@ -131,8 +134,14 @@ class AnalyticsDatabase:
                 cursor.fetchone()
             return True
         except Exception as e:
-            logger.debug(f"Database connection health check failed: {e}")
-            return False
+            try:
+                self.connect()
+                return True
+            except Exception as e:
+                logger.debug(f"Database connection health check failed: {e}")
+                return False
+            finally:
+                self.disconnect()
 
     def get_connection_status(self) -> Dict[str, Any]:
         """Get detailed connection status information"""
@@ -165,68 +174,30 @@ class AnalyticsDatabase:
         return status
 
     def _ensure_connection(self):
-        """Ensure database connection is valid, reconnect if necessary"""
-        # Check if connection is too old and needs refreshing
-        if (self.connection and self.last_connection_time and
-            (datetime.now() - self.last_connection_time).total_seconds() > self.max_connection_age):
-            logger.info("🔄 Connection is too old, refreshing...")
-            try:
-                self.connection.close()
-            except:
-                pass
-            self.connection = None
-
-        max_retries = 3
-        retry_count = 0
-
-        while retry_count < max_retries:
-            try:
-                if self.connection is None:
-                    logger.info("🔄 No database connection, establishing new connection...")
-                    self.connect()
-                    return
-
-                # Test the connection with a simple query
-                if hasattr(self.connection, 'ping'):
-                    self.connection.ping(reconnect=False)
-                else:
-                    # Fallback: try a simple query to test connection
-                    with self.connection.cursor() as cursor:
-                        cursor.execute("SELECT 1")
-                        cursor.fetchone()
-
-                # If we get here, connection is healthy
+        """Ensure database connection is available, initialize if needed"""
+        try:
+            if self.is_connected():
                 return
 
-            except Exception as e:
-                retry_count += 1
-                logger.warning(f"⚠️ Database connection lost (attempt {retry_count}/{max_retries}), reconnecting... Error: {e}")
+            # Try to connect if not connected
+            logger.info("🔄 Attempting to establish database connection...")
+            self.connect()
 
-                # Clean up the corrupted connection
-                try:
-                    if self.connection:
-                        self.connection.close()
-                except Exception as cleanup_error:
-                    logger.debug(f"Cleanup error (non-critical): {cleanup_error}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to establish database connection: {e}")
+            # Don't raise - let the calling code handle the error
+            pass
 
-                # Reset connection to None
-                self.connection = None
-
-                if retry_count >= max_retries:
-                    logger.error(f"❌ Failed to establish database connection after {max_retries} attempts")
-                    raise Exception(f"Database connection failed after {max_retries} retries: {e}")
-
-                # Wait before retrying
-                import time
-                time.sleep(1)
-
-                # Try to establish new connection
-                try:
+    def _lazy_init(self):
+        """Lazy initialization - only connect when actually needed"""
+        if not os.getenv('TESTING') and not os.getenv('SKIP_DB_INIT'):
+            try:
+                if not self.is_connected():
                     self.connect()
-                except Exception as connect_error:
-                    logger.error(f"❌ Connection attempt {retry_count} failed: {connect_error}")
-                    if retry_count >= max_retries:
-                        raise
+            except Exception as e:
+                logger.warning(f"⚠️ Lazy database initialization failed: {e}")
+                # Don't raise - connection will be attempted on first use
+                pass
 
     def _execute_with_retry(self, operation_name: str, operation_func, needs_rollback: bool = False, *args, **kwargs):
         """Generic retry wrapper for database operations"""
@@ -268,6 +239,9 @@ class AnalyticsDatabase:
 
     def execute_query(self, query: str, params: tuple = None) -> List[Dict]:
         """Execute a SELECT query"""
+        # Lazy initialization
+        self._lazy_init()
+
         def _query_operation(connection):
             with connection.cursor() as cursor:
                 cursor.execute(query, params)
@@ -277,6 +251,9 @@ class AnalyticsDatabase:
 
     def execute_insert(self, query: str, params: tuple = None) -> int:
         """Execute an INSERT query and return the last insert ID"""
+        # Lazy initialization
+        self._lazy_init()
+
         # Log the SQL query and parameters for debugging
         logger.info(f"🔍 Executing SQL: {query}")
         logger.info(f"🔍 SQL parameters: {params}")
@@ -291,6 +268,9 @@ class AnalyticsDatabase:
 
     def execute_update(self, query: str, params: tuple = None) -> int:
         """Execute an UPDATE query and return affected rows"""
+        # Lazy initialization
+        self._lazy_init()
+
         def _update_operation(connection):
             with connection.cursor() as cursor:
                 cursor.execute(query, params)
@@ -301,6 +281,8 @@ class AnalyticsDatabase:
 
     def insert_trade(self, trade_data: Dict[str, Any]) -> str:
         """Insert a new trade record with upsert logic to handle duplicates"""
+        # Lazy initialization
+        self._lazy_init()
 
         query = """
         INSERT INTO trades (

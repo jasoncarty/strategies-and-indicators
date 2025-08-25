@@ -8,22 +8,12 @@ class DatabaseConfig:
     """Database configuration class"""
 
     def __init__(self):
-        # Check if we're in test mode
-        if os.getenv('TEST_DATABASE'):
-            # Test database settings
-            self.host = os.getenv('TEST_DB_HOST', 'localhost')
-            self.port = int(os.getenv('TEST_DB_PORT', 3306))
-            self.database = os.getenv('TEST_DATABASE', 'test_breakout_analytics')
-            self.user = os.getenv('TEST_DB_USER', 'breakout_user')
-            self.password = os.getenv('TEST_DB_PASSWORD', 'breakout_password_2024')
-        else:
-            # Default local development settings
-            self.host = os.getenv('DB_HOST', 'localhost')
-            self.port = int(os.getenv('DB_PORT', 3306))
-            self.database = os.getenv('DB_NAME', 'breakout_analytics')
-            self.user = os.getenv('DB_USER', 'breakout_user')
-            self.password = os.getenv('DB_PASSWORD', 'breakout_password_2024')
-
+        # Using env vars from docker.env
+        self.host = os.getenv('DB_HOST', 'localhost')
+        self.port = int(os.getenv('DB_PORT', 3306))
+        self.database = os.getenv('DB_NAME', 'breakout_analytics')
+        self.user = os.getenv('DB_USER', 'breakout_user')
+        self.password = os.getenv('DB_PASSWORD', 'breakout_password_2024')
         self.charset = 'utf8mb4'
 
     def get_connection_string(self) -> str:
