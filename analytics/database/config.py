@@ -8,29 +8,13 @@ class DatabaseConfig:
     """Database configuration class"""
 
     def __init__(self):
-        # Use the new configuration system
-        from config import Config
-
-        try:
-            # Load configuration based on environment
-            config = Config()
-            db_config = config.database
-
-            self.host = db_config.host
-            self.port = db_config.port
-            self.database = db_config.name
-            self.user = db_config.user
-            self.password = db_config.password
-            self.charset = 'utf8mb4'
-
-        except Exception as e:
-            # Fallback to environment variables if config loading fails
-            self.host = os.getenv('DB_HOST', 'localhost')
-            self.port = int(os.getenv('DB_PORT', 3306))
-            self.database = os.getenv('DB_NAME', 'breakout_analytics')
-            self.user = os.getenv('DB_USER', 'breakout_user')
-            self.password = os.getenv('DB_PASSWORD', 'breakout_password_2024')
-            self.charset = 'utf8mb4'
+        # Using env vars from docker.env
+        self.host = os.getenv('DB_HOST', 'localhost')
+        self.port = int(os.getenv('DB_PORT', 3306))
+        self.database = os.getenv('DB_NAME', 'breakout_analytics')
+        self.user = os.getenv('DB_USER', 'breakout_user')
+        self.password = os.getenv('DB_PASSWORD', 'breakout_password_2024')
+        self.charset = 'utf8mb4'
 
     def get_connection_string(self) -> str:
         """Get MySQL connection string"""
