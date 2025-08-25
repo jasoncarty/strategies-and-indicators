@@ -75,6 +75,8 @@ jobs:
         echo "   MYSQL_ROOT_PASSWORD: $MYSQL_ROOT_PASSWORD"
         echo "   ANALYTICS_PORT: $ANALYTICS_PORT"
         echo "   ML_SERVICE_PORT: $ML_SERVICE_PORT"
+        echo "   ANALYTICS_EXTERNAL_URL: $ANALYTICS_EXTERNAL_URL"
+        echo "   ML_SERVICE_EXTERNAL_URL: $ML_SERVICE_EXTERNAL_URL"
 
         # Build the custom services first
         echo "🔨 Building Docker services..."
