@@ -1,121 +1,52 @@
 """
 Pytest configuration and fixtures for the trading strategies project
-Uses the new configuration system for clean, maintainable testing
+Uses Docker services for clean, maintainable integration testing
 """
 
 import os
 import sys
 import pytest
-import pymysql
-import subprocess
-import time
 import requests
+import time
 from pathlib import Path
 from typing import Dict, Any
+
+def load_test_environment():
+    """Load test environment variables from docker.test.env"""
+    try:
+        from dotenv import load_dotenv
+        project_root = Path(__file__).parent.parent
+        test_env_file = project_root / "docker.test.env"
+
+        if test_env_file.exists():
+            load_dotenv(test_env_file)
+            print(f"✅ Loaded test environment from {test_env_file}")
+            print(f"   Analytics Port: {os.getenv('ANALYTICS_PORT', '5001')}")
+            print(f"   ML Service Port: {os.getenv('ML_SERVICE_PORT', '5003')}")
+            print(f"   Database Port: {os.getenv('DB_PORT', '3306')}")
+            print(f"   Environment: {os.getenv('ENVIRONMENT', 'testing')}")
+        else:
+            print(f"⚠️  {test_env_file} not found, using defaults")
+    except ImportError:
+        print("⚠️  python-dotenv not installed, skipping .env file loading")
+    except Exception as e:
+        print(f"⚠️  Error loading .env file: {e}")
+
+# Load test environment variables at module import
+load_test_environment()
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import get_config
-
 @pytest.fixture(scope="session")
-def test_config():
-    """Load test configuration once for all tests"""
-    try:
-        from config import Config
-        config = Config('testing')
-        print(f"✅ Loaded test configuration: {config.environment}")
-        return config
-    except Exception as e:
-        print(f"⚠️ Could not load test config: {e}")
-        # Fallback to environment variables
-        return None
-
-@pytest.fixture(scope="session")
-def test_database(test_config):
-    """Create and manage test database"""
-    if not test_config:
-        pytest.skip("Test configuration not available")
-
-    db_config = test_config.database
-    print(f"🔧 Setting up test database: {db_config.name}")
-
-    # Connect to MySQL server (without specifying database)
-    # For Docker MySQL, we need to ensure the container is running
-    print(f"🔌 Connecting to MySQL at {db_config.host}:{db_config.port}")
-
-    try:
-        connection = pymysql.connect(
-            host=db_config.host,
-            port=db_config.port,
-            user=db_config.user,
-            password=db_config.password,
-            charset='utf8mb4'
-        )
-    except pymysql.err.OperationalError as e:
-        if "Access denied" in str(e):
-            print(f"❌ Access denied to MySQL. Please ensure Docker MySQL is running and test database is set up.")
-            print(f"   Run: ./scripts/setup_test_env.sh")
-            pytest.skip(f"MySQL access denied: {e}")
-        else:
-            raise
-
-    try:
-        # Drop existing test database if it exists
-        with connection.cursor() as cursor:
-            cursor.execute(f"DROP DATABASE IF EXISTS `{db_config.name}`")
-            print(f"🗑️ Dropped existing test database: {db_config.name}")
-
-        # Create fresh test database
-        with connection.cursor() as cursor:
-            cursor.execute(f"CREATE DATABASE `{db_config.name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-            print(f"✅ Created fresh test database: {db_config.name}")
-
-        # Run migrations
-        print("📦 Running migrations on test database...")
-        migrations_dir = Path(__file__).parent.parent / 'analytics' / 'database'
-        run_migrations_script = migrations_dir / 'run_migrations.py'
-
-        if run_migrations_script.exists():
-            result = subprocess.run([
-                sys.executable, str(run_migrations_script)
-            ], capture_output=True, text=True, cwd=str(migrations_dir.parent),
-               env={**os.environ.copy(), 'ENVIRONMENT': 'testing'})
-
-            if result.returncode == 0:
-                print("✅ Migrations completed successfully")
-            else:
-                print(f"⚠️ Migration output: {result.stdout}")
-                print(f"⚠️ Migration errors: {result.stderr}")
-        else:
-            print("⚠️ Migration script not found")
-
-        yield db_config
-
-    finally:
-        # Cleanup: drop test database
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(f"DROP DATABASE IF EXISTS `{db_config.name}`")
-                print(f"🗑️ Cleaned up test database: {db_config.name}")
-        except Exception as e:
-            print(f"⚠️ Could not cleanup test database: {e}")
-        finally:
-            connection.close()
-
-@pytest.fixture(scope="session")
-def test_services(test_config):
-    """Use Docker test services instead of starting host services"""
-    if not test_config:
-        pytest.skip("Test configuration not available")
-
-    # Use the Docker services that are already running
-    analytics_port = test_config.get_test_analytics_port()
-    ml_port = test_config.get_test_ml_port()
+def test_services():
+    """Get Docker test service URLs from environment variables"""
+    analytics_url = os.getenv("ANALYTICS_EXTERNAL_URL", "http://localhost:5001")
+    ml_service_url = os.getenv("ML_SERVICE_EXTERNAL_URL", "http://localhost:5003")
 
     services = {
-        'analytics': f"http://127.0.0.1:{analytics_port}",
-        'ml_service': f"http://127.0.0.1:{ml_port}"
+        'analytics': analytics_url,
+        'ml_service': ml_service_url
     }
 
     print(f"🎯 Using Docker test services:")
@@ -133,7 +64,7 @@ def test_services(test_config):
     yield services
 
     # No cleanup needed - Docker services are managed externally
-    print("ℹ️ Docker test services will continue running (use ./scripts/cleanup_test_env.sh to stop)")
+    print("ℹ️ Docker test services will continue running")
 
 def wait_for_service(url: str, timeout: int = 30) -> bool:
     """Wait for a service to be ready"""
@@ -151,41 +82,69 @@ def wait_for_service(url: str, timeout: int = 30) -> bool:
     return False
 
 @pytest.fixture
-def test_db_connection(test_database):
-    """Get database connection for individual tests"""
-    connection = pymysql.connect(
-        host=test_database.host,
-        port=test_database.port,
-        user=test_database.user,
-        password=test_database.password,
-        database=test_database.name,
-        charset='utf8mb4'
-    )
-
-    yield connection
-
-    connection.close()
-
-@pytest.fixture
 def test_analytics_client(test_services):
     """Get requests session for testing analytics endpoints"""
     import requests
 
-    session = requests.Session()
-    session.base_url = test_services['analytics']
+    # Create a session with the base URL
+    base_url = test_services['analytics']
 
-    yield session
+    # Create a custom session that prepends the base URL
+    class TestClient:
+        def __init__(self, base_url):
+            self.base_url = base_url
+            self.session = requests.Session()
 
-    session.close()
+        def get(self, path):
+            url = f"{self.base_url}{path}"
+            return self.session.get(url)
+
+        def post(self, path, **kwargs):
+            url = f"{self.base_url}{path}"
+            return self.session.post(url, **kwargs)
+
+    client = TestClient(base_url)
+    yield client
+    client.session.close()
 
 @pytest.fixture
 def test_ml_client(test_services):
     """Get requests session for testing ML endpoints"""
     import requests
 
-    session = requests.Session()
-    session.base_url = test_services['ml_service']
+    # Create a session with the base URL
+    base_url = test_services['ml_service']
 
-    yield session
+    # Create a custom session that prepends the base URL
+    class TestClient:
+        def __init__(self, base_url):
+            self.base_url = base_url
+            self.session = requests.Session()
 
-    session.close()
+        def get(self, path):
+            url = f"{self.base_url}{path}"
+            return self.session.get(url)
+
+        def post(self, path, **kwargs):
+            url = f"{self.base_url}{path}"
+            return self.session.post(url, **kwargs)
+
+    client = TestClient(base_url)
+    yield client
+    client.session.close()
+
+@pytest.fixture
+def test_database_config():
+    """Get test database configuration from environment variables"""
+    # For tests running on host machine, use localhost instead of 'mysql'
+    db_host = os.getenv('DB_HOST', 'localhost')
+    if db_host == 'mysql':
+        db_host = 'localhost'  # Use localhost for host machine tests
+
+    return {
+        'host': db_host,
+        'port': int(os.getenv('DB_PORT', '3306')),
+        'name': os.getenv('DB_NAME', 'test_breakout_analytics'),
+        'user': os.getenv('DB_USER', 'test_user'),
+        'password': os.getenv('DB_PASSWORD', 'test_password_2024')
+    }

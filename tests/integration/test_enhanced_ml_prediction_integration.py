@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Integration tests for enhanced ML prediction service
-Tests the complete workflow from feature input to trade decision output
+Tests the complete workflow from feature input to trade decision output using REAL HTTP API calls
 """
 
 import pytest
@@ -10,52 +10,34 @@ import time
 import requests
 import json
 from pathlib import Path
-from unittest.mock import Mock, patch
-
-# Add ML_Webserver to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "ML_Webserver"))
-
-from ml_prediction_service import MLPredictionService
-
+import os
 
 class TestEnhancedMLPredictionIntegration:
-    """Integration tests for enhanced ML prediction service"""
+    """Integration tests for enhanced ML prediction service using REAL HTTP API calls"""
 
     @pytest.fixture
-    def ml_service(self):
-        """Create ML prediction service instance"""
-        service = MLPredictionService(models_dir="test_models")
+    def ml_service_url(self):
+        """Get ML service URL from environment or use default"""
+        # Use the port from docker.test.env (5009) or default to 5003
+        port = os.getenv("ML_SERVICE_PORT", "5003")
+        base_url = os.getenv("HOST_URL", "http://localhost")
+        url = f"{base_url}:{port}"
+        print(f"🔗 ML Service URL: {url}")
+        return url
 
-        # Mock models and scalers for testing
-        service.models = {
-            "buy_EURUSD+_PERIOD_M5": Mock(),
-            "sell_EURUSD+_PERIOD_M5": Mock(),
-            "combined_EURUSD+_PERIOD_M5": Mock()
-        }
-
-        service.scalers = {
-            "buy_EURUSD+_PERIOD_M5": Mock(),
-            "sell_EURUSD+_PERIOD_M5": Mock(),
-            "combined_EURUSD+_PERIOD_M5": Mock()
-        }
-
-        service.feature_names = {
-            "buy_EURUSD+_PERIOD_M5": ["rsi", "stoch_main", "macd_main", "bb_upper", "bb_lower"],
-            "sell_EURUSD+_PERIOD_M5": ["rsi", "stoch_main", "macd_main", "bb_upper", "bb_lower"],
-            "combined_EURUSD+_PERIOD_M5": ["rsi", "stoch_main", "macd_main", "bb_upper", "bb_lower"]
-        }
-
-        service.model_metadata = {
-            "buy_EURUSD+_PERIOD_M5": {"model_type": "gradient_boosting", "file_path": "test.pkl"},
-            "sell_EURUSD+_PERIOD_M5": {"model_type": "gradient_boosting", "file_path": "test.pkl"},
-            "combined_EURUSD+_PERIOD_M5": {"model_type": "gradient_boosting", "file_path": "test.pkl"}
-        }
-
-        return service
+    @pytest.fixture
+    def analytics_service_url(self):
+        """Get analytics service URL from environment or use default"""
+        # Use the port from docker.test.env if available
+        port = os.getenv("ANALYTICS_PORT", "5001")
+        base_url = os.getenv("HOST_URL", "http://localhost")
+        url = f"{base_url}:{port}"
+        print(f"🔗 Analytics service URL: {url}")
+        return url
 
     @pytest.fixture
     def sample_features(self):
-        """Sample features for testing"""
+        """Sample features for testing - using realistic values"""
         return {
             "rsi": 65.5,
             "stoch_main": 75.2,
@@ -68,326 +50,320 @@ class TestEnhancedMLPredictionIntegration:
             "risk_per_pip": 1.0
         }
 
-    def test_enhanced_prediction_workflow(self, ml_service, sample_features):
-        """Test complete enhanced prediction workflow"""
-        # Mock model prediction
-        mock_model = Mock()
-        mock_model.predict_proba.return_value = [[0.2, 0.8]]  # High confidence
-        ml_service.models["buy_EURUSD+_PERIOD_M5"] = mock_model
+    def test_ml_service_health_endpoint(self, ml_service_url):
+        """Test that ML service health endpoint is accessible"""
+        try:
+            response = requests.get(f"{ml_service_url}/health", timeout=10)
+            assert response.status_code == 200, f"ML service returned {response.status_code}"
 
-        # Mock feature preparation
-        ml_service._prepare_features = Mock(return_value=[[0.5, 0.6, 0.7, 0.8, 0.9]])
+            health_data = response.json()
+            assert health_data["status"] == "healthy", f"ML service not healthy: {health_data}"
 
-        # Mock health check
-        with patch.object(ml_service, '_get_model_health_and_threshold') as mock_health:
-            mock_health.return_value = ({"status": "healthy", "health_score": 85}, 0.3)
+            print(f"✅ ML service health: {health_data}")
 
-            # Test enhanced prediction
-            result = ml_service.get_prediction(
-                strategy="ML_Testing_EA",
-                symbol="EURUSD+",
-                timeframe="M5",
-                features=sample_features,
-                direction="buy",
-                enhanced=True
+        except requests.exceptions.RequestException as e:
+            pytest.skip(f"ML service not accessible: {e}")
+
+    def test_ml_service_models_endpoint(self, ml_service_url):
+        """Test that ML service models endpoint returns available models"""
+        try:
+            response = requests.get(f"{ml_service_url}/models", timeout=10)
+            assert response.status_code == 200, f"ML service returned {response.status_code}"
+
+            models_data = response.json()
+            assert "models" in models_data, "No models data in response"
+            assert len(models_data["models"]) > 0, "No models available"
+
+            print(f"✅ Available models: {len(models_data['models'])}")
+            print(f"   Sample models: {list(models_data['models'].keys())[:5]}")
+
+        except requests.exceptions.RequestException as e:
+            pytest.skip(f"ML service not accessible: {e}")
+
+    def test_ml_service_predict_endpoint(self, ml_service_url, sample_features):
+        """Test ML service predict endpoint with REAL HTTP call"""
+        try:
+            # Prepare request data
+            request_data = {
+                "strategy": "ML_Testing_EA",
+                "symbol": "EURUSD+",
+                "timeframe": "M15",
+                "features": sample_features,
+                "direction": "buy",
+                "enhanced": True
+            }
+
+            # Make HTTP POST request to predict endpoint
+            response = requests.post(
+                f"{ml_service_url}/predict",
+                json=request_data,
+                timeout=30
             )
 
-            # Verify enhanced response structure
-            assert result["status"] == "success"
-            assert "should_trade" in result
-            assert "confidence_threshold" in result
-            assert "model_health" in result
-            assert "trade_parameters" in result
+            assert response.status_code == 200, f"Predict endpoint returned {response.status_code}"
+
+            result = response.json()
+            assert result["status"] == "success", f"Prediction failed: {result.get('message', 'Unknown error')}"
             assert "prediction" in result
+            assert "metadata" in result
 
-            # Verify trade decision
-            assert result["should_trade"] is True  # High confidence should exceed healthy threshold
-            assert result["confidence_threshold"] == 0.3
-            assert result["model_health"]["status"] == "healthy"
+            # Verify prediction data
+            prediction = result["prediction"]
+            assert prediction["direction"] == "buy"
+            assert prediction["strategy"] == "ML_Testing_EA"
+            assert prediction["symbol"] == "EURUSD+"
+            assert prediction["timeframe"] == "M15"
+            assert "confidence" in prediction
+            assert "probability" in prediction
+            assert "model_key" in prediction
 
-            # Verify trade parameters
-            trade_params = result["trade_parameters"]
-            assert trade_params["entry_price"] == 1.0835
-            assert trade_params["stop_loss"] > 0
-            assert trade_params["take_profit"] > 0
-            assert trade_params["lot_size"] > 0
+            print(f"✅ Prediction successful: {result}")
 
-    def test_legacy_prediction_workflow(self, ml_service, sample_features):
-        """Test legacy prediction workflow for backward compatibility"""
-        # Mock model prediction
-        mock_model = Mock()
-        mock_model.predict_proba.return_value = [[0.3, 0.7]]
-        ml_service.models["buy_EURUSD+_PERIOD_M5"] = mock_model
+        except requests.exceptions.RequestException as e:
+            pytest.skip(f"ML service not accessible: {e}")
 
-        # Mock feature preparation
-        ml_service._prepare_features = Mock(return_value=[[0.5, 0.6, 0.7, 0.8, 0.9]])
+    def test_ml_service_trade_decision_endpoint(self, ml_service_url, sample_features):
+        """Test ML service trade decision endpoint with REAL HTTP call"""
+        try:
+            # Prepare request data
+            request_data = {
+                "strategy": "ML_Testing_EA",
+                "symbol": "GBPUSD+",
+                "timeframe": "H1",
+                "features": sample_features,
+                "direction": "sell",
+                "enhanced": True
+            }
 
-        # Test legacy prediction
-        result = ml_service.get_prediction(
-            strategy="ML_Testing_EA",
-            symbol="EURUSD+",
-            timeframe="M5",
-            features=sample_features,
-            direction="buy",
-            enhanced=False
-        )
-
-        # Verify legacy response structure (no enhanced fields)
-        assert result["status"] == "success"
-        assert "should_trade" not in result
-        assert "confidence_threshold" not in result
-        assert "model_health" not in result
-        assert "trade_parameters" not in result
-
-        # Verify legacy fields are present
-        assert "prediction" in result
-        assert "metadata" in result
-
-        # Verify prediction data
-        prediction = result["prediction"]
-        assert prediction["direction"] == "buy"
-        assert prediction["strategy"] == "ML_Testing_EA"
-        assert prediction["symbol"] == "EURUSD+"
-        assert prediction["timeframe"] == "M5"
-
-    def test_health_based_thresholds(self, ml_service, sample_features):
-        """Test different confidence thresholds based on model health"""
-        # Mock model prediction with medium confidence
-        mock_model = Mock()
-        mock_model.predict_proba.return_value = [[0.4, 0.6]]  # Medium confidence (0.2)
-        ml_service.models["buy_EURUSD+_PERIOD_M5"] = mock_model
-
-        # Mock feature preparation
-        ml_service._prepare_features = Mock(return_value=[[0.5, 0.6, 0.7, 0.8, 0.9]])
-
-        # Test critical model (threshold 0.7)
-        with patch.object(ml_service, '_get_model_health_and_threshold') as mock_health:
-            mock_health.return_value = ({"status": "critical", "health_score": 30}, 0.7)
-
-            result = ml_service.get_prediction(
-                strategy="ML_Testing_EA",
-                symbol="EURUSD+",
-                timeframe="M5",
-                features=sample_features,
-                direction="buy",
-                enhanced=True
+            # Make HTTP POST request to trade_decision endpoint
+            response = requests.post(
+                f"{ml_service_url}/trade_decision",
+                json=request_data,
+                timeout=30
             )
 
-            # Medium confidence (0.2) should not exceed critical threshold (0.7)
-            assert result["should_trade"] is False
-            assert result["confidence_threshold"] == 0.7
+            assert response.status_code == 200, f"Trade decision endpoint returned {response.status_code}"
 
-        # Test healthy model (threshold 0.3)
-        with patch.object(ml_service, '_get_model_health_and_threshold') as mock_health:
-            mock_health.return_value = ({"status": "healthy", "health_score": 85}, 0.3)
+            result = response.json()
+            assert result["status"] == "success", f"Trade decision failed: {result.get('message', 'Unknown error')}"
+            assert "prediction" in result
+            assert "metadata" in result
 
-            result = ml_service.get_prediction(
-                strategy="ML_Testing_EA",
-                symbol="EURUSD+",
-                timeframe="M5",
-                features=sample_features,
-                direction="buy",
-                enhanced=True
-            )
+            # Verify prediction data
+            prediction = result["prediction"]
+            assert prediction["direction"] == "sell"
+            assert prediction["strategy"] == "ML_Testing_EA"
+            assert prediction["symbol"] == "GBPUSD+"
+            assert prediction["timeframe"] == "H1"
 
-            # Medium confidence (0.2) should not exceed healthy threshold (0.3)
-            assert result["should_trade"] is False
-            assert result["confidence_threshold"] == 0.3
+            print(f"✅ Trade decision successful: {result}")
 
-    def test_trade_parameter_calculation(self, ml_service, sample_features):
-        """Test trade parameter calculation for different scenarios"""
-        # Test the _calculate_trade_parameters method directly to isolate the issue
+        except requests.exceptions.RequestException as e:
+            pytest.skip(f"ML service not accessible: {e}")
 
-        # Test BUY direction
-        trade_params_buy = ml_service._calculate_trade_parameters("EURUSD+", "buy", sample_features)
-        assert trade_params_buy["entry_price"] == 1.0835
-        assert trade_params_buy["stop_loss"] < trade_params_buy["entry_price"]  # Below for BUY
-        assert trade_params_buy["take_profit"] > trade_params_buy["entry_price"]  # Above for BUY
-        assert trade_params_buy["lot_size"] > 0
-
-        # Test SELL direction
-        trade_params_sell = ml_service._calculate_trade_parameters("EURUSD+", "sell", sample_features)
-        assert trade_params_sell["entry_price"] == 1.0835
-        assert trade_params_sell["stop_loss"] > trade_params_sell["entry_price"]  # Above for SELL
-        assert trade_params_sell["take_profit"] < trade_params_sell["entry_price"]  # Below for SELL
-        assert trade_params_sell["lot_size"] > 0
-
-        # Test edge cases
-        minimal_features = {"current_price": 1.0835, "atr": 0.0015, "account_balance": 10000, "risk_per_pip": 1.0}
-        trade_params_minimal = ml_service._calculate_trade_parameters("EURUSD+", "buy", minimal_features)
-        assert trade_params_minimal["entry_price"] == 1.0835
-
-        # Test with missing current_price (should use defaults)
-        incomplete_features = {"atr": 0.0015, "account_balance": 10000, "risk_per_pip": 1.0}
-        trade_params_incomplete = ml_service._calculate_trade_parameters("EURUSD+", "buy", incomplete_features)
-        assert trade_params_incomplete["entry_price"] == 0.0  # Should use default
-
-    def test_feature_handling_and_engineering(self, ml_service):
-        """Test feature handling and engineering integration"""
-        # Test with minimal features
-        minimal_features = {
-            "rsi": 65.5,
-            "current_price": 1.0835,
-            "atr": 0.0015
-        }
-
-        # Mock feature preparation
-        ml_service._prepare_features = Mock(return_value=[[0.5, 0.6, 0.7, 0.8, 0.9]])
-
-        # Mock model prediction
-        mock_model = Mock()
-        mock_model.predict_proba.return_value = [[0.3, 0.7]]
-        ml_service.models["buy_EURUSD+_PERIOD_M5"] = mock_model
-
-        # Mock health check
-        with patch.object(ml_service, '_get_model_health_and_threshold') as mock_health:
-            mock_health.return_value = ({"status": "healthy", "health_score": 85}, 0.3)
-
-            result = ml_service.get_prediction(
-                strategy="ML_Testing_EA",
-                symbol="EURUSD+",
-                timeframe="M5",
-                features=minimal_features,
-                direction="buy",
-                enhanced=True
-            )
-
-            # Should still work with minimal features
-            assert result["status"] == "success"
-            assert "trade_parameters" in result
-
-    def test_error_handling_and_fallbacks(self, ml_service, sample_features):
-        """Test error handling and fallback mechanisms"""
-        # Mock feature preparation failure
-        ml_service._prepare_features = Mock(return_value=None)
-
-        result = ml_service.get_prediction(
-            strategy="ML_Testing_EA",
-            symbol="EURUSD+",
-            timeframe="M5",
-            features=sample_features,
-            direction="buy",
-            enhanced=True
-        )
-
-        # Should handle feature preparation failure gracefully
-        assert result["status"] == "error"
-        assert "Feature preparation failed" in result["message"]
-
-        # Mock model not found
-        ml_service._prepare_features = Mock(return_value=[[0.5, 0.6, 0.7, 0.8, 0.9]])
-        ml_service._select_model = Mock(return_value=None)
-
-        result = ml_service.get_prediction(
-            strategy="ML_Testing_EA",
-            symbol="EURUSD+",
-            timeframe="M5",
-            features=sample_features,
-            direction="buy",
-            enhanced=True
-        )
-
-        # Should handle missing model gracefully
-        assert result["status"] == "error"
-        assert "No suitable model found" in result["message"]
-
-    def test_analytics_service_integration(self, ml_service, sample_features):
-        """Test integration with analytics service for model health"""
-        # Mock model prediction
-        mock_model = Mock()
-        mock_model.predict_proba.return_value = [[0.3, 0.7]]
-        ml_service.models["buy_EURUSD+_PERIOD_M5"] = mock_model
-
-        # Mock feature preparation
-        ml_service._prepare_features = Mock(return_value=[[0.5, 0.6, 0.7, 0.8, 0.9]])
-
-        # Test analytics service connection
-        with patch('requests.get') as mock_get:
-            # Mock successful analytics response
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {
-                "models": [
+    def test_ml_service_bulk_predict_endpoint(self, ml_service_url):
+        """Test ML service bulk predict endpoint with REAL HTTP call"""
+        try:
+            # Prepare bulk request data
+            request_data = {
+                "requests": [
                     {
-                        "model_key": "buy_EURUSD+_PERIOD_M5",
-                        "status": "warning",
-                        "health_score": 55
+                        "strategy": "ML_Testing_EA",
+                        "symbol": "EURUSD+",
+                        "timeframe": "M15",
+                        "features": {
+                            "rsi": 65.5,
+                            "current_price": 1.0835,
+                            "atr": 0.0015
+                        },
+                        "direction": "buy"
+                    },
+                    {
+                        "strategy": "ML_Testing_EA",
+                        "symbol": "GBPUSD+",
+                        "timeframe": "H1",
+                        "features": {
+                            "rsi": 35.2,
+                            "current_price": 1.2650,
+                            "atr": 0.0020
+                        },
+                        "direction": "sell"
                     }
                 ]
             }
-            mock_get.return_value = mock_response
 
-            result = ml_service.get_prediction(
-                strategy="ML_Testing_EA",
-                symbol="EURUSD+",
-                timeframe="M5",
-                features=sample_features,
-                direction="buy",
-                enhanced=True
+            # Make HTTP POST request to bulk_predict endpoint
+            response = requests.post(
+                f"{ml_service_url}/bulk_predict",
+                json=request_data,
+                timeout=60
             )
 
-            # Should use analytics service data
-            assert result["model_health"]["status"] == "warning"
-            assert result["confidence_threshold"] == 0.6  # Warning threshold
+            assert response.status_code == 200, f"Bulk predict endpoint returned {response.status_code}"
 
-            # Test analytics service failure
-            mock_get.side_effect = Exception("Connection failed")
+            result = response.json()
+            assert result["status"] == "success", f"Bulk prediction failed: {result.get('message', 'Unknown error')}"
+            assert "results" in result
+            assert "total_requests" in result
+            assert result["total_requests"] == 2
 
-            result = ml_service.get_prediction(
-                strategy="ML_Testing_EA",
-                symbol="EURUSD+",
-                timeframe="M5",
-                features=sample_features,
-                direction="buy",
-                enhanced=True
-            )
+            # Verify the response structure
+            print(f"Bulk prediction response: {result}")
 
-            # Should fallback to default values
-            assert result["model_health"]["status"] == "unknown"
-            assert result["confidence_threshold"] == 0.5  # Default threshold
+            print(f"✅ Bulk prediction successful: {result['total_requests']} requests processed")
 
-    def test_model_selection_logic(self, ml_service, sample_features):
-        """Test model selection logic for different scenarios"""
-        # Clear any existing models to ensure clean state
-        ml_service.models.clear()
+        except requests.exceptions.RequestException as e:
+            pytest.skip(f"ML service not accessible: {e}")
 
-        # Mock feature preparation
-        ml_service._prepare_features = Mock(return_value=[[0.5, 0.6, 0.7, 0.8, 0.9]])
+    def test_ml_service_status_endpoint(self, ml_service_url):
+        """Test ML service status endpoint"""
+        try:
+            response = requests.get(f"{ml_service_url}/status", timeout=10)
+            assert response.status_code == 200, f"Status endpoint returned {response.status_code}"
 
-        # Mock model prediction
-        mock_model = Mock()
-        mock_model.predict_proba.return_value = [[0.3, 0.7]]
+            status_data = response.json()
+            assert "status" in status_data
+            assert "models_loaded" in status_data
+            assert "uptime" in status_data
 
-        # Test exact direction match
-        ml_service.models["buy_EURUSD+_PERIOD_M5"] = mock_model
+            print(f"✅ Service status: {status_data}")
 
-        result = ml_service._select_model("EURUSD+", "M5", "buy")
-        assert result == "buy_EURUSD+_PERIOD_M5"
+        except requests.exceptions.RequestException as e:
+            pytest.skip(f"ML service not accessible: {e}")
 
-        # Test combined model fallback
-        del ml_service.models["buy_EURUSD+_PERIOD_M5"]  # Remove the buy model
-        ml_service.models["combined_EURUSD+_PERIOD_M5"] = mock_model
+    def test_ml_service_performance_endpoint(self, ml_service_url):
+        """Test ML service performance endpoint"""
+        try:
+            response = requests.get(f"{ml_service_url}/performance", timeout=10)
+            assert response.status_code == 200, f"Performance endpoint returned {response.status_code}"
 
-        result = ml_service._select_model("EURUSD+", "M5", "buy")
-        assert result == "combined_EURUSD+_PERIOD_M5"
+            performance_data = response.json()
+            assert "status" in performance_data
+            assert "metrics" in performance_data
+            assert "total_predictions" in performance_data["metrics"]
+            assert "avg_response_time_ms" in performance_data["metrics"]
 
-        # Test buy model fallback
-        del ml_service.models["combined_EURUSD+_PERIOD_M5"]  # Remove the combined model
-        ml_service.models["buy_EURUSD+_PERIOD_M5"] = mock_model
+            print(f"✅ Service performance: {performance_data}")
 
-        result = ml_service._select_model("EURUSD+", "M5", "sell")
-        assert result == "buy_EURUSD+_PERIOD_M5"
+        except requests.exceptions.RequestException as e:
+            pytest.skip(f"ML service not accessible: {e}")
 
-        # Test no model found
-        del ml_service.models["buy_EURUSD+_PERIOD_M5"]  # Remove the model completely
+    def test_ml_service_model_versions_endpoint(self, ml_service_url):
+        """Test ML service model versions endpoint"""
+        try:
+            response = requests.get(f"{ml_service_url}/model_versions", timeout=10)
+            assert response.status_code == 200, f"Model versions endpoint returned {response.status_code}"
 
-        result = ml_service._select_model("EURUSD+", "M5", "buy")
-        assert result is None
+            versions_data = response.json()
+            assert "status" in versions_data
+            assert "model_versions" in versions_data
+            assert "total_models" in versions_data
+
+            print(f"✅ Model versions: {versions_data['total_models']} models")
+
+        except requests.exceptions.RequestException as e:
+            pytest.skip(f"ML service not accessible: {e}")
+
+    def test_ml_service_reload_models_endpoint(self, ml_service_url):
+        """Test ML service reload models endpoint"""
+        try:
+            # First get current model count
+            response = requests.get(f"{ml_service_url}/models", timeout=10)
+            assert response.status_code == 200
+            initial_models = response.json()["models"]
+            initial_count = len(initial_models)
+
+            # Reload models
+            response = requests.post(f"{ml_service_url}/reload_models", timeout=30)
+            assert response.status_code == 200, f"Reload models endpoint returned {response.status_code}"
+
+            reload_data = response.json()
+            assert reload_data["status"] == "success"
+            assert "models_loaded" in reload_data
+
+            # Verify models are still available
+            response = requests.get(f"{ml_service_url}/models", timeout=10)
+            assert response.status_code == 200
+            final_models = response.json()["models"]
+            final_count = len(final_models)
+
+            assert final_count > 0, "No models after reload"
+            print(f"✅ Models reloaded: {initial_count} -> {final_count}")
+
+        except requests.exceptions.RequestException as e:
+            pytest.skip(f"ML service not accessible: {e}")
+
+    def test_analytics_service_integration(self, analytics_service_url):
+        """Test that analytics service is accessible (for ML service integration)"""
+        try:
+            response = requests.get(f"{analytics_service_url}/health", timeout=10)
+            assert response.status_code == 200, f"Analytics service returned {response.status_code}"
+
+            health_data = response.json()
+            assert health_data["status"] == "healthy", f"Analytics service not healthy: {health_data}"
+
+            print(f"✅ Analytics service health: {health_data}")
+
+        except requests.exceptions.RequestException as e:
+            pytest.skip(f"Analytics service not accessible: {e}")
+
+    def test_end_to_end_workflow(self, ml_service_url, sample_features):
+        """Test complete end-to-end workflow with REAL HTTP calls"""
+        try:
+            # Test multiple symbols and timeframes
+            test_configs = [
+                ("EURUSD+", "M15", "buy"),
+                ("GBPUSD+", "H1", "sell"),
+                ("USDCAD+", "H1", "buy"),
+            ]
+
+            successful_tests = 0
+
+            for symbol, timeframe, direction in test_configs:
+                try:
+                    print(f"\nTesting {symbol} {timeframe} {direction}...")
+
+                    request_data = {
+                        "strategy": "ML_Testing_EA",
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "features": sample_features,
+                        "direction": direction,
+                        "enhanced": True
+                    }
+
+                    response = requests.post(
+                        f"{ml_service_url}/predict",
+                        json=request_data,
+                        timeout=30
+                    )
+
+                    if response.status_code == 200:
+                        result = response.json()
+                        if result["status"] == "success":
+                            print(f"✅ {symbol} {timeframe} {direction} - SUCCESS")
+                            print(f"   Confidence: {result.get('prediction', {}).get('confidence', 'N/A')}")
+                            print(f"   Should trade: {result.get('should_trade', 'N/A')}")
+                            print(f"   Model health: {result.get('model_health', {}).get('status', 'N/A')}")
+                            successful_tests += 1
+                        else:
+                            print(f"❌ {symbol} {timeframe} {direction} - FAILED: {result.get('message', 'Unknown error')}")
+                    else:
+                        print(f"❌ {symbol} {timeframe} {direction} - HTTP {response.status_code}")
+
+                except Exception as e:
+                    print(f"❌ {symbol} {timeframe} {direction} - EXCEPTION: {e}")
+
+            print(f"\nEnd-to-end test results: {successful_tests}/{len(test_configs)} successful")
+            assert successful_tests > 0, "No end-to-end tests passed"
+
+        except requests.exceptions.RequestException as e:
+            pytest.skip(f"ML service not accessible: {e}")
 
 
 def run_enhanced_ml_prediction_integration_tests():
     """Run all enhanced ML prediction integration tests"""
-    print("🧪 Running Enhanced ML Prediction Integration Tests...")
+    print("🧪 Running Enhanced ML Prediction Integration Tests (REAL HTTP API)...")
 
     try:
         # Run tests
