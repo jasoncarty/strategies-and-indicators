@@ -75,8 +75,6 @@ jobs:
         echo "   MYSQL_ROOT_PASSWORD: $MYSQL_ROOT_PASSWORD"
         echo "   ANALYTICS_PORT: $ANALYTICS_PORT"
         echo "   ML_SERVICE_PORT: $ML_SERVICE_PORT"
-        echo "   ANALYTICS_EXTERNAL_URL: $ANALYTICS_EXTERNAL_URL"
-        echo "   ML_SERVICE_EXTERNAL_URL: $ML_SERVICE_EXTERNAL_URL"
 
         # Build the custom services first
         echo "🔨 Building Docker services..."
@@ -109,7 +107,7 @@ jobs:
         # Wait for analytics service to be ready (with timeout)
         echo "⏳ Waiting for analytics service to be ready..."
         counter=0
-        while ! curl -f "$ANALYTICS_EXTERNAL_URL/health" > /dev/null 2>&1; do
+        while ! curl -f "http://localhost:$ANALYTICS_PORT/health" > /dev/null 2>&1; do
           echo "Waiting for analytics service... (${counter}s/${timeout}s)"
           sleep 5
           counter=$((counter + 5))
@@ -124,7 +122,7 @@ jobs:
         # Wait for ML service to be ready (with timeout)
         echo "⏳ Waiting for ML service to be ready..."
         counter=0
-        while ! curl -f "$ML_SERVICE_EXTERNAL_URL/health" > /dev/null 2>&1; do
+        while ! curl -f "http://localhost:$ML_SERVICE_PORT/health" > /dev/null 2>&1; do
           echo "Waiting for ML service... (${counter}s/${timeout}s)"
           sleep 5
           counter=$((counter + 5))
@@ -142,8 +140,8 @@ jobs:
         echo "📊 Final service status:"
         docker-compose --env-file docker.test.env ps
         echo "🔍 Service health checks:"
-        curl -s "$ANALYTICS_EXTERNAL_URL/health" | jq . || echo "Analytics health check failed"
-        curl -s "$ML_SERVICE_EXTERNAL_URL/health" | jq . || echo "ML service health check failed"
+        curl -s "http://localhost:$ANALYTICS_PORT/health" | jq . || echo "Analytics health check failed"
+        curl -s "http://localhost:$ML_SERVICE_PORT/health" | jq . || echo "ML service health check failed"
 
     - name: Run all tests
       run: |
