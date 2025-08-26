@@ -1,9 +1,9 @@
 {
   "symbol": "ETHUSD",
   "timeframe": "M30",
-  "direction": "buy",
-  "training_date": "2025-08-26T19:59:46.766089",
-  "last_retrained": "2025-08-26T19:59:46.766096",
+  "direction": "sell",
+  "training_date": "2025-08-26T19:59:51.107375",
+  "last_retrained": "2025-08-26T19:59:51.107379",
   "training_samples": 247,
   "features_used": [
     7,

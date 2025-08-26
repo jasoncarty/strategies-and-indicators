@@ -2,8 +2,8 @@
   "symbol": "USDCAD+",
   "timeframe": "H1",
   "direction": "sell",
-  "training_date": "2025-08-26T12:31:15.492751",
-  "last_retrained": "2025-08-26T12:31:15.492756",
+  "training_date": "2025-08-26T19:59:51.853854",
+  "last_retrained": "2025-08-26T19:59:51.853868",
   "training_samples": 143,
   "features_used": [
     0,

@@ -2,8 +2,8 @@
   "symbol": "GBPUSD+",
   "timeframe": "H1",
   "direction": "sell",
-  "training_date": "2025-08-26T12:31:15.271544",
-  "last_retrained": "2025-08-26T12:31:15.271549",
+  "training_date": "2025-08-26T19:59:51.647814",
+  "last_retrained": "2025-08-26T19:59:51.647817",
   "training_samples": 171,
   "features_used": [
     0,
