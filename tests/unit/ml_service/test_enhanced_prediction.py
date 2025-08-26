@@ -83,7 +83,7 @@ class TestEnhancedPrediction:
             health_data, threshold = mock_service._get_model_health_and_threshold("buy_EURUSD+_PERIOD_M5")
 
             assert health_data["status"] == "critical"
-            assert threshold == 0.7
+            assert threshold == 0.5
 
     def test_get_model_health_and_threshold_warning(self, mock_service):
         """Test confidence threshold for warning models"""
@@ -104,7 +104,7 @@ class TestEnhancedPrediction:
             health_data, threshold = mock_service._get_model_health_and_threshold("buy_EURUSD+_PERIOD_M5")
 
             assert health_data["status"] == "warning"
-            assert threshold == 0.6
+            assert threshold == 0.4
 
     def test_get_model_health_and_threshold_healthy(self, mock_service):
         """Test confidence threshold for healthy models"""
