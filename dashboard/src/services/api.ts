@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { Trade, MLPrediction, MarketConditions, Summary, MLTrainingData, MLPerformance, MLPredictions, ModelRetrainingStatusResponse } from '../types/analytics';
 
+console.log(process.env);
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const api = axios.create({

@@ -1,4 +1,4 @@
-# ML Service Dockerfile
+# ML Retraining Service Dockerfile
 FROM python:3.11-slim
 
 # Set working directory
@@ -18,25 +18,20 @@ RUN pip install --upgrade pip \
     && pip install mysqlclient \
     && pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy ML service code
 COPY ML_Webserver/ ./ML_Webserver/
-COPY config/ ./config/
+COPY analytics/ ./analytics/
 COPY utils/ ./utils/
 
-# Create logs directory
-RUN mkdir -p logs
+# Create necessary directories
+RUN mkdir -p /app/logs /app/ML_Webserver/ml_models
 
 # Set environment variables
 ENV PYTHONPATH=/app
-ENV FLASK_APP=ML_Webserver/ml_prediction_service.py
-ENV FLASK_ENV=production
+ENV ENVIRONMENT=production
 
-# Expose port (will be overridden by docker-compose)
-EXPOSE 5002
+# Expose port (if the retraining service has an API)
+EXPOSE 5006
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5002/health || exit 1
-
-# Run the application (will use environment variables from docker-compose)
-CMD python -m flask run --host=0.0.0.0 --port=$ML_SERVICE_PORT
+# Start the retraining service
+CMD ["python", "ML_Webserver/start_retraining_pipeline.py"]

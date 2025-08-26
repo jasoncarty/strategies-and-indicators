@@ -27,9 +27,9 @@ def main():
     print("=" * 50)
 
     # Configuration
-    analytics_url = "http://localhost:5001"  # Analytics server URL
-    models_dir = "ml_models"                 # Directory for ML models
-    check_interval = 60                      # Check every 60 minutes
+    analytics_url = os.getenv('ANALYTICS_URL', "http://localhost:5001")  # Analytics server URL
+    models_dir = os.getenv('ML_MODELS_DIR', "ml_models")                 # Directory for ML models
+    check_interval = int(os.getenv('CHECK_INTERVAL', 60))                # Check every 60 minutes
 
     print(f"📊 Analytics Server: {analytics_url}")
     print(f"📁 Models Directory: {models_dir}")

@@ -85,10 +85,11 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Databases
-*.db
-*.sqlite3
+# pytype static type analyzer
+.pytype/
 
+# Cython debug symbols
+cython_debug/
 
 # OS / Editor
 .DS_Store
@@ -101,16 +102,24 @@ ML_Webserver/**/*.log
 analytics/logs/
 webserver/instance/
 
-# Configuration and Environment Files
-docker.prod.env
-analytics/dashboard/.env
-config/production.json
-!config/templates/
-!config/__init__.py
+# Database
+*.db
+*.sqlite
+*.sqlite3
 
-# Temporary files
-*.tmp
-*.bak
+# Dashboard (React/Node.js)
+dashboard/node_modules/
+dashboard/build/
+dashboard/.env
+dashboard/.env.local
+dashboard/.env.development.local
+dashboard/.env.test.local
+dashboard/.env.production.local
+dashboard/npm-debug.log*
+dashboard/yarn-debug.log*
+dashboard/yarn-error.log*
+dashboard/.pnp
+dashboard/.pnp.js
 
 # Docker
 .dockerignore
