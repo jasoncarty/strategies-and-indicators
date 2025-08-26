@@ -637,11 +637,11 @@ class MLPredictionService:
                     if model['model_key'] == model_key:
                         # Determine confidence threshold based on health status
                         if model['status'] == 'critical':
-                            threshold = 0.7  # Broken confidence system
+                            threshold = float(os.getenv('THRESHOLD_CRITICAL', 0.7))  # Broken confidence system
                         elif model['status'] == 'warning':
-                            threshold = 0.6  # Concerning but not broken
+                            threshold = float(os.getenv('THRESHOLD_WARNING', 0.6))  # Concerning but not broken
                         else:
-                            threshold = 0.3  # Healthy model
+                            threshold = float(os.getenv('THRESHOLD_NORMAL', 0.3))  # Healthy model
 
                         return model, threshold
 

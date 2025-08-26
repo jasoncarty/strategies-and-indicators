@@ -155,6 +155,10 @@ class TestEnhancedMLPredictionIntegration:
             assert prediction["strategy"] == "ML_Testing_EA"
             assert prediction["symbol"] == "GBPUSD+"
             assert prediction["timeframe"] == "H1"
+            assert "confidence_threshold" in result
+            assert "model_health" in result
+            assert "should_trade" in result
+            assert "trade_parameters" in result
 
             print(f"✅ Trade decision successful: {result}")
 

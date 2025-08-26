@@ -74,6 +74,9 @@ services:
       - DB_NAME=${DB_NAME:-breakout_analytics}
       - DB_USER=${DB_USER:-breakout_user}
       - DB_PASSWORD=${DB_PASSWORD:-breakout_password_2024}
+      - THRESHOLD_CRITICAL=${THRESHOLD_CRITICAL:-0.5}
+      - THRESHOLD_WARNING=${THRESHOLD_WARNING:-0.4}
+      - THRESHOLD_NORMAL=${THRESHOLD_WARNING:-0.3}
     ports:
       - "${ML_SERVICE_PORT:-5005}:${ML_SERVICE_PORT:-5005}"
     volumes:
