@@ -40,6 +40,7 @@ services:
       - DB_NAME=${DB_NAME:-breakout_analytics}
       - DB_USER=${DB_USER:-breakout_user}
       - DB_PASSWORD=${DB_PASSWORD:-breakout_password_2024}
+      - DASHBOARD_EXTERNAL_URL=${DASHBOARD_EXTERNAL_URL:-http://localhost:3000}
     ports:
       - "${ANALYTICS_PORT:-5004}:${ANALYTICS_PORT:-5004}"
     volumes:
@@ -81,6 +82,67 @@ services:
       - ./ML_Webserver/ml_models:/app/ML_Webserver/ml_models
     depends_on:
       - analytics
+    networks:
+      - trading_network
+    restart: unless-stopped
+
+  # React Dashboard
+  dashboard:
+    profiles: ["dashboard"]
+    build:
+      context: .
+      dockerfile: docker/dashboard.Dockerfile
+      args:
+        - REACT_APP_API_URL=${ANALYTICS_EXTERNAL_URL:-http://localhost:5004}
+        - REACT_APP_ML_SERVICE_URL=${ML_SERVICE_EXTERNAL_URL:-http://localhost:5005}
+        - REACT_APP_ENVIRONMENT=${ENVIRONMENT:-development}
+    container_name: ${CONTAINER_PREFIX:-trading}_dashboard
+    environment:
+      - REACT_APP_API_URL=${ANALYTICS_EXTERNAL_URL:-http://localhost:5004}
+      - REACT_APP_ML_SERVICE_URL=${ML_SERVICE_EXTERNAL_URL:-http://localhost:5005}
+      - REACT_APP_ENVIRONMENT=${ENVIRONMENT:-development}
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3000"
+    depends_on:
+      - analytics
+      - ml_service
+    networks:
+      - trading_network
+    restart: unless-stopped
+
+  # ML Retraining Service
+  retraining:
+    profiles: ["retraining"]
+    build:
+      context: .
+      dockerfile: docker/retraining.Dockerfile
+    container_name: ${CONTAINER_PREFIX:-trading}_retraining
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - RETRAINING_PORT=${RETRAINING_PORT:-5006}
+      - ANALYTICS_URL=${ANALYTICS_INTERNAL_URL:-http://analytics:5004}
+      - ML_SERVICE_URL=${ML_SERVICE_INTERNAL_URL:-http://ml_service:5005}
+      - DB_HOST=${DB_HOST:-mysql}
+      - DB_PORT=3306
+      - DB_NAME=${DB_NAME:-breakout_analytics}
+      - DB_USER=${DB_USER:-breakout_user}
+      - DB_PASSWORD=${DB_PASSWORD:-breakout_password_2024}
+      - ML_MODELS_DIR=${ML_MODELS_DIR:-/app/ML_Webserver/ml_models}
+    ports:
+      - "${RETRAINING_PORT:-5006}:${RETRAINING_PORT:-5006}"
+    volumes:
+      - ./ML_Webserver:/app/ML_Webserver
+      - ./analytics:/app/analytics
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./ML_Webserver/ml_models:/app/ML_Webserver/ml_models
+    depends_on:
+      mysql:
+        condition: service_healthy
+      analytics:
+        condition: service_started
+      ml_service:
+        condition: service_started
     networks:
       - trading_network
     restart: unless-stopped

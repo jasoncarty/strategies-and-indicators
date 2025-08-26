@@ -34,7 +34,7 @@ class AutomatedRetrainingPipeline:
     """
 
     def __init__(self,
-                 analytics_url: str = "http://localhost:5001",
+                 analytics_url: str = os.getenv('ANALYTICS_URL', "http://localhost:5001"),
                  models_dir: str = "ml_models",
                  check_interval_minutes: int = 60):
 
@@ -74,6 +74,7 @@ class AutomatedRetrainingPipeline:
                 logger.error(f"Failed to get model alerts: {response.status_code}")
                 return {"alerts": [], "summary": {}}
         except Exception as e:
+            logger.error(f"Analytics URL: {os.getenv('ANALYTICS_URL')}")
             logger.error(f"Error checking model alerts: {e}")
             return {"alerts": [], "summary": {}}
 

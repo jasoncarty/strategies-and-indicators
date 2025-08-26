@@ -44,8 +44,9 @@ logger.propagate = False
 
 app = Flask(__name__)
 
+dashboard_url = os.getenv('DASHBOARD_EXTERNAL_URL', "http://localhost:3000")
 # Enable CORS for React dashboard
-CORS(app, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+CORS(app, origins=[dashboard_url])
 
 # Initialize database connection on startup
 def initialize_database():
@@ -882,28 +883,45 @@ def get_ml_performance():
         """)
 
         ml_performance = {}
-        if result:
+        if result and len(result) > 0:
             stats = result[0]
-            total_predictions = int(stats['total_predictions'])
-            correct_predictions = int(stats['correct_predictions'])
+
+            total_predictions = int(stats.get('total_predictions', 0) or 0)
+            correct_predictions = int(stats.get('correct_predictions', 0) or 0)
+            incorrect_predictions = int(stats.get('incorrect_predictions', 0) or 0)
 
             ml_performance = {
                 "total_predictions": total_predictions,
                 "correct_predictions": correct_predictions,
-                "incorrect_predictions": int(stats['incorrect_predictions']),
+                "incorrect_predictions": incorrect_predictions,
                 "accuracy": (correct_predictions / total_predictions * 100) if total_predictions > 0 else 0,
-                "avg_prediction_probability": float(stats['avg_prediction_probability']) if stats['avg_prediction_probability'] else 0,
-                "avg_confidence_score": float(stats['avg_confidence_score']) if stats['avg_confidence_score'] else 0,
-                "avg_profit_loss": float(stats['avg_profit_loss']) if stats['avg_profit_loss'] else 0,
-                "total_profit_loss": float(stats['total_profit_loss']) if stats['total_profit_loss'] else 0,
-                "avg_win": float(stats['avg_win']) if stats['avg_win'] else 0,
-                "avg_loss": float(stats['avg_loss']) if stats['avg_loss'] else 0,
+                "avg_prediction_probability": float(stats.get('avg_prediction_probability', 0) or 0),
+                "avg_confidence_score": float(stats.get('avg_confidence_score', 0) or 0),
+                "avg_profit_loss": float(stats.get('avg_profit_loss', 0) or 0),
+                "total_profit_loss": float(stats.get('total_profit_loss', 0) or 0),
+                "avg_win": float(stats.get('avg_win', 0) or 0),
+                "avg_loss": float(stats.get('avg_loss', 0) or 0),
                 "model_performance": model_performance if model_performance else [],
                 "confidence_accuracy": confidence_accuracy if confidence_accuracy else []
             }
 
             logger.info(f"✅ Retrieved ML performance metrics: {total_predictions} predictions, {correct_predictions} correct")
         else:
+            ml_performance = {
+                "total_predictions": 0,
+                "correct_predictions": 0,
+                "incorrect_predictions": 0,
+                "accuracy": 0,
+                "avg_prediction_probability": 0,
+                "avg_confidence_score": 0,
+                "avg_profit_loss": 0,
+                "total_profit_loss": 0,
+                "avg_win": 0,
+                "avg_loss": 0,
+                "model_performance": [],
+                "confidence_accuracy": []
+            }
+
             logger.warning("⚠️ No ML performance data found")
 
         return jsonify(ml_performance), 200
