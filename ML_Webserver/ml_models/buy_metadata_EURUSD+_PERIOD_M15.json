@@ -2,8 +2,8 @@
   "symbol": "EURUSD+",
   "timeframe": "M15",
   "direction": "buy",
-  "training_date": "2025-08-26T05:57:04.707908",
-  "last_retrained": "2025-08-26T05:57:04.707915",
+  "training_date": "2025-08-26T12:31:13.608184",
+  "last_retrained": "2025-08-26T12:31:13.608189",
   "training_samples": 140,
   "features_used": [
     7,
@@ -24,7 +24,7 @@
   ],
   "cv_accuracy": 0.7047619047619048,
   "cv_std": 0.13669238185149837,
-  "confidence_correlation": -0.16783660087267874,
+  "confidence_correlation": -0.15914358244525204,
   "market_regime": {
     "volatility_regime": "medium",
     "trend_regime": "neutral",

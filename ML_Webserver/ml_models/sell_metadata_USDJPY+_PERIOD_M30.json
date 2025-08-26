@@ -2,8 +2,8 @@
   "symbol": "USDJPY+",
   "timeframe": "M30",
   "direction": "sell",
-  "training_date": "2025-08-26T05:57:06.481507",
-  "last_retrained": "2025-08-26T05:57:06.481514",
+  "training_date": "2025-08-26T12:31:15.714201",
+  "last_retrained": "2025-08-26T12:31:15.714205",
   "training_samples": 139,
   "features_used": [
     11,
@@ -24,7 +24,7 @@
   ],
   "cv_accuracy": 0.607843137254902,
   "cv_std": 0.14071274602360123,
-  "confidence_correlation": -0.08897232677044269,
+  "confidence_correlation": -0.0889723267704426,
   "market_regime": {
     "volatility_regime": "medium",
     "trend_regime": "neutral",

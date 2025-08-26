@@ -2,8 +2,8 @@
   "symbol": "ETHUSD",
   "timeframe": "M30",
   "direction": "buy",
-  "training_date": "2025-08-26T05:57:00.679738",
-  "last_retrained": "2025-08-26T05:57:00.679776",
+  "training_date": "2025-08-26T12:31:11.686520",
+  "last_retrained": "2025-08-26T12:31:11.686525",
   "training_samples": 247,
   "features_used": [
     7,
@@ -24,7 +24,7 @@
   ],
   "cv_accuracy": 0.48087431693989074,
   "cv_std": 0.07371987739471064,
-  "confidence_correlation": 0.027115667567258545,
+  "confidence_correlation": 0.02711566756725856,
   "market_regime": {
     "volatility_regime": "medium",
     "trend_regime": "neutral",
@@ -32,7 +32,7 @@
     "regime_changes": 2,
     "is_stable": true
   },
-  "health_score": 100,
+  "health_score": 70,
   "model_type": "advanced_retraining_framework",
   "retrained_by": "automated_pipeline",
   "model_version": 2.0

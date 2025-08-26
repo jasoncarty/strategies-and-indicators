@@ -126,5 +126,6 @@ dashboard/.pnp.js
 docker-compose.override.yml
 docker/build.env
 docker/nginx/nginx.conf
+docker.prod.env
 
 

@@ -2,8 +2,8 @@
   "symbol": "USDCAD+",
   "timeframe": "H1",
   "direction": "sell",
-  "training_date": "2025-08-26T05:57:06.278638",
-  "last_retrained": "2025-08-26T05:57:06.278643",
+  "training_date": "2025-08-26T12:31:15.492751",
+  "last_retrained": "2025-08-26T12:31:15.492756",
   "training_samples": 143,
   "features_used": [
     0,
@@ -24,7 +24,7 @@
   ],
   "cv_accuracy": 0.4761904761904761,
   "cv_std": 0.058708704790180706,
-  "confidence_correlation": -0.09065646577854634,
+  "confidence_correlation": -0.09791587633869764,
   "market_regime": {
     "volatility_regime": "medium",
     "trend_regime": "neutral",

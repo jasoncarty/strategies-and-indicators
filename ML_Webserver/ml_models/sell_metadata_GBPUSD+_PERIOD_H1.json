@@ -2,8 +2,8 @@
   "symbol": "GBPUSD+",
   "timeframe": "H1",
   "direction": "sell",
-  "training_date": "2025-08-26T05:57:06.062478",
-  "last_retrained": "2025-08-26T05:57:06.062484",
+  "training_date": "2025-08-26T12:31:15.271544",
+  "last_retrained": "2025-08-26T12:31:15.271549",
   "training_samples": 171,
   "features_used": [
     0,
@@ -24,7 +24,7 @@
   ],
   "cv_accuracy": 0.5476190476190476,
   "cv_std": 0.22419756971151644,
-  "confidence_correlation": 0.03469215018754338,
+  "confidence_correlation": 0.033167575572807174,
   "market_regime": {
     "volatility_regime": "medium",
     "trend_regime": "neutral",
