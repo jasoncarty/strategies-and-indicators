@@ -47,6 +47,7 @@ services:
       - ./analytics:/app/analytics
       - ./logs:/app/logs
       - ./config:/app/config
+      - ./ML_Webserver/ml_models:/app/ML_Webserver/ml_models
     depends_on:
       mysql:
         condition: service_healthy
