@@ -2,8 +2,8 @@
   "symbol": "USDJPY+",
   "timeframe": "M30",
   "direction": "sell",
-  "training_date": "2025-08-26T19:59:52.058077",
-  "last_retrained": "2025-08-26T19:59:52.058081",
+  "training_date": "2025-08-26T22:19:22.216149",
+  "last_retrained": "2025-08-26T22:19:22.216155",
   "training_samples": 139,
   "features_used": [
     11,
