@@ -14,6 +14,7 @@ import {
 import { Line, Bar, Doughnut } from 'react-chartjs-2';
 import { MLPredictions } from '../types/analytics';
 import { formatCurrency, formatPercentage } from '../services/api';
+import TimeframePerformanceSection from './TimeframePerformanceSection';
 
 ChartJS.register(
   CategoryScale,
@@ -254,6 +255,9 @@ const MLPredictionsDashboard: React.FC<MLPredictionsDashboardProps> = ({ mlPredi
         </div>
       </div>
 
+      {/* Timeframe Performance Section */}
+      <TimeframePerformanceSection timeframes={mlPredictions.prediction_by_timeframe} />
+
       {/* Detailed Tables */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Prediction by Type Table */}
@@ -320,6 +324,64 @@ const MLPredictionsDashboard: React.FC<MLPredictionsDashboardProps> = ({ mlPredi
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      {/* Timeframe Performance Details Table */}
+      <div className="mt-6">
+        <h4 className="text-md font-semibold text-gray-800 mb-3">Timeframe Performance Details</h4>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Timeframe</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Trades</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Win Rate</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Avg P&L</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Total P&L</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Avg Confidence</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Avg Prediction</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {mlPredictions.prediction_by_timeframe.map((timeframe, index) => {
+                const winRate = Number(timeframe.total_predictions) > 0 ?
+                  (Number(timeframe.correct_predictions) / Number(timeframe.total_predictions) * 100) : 0;
+
+                return (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="px-3 py-2 text-sm text-gray-900 font-medium">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        {timeframe.timeframe}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-sm text-gray-900">{timeframe.total_predictions}</td>
+                    <td className="px-3 py-2 text-sm">
+                      <span className={`font-semibold ${winRate >= 50 ? 'text-green-600' : 'text-red-600'}`}>
+                        {winRate.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-sm">
+                      <span className={Number(timeframe.avg_profit_loss) >= 0 ? 'text-green-600' : 'text-red-600'}>
+                        {formatCurrency(Number(timeframe.avg_profit_loss))}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-sm">
+                      <span className={Number(timeframe.total_profit_loss) >= 0 ? 'text-green-600' : 'text-red-600'}>
+                        {formatCurrency(Number(timeframe.total_profit_loss))}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-sm text-gray-900">
+                      {(Number(timeframe.avg_confidence_score) * 100).toFixed(1)}%
+                    </td>
+                    <td className="px-3 py-2 text-sm text-gray-900">
+                      {(Number(timeframe.avg_prediction_probability) * 100).toFixed(1)}%
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

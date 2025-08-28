@@ -1,0 +1,39 @@
+{
+  "symbol": "BTCUSD",
+  "timeframe": "M15",
+  "direction": "sell",
+  "training_date": "2025-08-28T15:07:16.929199",
+  "last_retrained": "2025-08-28T15:07:16.929206",
+  "training_samples": 52,
+  "features_used": [
+    15,
+    6,
+    14,
+    12,
+    0,
+    1,
+    11,
+    2,
+    18,
+    7,
+    10,
+    13,
+    4,
+    5,
+    3
+  ],
+  "cv_accuracy": 0.8235294117647058,
+  "cv_std": 0.0,
+  "confidence_correlation": -1.2848334892853084e-16,
+  "market_regime": {
+    "volatility_regime": "medium",
+    "trend_regime": "neutral",
+    "regime_stability": 0.9807692307692307,
+    "regime_changes": 2,
+    "is_stable": true
+  },
+  "health_score": 70,
+  "model_type": "advanced_retraining_framework",
+  "retrained_by": "automated_pipeline",
+  "model_version": 2.0
+}

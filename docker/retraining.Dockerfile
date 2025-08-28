@@ -27,8 +27,13 @@ COPY ML_Webserver/ ./ML_Webserver/
 COPY analytics/ ./analytics/
 COPY utils/ ./utils/
 
-# Create necessary directories
+# Create necessary directories and set up models
 RUN mkdir -p /app/logs /app/ML_Webserver/ml_models
+RUN chmod 755 /app/ML_Webserver/ml_models
+
+# Copy existing models to the container (they will be read-only from host)
+# The container will have its own writable copy for new models
+RUN cp -r /app/ML_Webserver/ml_models/* /app/ML_Webserver/ml_models/ 2>/dev/null || true
 
 # Set environment variables
 ENV PYTHONPATH=/app

@@ -48,7 +48,7 @@ services:
       - ./analytics:/app/analytics
       - ./logs:/app/logs
       - ./config:/app/config
-      - ./ML_Webserver/ml_models:/app/ML_Webserver/ml_models
+      - ml_models_data:${ML_MODELS_DIR}
     depends_on:
       mysql:
         condition: service_healthy
@@ -68,7 +68,7 @@ services:
       - FLASK_APP=ML_Webserver/ml_prediction_service.py
       - FLASK_ENV=${ENVIRONMENT:-development}
       - ML_SERVICE_PORT=${ML_SERVICE_PORT:-5005}
-      - ML_MODELS_DIR=${ML_MODELS_DIR:-/app/ML_Webserver/ml_models}
+      - ML_MODELS_DIR=${ML_MODELS_DIR:-/app/ml_models}
       - ANALYTICS_URL=${ANALYTICS_INTERNAL_URL:-http://analytics:5004}
       - DB_HOST=${DB_HOST:-mysql}
       - DB_PORT=3306
@@ -82,10 +82,10 @@ services:
     ports:
       - "${ML_SERVICE_PORT:-5005}:${ML_SERVICE_PORT:-5005}"
     volumes:
-      - ./ML_Webserver:/app/ML_Webserver
+      - ./ML_Webserver:/app/ML_Webserver:ro
+      - ml_models_data:${ML_MODELS_DIR}
       - ./logs:/app/logs
       - ./config:/app/config
-      - ./ML_Webserver/ml_models:/app/ML_Webserver/ml_models
     depends_on:
       - analytics
     networks:
@@ -134,16 +134,16 @@ services:
       - DB_NAME=${DB_NAME:-breakout_analytics}
       - DB_USER=${DB_USER:-breakout_user}
       - DB_PASSWORD=${DB_PASSWORD:-breakout_password_2024}
-      - ML_MODELS_DIR=${ML_MODELS_DIR:-/app/ML_Webserver/ml_models}
+      - ML_MODELS_DIR=${ML_MODELS_DIR:-/app/ml_models}
       - TZ=Europe/Stockholm
     ports:
       - "${RETRAINING_PORT:-5006}:${RETRAINING_PORT:-5006}"
     volumes:
-      - ./ML_Webserver:/app/ML_Webserver
+      - ./ML_Webserver:/app/ML_Webserver:ro
+      - ml_models_data:${ML_MODELS_DIR}
       - ./analytics:/app/analytics
       - ./logs:/app/logs
       - ./config:/app/config
-      - ./ML_Webserver/ml_models:/app/ML_Webserver/ml_models
     depends_on:
       mysql:
         condition: service_healthy
@@ -155,7 +155,24 @@ services:
       - trading_network
     restart: unless-stopped
 
-
+  # ML Models Initialization Service
+  ml_models_init:
+    profiles: ["ml_models_init"]
+    image: alpine:latest
+    container_name: ${CONTAINER_PREFIX:-trading}_ml_models_init
+    volumes:
+      - ml_models_data:${ML_MODELS_DIR}
+      - ./ML_Webserver/ml_models:/source:ro
+    command: >
+      sh -c "
+        echo '🔧 Initializing ML models in Docker volume...' &&
+        cp -r /source/* ${ML_MODELS_DIR}/ 2>/dev/null || true &&
+        echo '✅ ML models initialized successfully!' &&
+        ls -la ${ML_MODELS_DIR}/
+      "
+    networks:
+      - trading_network
+    restart: "no"
 
   # Nginx reverse proxy
   nginx:
@@ -195,6 +212,9 @@ services:
 volumes:
   mysql_data:
     name: ${CONTAINER_PREFIX:-trading}_mysql_data
+    driver: local
+  ml_models_data:
+    name: ${CONTAINER_PREFIX:-trading}_ml_models_data
     driver: local
 
 networks:
