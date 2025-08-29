@@ -950,6 +950,174 @@ def status():
     return jsonify(ml_service.get_status())
 
 
+@app.route('/active_trade_recommendation', methods=['POST'])
+def active_trade_recommendation():
+    """Get recommendation for active trade continuation"""
+    if ml_service is None:
+        return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No JSON data provided'}), 400
+
+        # Extract trade data
+        trade_direction = data.get('trade_direction', '')
+        entry_price = data.get('entry_price', 0.0)
+        current_price = data.get('current_price', 0.0)
+        trade_duration_minutes = data.get('trade_duration_minutes', 0)
+        current_profit_pips = data.get('current_profit_pips', 0.0)
+        account_balance = data.get('account_balance', 0.0)
+        current_profit_money = data.get('current_profit_money', 0.0)
+        features = data.get('features', {})
+
+        if not all([trade_direction, entry_price > 0, current_price > 0]):
+            return jsonify({'status': 'error', 'message': 'Missing required trade parameters'}), 400
+
+        logger.info(f"🔍 Active trade recommendation request - Direction: {trade_direction}, "
+                   f"Entry: {entry_price}, Current: {current_price}, Duration: {trade_duration_minutes}min, "
+                   f"Profit: {current_profit_pips} pips (${current_profit_money})")
+
+        # Get ML model prediction for current market conditions
+        ml_prediction = None
+        ml_confidence = 0.0
+        ml_probability = 0.5
+
+        try:
+            # Try to get ML prediction for current market conditions
+            symbol = features.get('symbol', '')
+            timeframe = features.get('timeframe', '')
+
+            if symbol and timeframe:
+                # Get current market prediction for the same direction
+                ml_result = ml_service.get_prediction(
+                    strategy="active_trade_analysis",
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    features=features,
+                    direction=trade_direction,
+                    enhanced=True
+                )
+
+                if ml_result.get('status') == 'success':
+                    ml_prediction = ml_result
+                    ml_confidence = ml_result.get('prediction', {}).get('confidence', 0.0)
+                    ml_probability = ml_result.get('prediction', {}).get('probability', 0.5)
+                    logger.info(f"🤖 ML model prediction: confidence={ml_confidence:.3f}, probability={ml_probability:.3f}")
+                else:
+                    logger.info(f"⚠️ ML model prediction failed: {ml_result.get('message', 'Unknown error')}")
+            else:
+                logger.info("⚠️ No symbol/timeframe in features, skipping ML analysis")
+
+        except Exception as e:
+            logger.warning(f"⚠️ Error getting ML prediction: {e}")
+
+        # Calculate trade health score based on profit/loss and duration
+        should_continue = True
+        base_confidence = 0.5  # Base confidence from trade health
+        final_confidence = 0.5  # Final confidence combining trade health and ML
+        probability = 0.5  # Final probability
+
+        # Check if trade is profitable
+        if current_profit_money > 0:
+            # Profitable trade - higher base confidence to continue
+            profit_percentage = (current_profit_money / account_balance) * 100
+            if profit_percentage > 1.0:  # More than 1% profit
+                base_confidence = 0.8
+            elif profit_percentage > 0.5:  # More than 0.5% profit
+                base_confidence = 0.7
+            else:  # Small profit
+                base_confidence = 0.6
+        else:
+            # Losing trade - check against max loss threshold
+            loss_percentage = abs(current_profit_money) / account_balance
+            max_loss_percentage = float(os.getenv('MAX_LOSS_PERCENTAGE', 0.01))  # 1% default
+            warning_threshold = max_loss_percentage * 0.5  # Warning at 50% of max loss (0.5%)
+
+            if loss_percentage >= max_loss_percentage:
+                # At or beyond max loss threshold - recommend closing (safety net)
+                should_continue = False
+                base_confidence = 0.1  # Very low confidence in trade health
+                probability = 0.1
+                logger.warning(f"🚨 Trade at max loss threshold: {loss_percentage:.2%} >= {max_loss_percentage:.2%} - Safety stop triggered")
+            elif loss_percentage >= warning_threshold:
+                # In warning zone (0.5% to 1%) - recommend closing unless ML is very confident
+                should_continue = False  # Default to closing
+                base_confidence = 0.3  # Low confidence in trade health
+                probability = 0.2
+                logger.warning(f"⚠️ Trade in warning zone: {loss_percentage:.2%} >= {warning_threshold:.2%} - Consider closing unless ML strongly supports continuation")
+            else:
+                # Within acceptable loss range (0% to 0.5%) - neutral base confidence
+                base_confidence = 0.5
+
+        # Consider trade duration (longer trades may need more scrutiny)
+        if trade_duration_minutes > 1440:  # More than 24 hours
+            base_confidence *= 0.9  # Reduce confidence for very long trades
+            if should_continue:
+                should_continue = current_profit_money > 0  # Only continue if profitable
+
+        # Combine trade health with ML prediction
+        if ml_prediction and ml_confidence > 0:
+            # Weight the final confidence: 60% ML prediction, 40% trade health
+            ml_weight = 0.6
+            trade_weight = 0.4
+
+            final_confidence = (ml_confidence * ml_weight) + (base_confidence * trade_weight)
+            probability = ml_probability  # Use ML probability as primary indicator
+
+            # Adjust recommendation based on ML confidence
+            if ml_confidence < 0.3:  # Low ML confidence
+                if should_continue:
+                    should_continue = current_profit_money > 0.5  # Only continue if significantly profitable
+                    logger.info(f"⚠️ Low ML confidence ({ml_confidence:.3f}), requiring higher profit to continue")
+            elif ml_confidence > 0.7:  # High ML confidence
+                if not should_continue and current_profit_money > -0.5:  # Small loss but strong ML signal
+                    should_continue = True
+                    logger.info(f"✅ High ML confidence ({ml_confidence:.3f}), allowing trade to continue despite small loss")
+
+        else:
+            # No ML prediction available, use trade health only
+            final_confidence = base_confidence
+            probability = 0.5 if should_continue else 0.1
+
+        # Create response
+        result = {
+            'status': 'success',
+            'should_trade': 1 if should_continue else 0,
+            'prediction': {
+                'probability': probability,
+                'confidence': final_confidence,
+                'model_key': ml_prediction.get('prediction', {}).get('model_key', 'active_trade_analysis') if ml_prediction else 'active_trade_analysis',
+                'model_type': 'ml_enhanced' if ml_prediction else 'trade_health',
+                'direction': trade_direction,
+                'timestamp': datetime.now().isoformat()
+            },
+            'trade_analysis': {
+                'entry_price': entry_price,
+                'current_price': current_price,
+                'profit_pips': current_profit_pips,
+                'profit_money': current_profit_money,
+                'profit_percentage': (current_profit_money / account_balance) * 100 if account_balance > 0 else 0,
+                'duration_minutes': trade_duration_minutes,
+                'recommendation': 'continue' if should_continue else 'close',
+                'reason': 'profitable_trade' if current_profit_money > 0 else 'max_loss_threshold' if abs(current_profit_money) / account_balance >= float(os.getenv('MAX_LOSS_PERCENTAGE', 0.01)) else 'acceptable_loss'
+            },
+            'ml_analysis': {
+                'ml_prediction_available': ml_prediction is not None,
+                'ml_confidence': ml_confidence,
+                'ml_probability': ml_probability,
+                'base_confidence': base_confidence,
+                'final_confidence': final_confidence,
+                'analysis_method': 'ml_enhanced' if ml_prediction else 'trade_health_only'
+            }
+        }
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"❌ Error in active_trade_recommendation endpoint: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 
 @app.route('/risk/status', methods=['GET'])
 def get_risk_status():
