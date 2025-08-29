@@ -444,9 +444,102 @@ public:
         return prediction;
     }
 
+    // Get active trade recommendation via HTTP API
+    MLPrediction GetActiveTradeRecommendation(MLFeatures &features, string trade_direction,
+                                            double entry_price, double current_price,
+                                            int trade_duration_minutes, double current_profit_pips,
+                                            double account_balance, double current_profit_money) {
+        MLPrediction prediction;
+        prediction.is_valid = false;
+        prediction.timestamp = TimeCurrent();
 
+        Print("🔍 Active Trade Recommendation Request - Direction: ", trade_direction,
+              ", Symbol: ", config.symbol, ", Timeframe: ", config.timeframe);
 
+        if(!config.enabled) {
+            prediction.error_message = "ML is disabled";
+            Print("❌ ML is disabled");
+            return prediction;
+        }
 
+        if(!TestConnection()) {
+            prediction.error_message = "API server not connected";
+            Print("❌ API server not connected");
+            return prediction;
+        }
+
+        // Prepare JSON request with trade-specific data
+        string json_request = PrepareActiveTradeJsonRequest(features, trade_direction,
+                                                         entry_price, current_price,
+                                                         trade_duration_minutes, current_profit_pips,
+                                                         account_balance, current_profit_money);
+
+        // Validate JSON request
+        if(StringLen(json_request) == 0) {
+            prediction.error_message = "Failed to prepare JSON request";
+            Print("❌ Failed to prepare JSON request");
+            return prediction;
+        }
+
+        Print("📤 Active Trade JSON Request length: ", StringLen(json_request), " characters");
+
+        // Send HTTP request to active trade endpoint
+        string url = config.api_url + "/active_trade_recommendation";
+        string headers = "Content-Type: application/json\r\nAccept: application/json\r\n";
+        uchar post_data[];
+        uchar result[];
+        string result_headers;
+
+        // Convert JSON to UTF-8 uchar array
+        StringToCharArray(json_request, post_data, 0, WHOLE_ARRAY, CP_UTF8);
+        ArrayRemove(post_data, ArraySize(post_data)-1);
+
+        Print("🌐 Sending active trade request to: ", url);
+        Print("   Data length: ", ArraySize(post_data), " bytes");
+
+        int res = WebRequest("POST", url, headers, request_timeout, post_data, result, result_headers);
+
+        Print("📥 Active Trade Response Code: ", res);
+        Print("📥 Response data size: ", ArraySize(result), " bytes");
+
+        if(res == 200) {
+            string response = CharArrayToString(result);
+            Print("📥 Active Trade Response: ", response);
+            prediction = ParseActiveTradeResponse(response);
+
+            if(prediction.is_valid) {
+                Print("✅ Active Trade Recommendation: ", prediction.direction, " (",
+                      DoubleToString(prediction.probability, 3), " confidence: ",
+                      DoubleToString(prediction.confidence, 3), ")");
+            } else {
+                Print("❌ Active Trade Recommendation failed: ", prediction.error_message);
+            }
+        } else {
+            string response = CharArrayToString(result);
+            Print("❌ Active Trade Response (Error): ", response);
+
+            // Provide specific error messages
+            switch(res) {
+                case -1:
+                    prediction.error_message = "WebRequest failed - check internet connection and URL";
+                    break;
+                case 400:
+                    prediction.error_message = "Bad request - check trade data format";
+                    break;
+                case 404:
+                    prediction.error_message = "Active trade endpoint not found - check if ML service is updated";
+                    break;
+                case 500:
+                    prediction.error_message = "Server error - check ML service logs";
+                    break;
+                default:
+                    prediction.error_message = "HTTP error " + IntegerToString(res) + " - " + response;
+                    break;
+            }
+        }
+
+        return prediction;
+    }
 
 public:
     // Check if a signal is valid based on confidence thresholds

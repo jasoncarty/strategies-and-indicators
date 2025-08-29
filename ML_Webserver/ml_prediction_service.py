@@ -27,6 +27,9 @@ warnings.filterwarnings('ignore')
 # Import shared feature engineering utilities
 from feature_engineering_utils import FeatureEngineeringUtils
 
+# Import risk manager
+from risk_manager import MLRiskManager
+
 # Configure logging
 # Only set up file logging if we're running the service directly
 if __name__ == "__main__":
@@ -76,6 +79,9 @@ class MLPredictionService:
         analytics_url = os.getenv('ANALYTICS_URL', 'http://localhost:5001')
         logger.info(f'analytics_url: {analytics_url}')
         self.analytics_url = analytics_url
+
+        # Initialize risk manager
+        self.risk_manager = MLRiskManager()
 
         # Load models
         self._load_all_models()
@@ -687,7 +693,8 @@ class MLPredictionService:
                     'entry_price': 0.0,
                     'stop_loss': 0.0,
                     'take_profit': 0.0,
-                    'lot_size': 0.1
+                    'lot_size': 0.1,
+                    'risk_validation': {'status': 'error', 'reason': 'No current price'}
                 }
 
             # Calculate ATR-based stop loss and take profit
@@ -706,23 +713,56 @@ class MLPredictionService:
                 stop_loss = current_price + stop_loss_distance
                 take_profit = current_price - take_profit_distance
 
-            # Calculate lot size based on risk (1% risk per trade)
+            # Get account balance from features
             account_balance = features.get('account_balance', 10000)  # Default $10k
-            risk_amount = account_balance * 0.01  # 1% risk
-            risk_per_pip = features.get('risk_per_pip', 1.0)  # Default $1 per pip
 
-            if risk_per_pip > 0:
-                lot_size = risk_amount / (stop_loss_distance * risk_per_pip * 100)  # Convert to lots
-                lot_size = max(0.01, min(lot_size, 10.0))  # Clamp between 0.01 and 10.0
-            else:
-                lot_size = 0.1  # Default lot size
+            # Use risk manager for lot size calculation
+            lot_size, lot_calculation = self.risk_manager.calculate_optimal_lot_size(
+                symbol, current_price, stop_loss, account_balance
+            )
 
-            return {
+            # Check if new trade is allowed based on risk management rules
+            can_trade, trade_validation = self.risk_manager.can_open_new_trade(
+                symbol, lot_size, stop_loss_distance, direction.lower()
+            )
+
+            # Get current risk status
+            risk_status = self.risk_manager.get_risk_status()
+
+            # Prepare trade parameters with risk validation
+            trade_params = {
                 'entry_price': round(current_price, 5),
                 'stop_loss': round(stop_loss, 5),
                 'take_profit': round(take_profit, 5),
-                'lot_size': round(lot_size, 2)
+                'lot_size': round(lot_size, 2),
+                'risk_validation': {
+                    'can_trade': can_trade,
+                    'validation_details': trade_validation,
+                    'risk_status': risk_status['status'],
+                    'portfolio_risk': risk_status['portfolio']['total_risk_percent'],
+                    'current_drawdown': risk_status['portfolio']['current_drawdown_percent']
+                },
+                'lot_calculation': lot_calculation,
+                'risk_metrics': {
+                    'stop_distance': round(stop_loss_distance, 5),
+                    'risk_reward_ratio': 2.0,
+                    'atr_value': round(atr, 5)
+                }
             }
+
+            # If risk management blocks the trade, adjust parameters
+            if not can_trade:
+                logger.warning(f"Risk management blocked trade for {symbol}: {trade_validation.get('reason', 'Unknown')}")
+                trade_params['risk_validation']['blocked_reason'] = trade_validation.get('reason', 'Unknown')
+                # Set lot size to 0 to indicate blocked trade
+                trade_params['lot_size'] = 0.0
+
+            logger.info(f"Trade parameters calculated for {symbol} {direction}:")
+            logger.info(f"  Entry: {trade_params['entry_price']}, SL: {trade_params['stop_loss']}, TP: {trade_params['take_profit']}")
+            logger.info(f"  Lot Size: {trade_params['lot_size']}, Can Trade: {can_trade}")
+            logger.info(f"  Risk Status: {risk_status['status']}, Portfolio Risk: {risk_status['portfolio']['total_risk_percent']:.2f}%")
+
+            return trade_params
 
         except Exception as e:
             logger.error(f"Error calculating trade parameters: {e}")
@@ -730,7 +770,8 @@ class MLPredictionService:
                 'entry_price': 0.0,
                 'stop_loss': 0.0,
                 'take_profit': 0.0,
-                'lot_size': 0.1
+                'lot_size': 0.1,
+                'risk_validation': {'status': 'error', 'reason': str(e)}
             }
 
 def initialize_ml_service():
@@ -872,6 +913,14 @@ def trade_decision():
             except Exception as json_error:
                 logger.error(f"❌ JSON serialization error: {json_error}")
                 logger.error(f"   Result structure: {result}")
+
+                # Extract values from the result for simplified fallback
+                prediction = result.get('prediction', {})
+                should_trade = result.get('should_trade', 0)
+                confidence_threshold = result.get('confidence_threshold', 0.0)
+                probability = prediction.get('probability', 0.0)
+                confidence = prediction.get('confidence', 0.0)
+
                 # Try to create a simplified response
                 simplified_result = {
                     'status': 'success',
@@ -881,7 +930,8 @@ def trade_decision():
                         'probability': float(probability),
                         'confidence': float(confidence),
                         'direction': direction
-                    }
+                    },
+                    'message': 'Simplified response due to serialization error'
                 }
                 return jsonify(simplified_result)
 
@@ -898,6 +948,115 @@ def status():
         return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
 
     return jsonify(ml_service.get_status())
+
+
+
+@app.route('/risk/status', methods=['GET'])
+def get_risk_status():
+    """Get current risk management status using existing analytics data"""
+    if ml_service is None:
+        return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
+
+    try:
+        # Get current positions from analytics service
+        positions_data = get_current_positions_from_analytics()
+
+        # Get portfolio summary from analytics service
+        portfolio_data = get_portfolio_summary_from_analytics()
+
+        # Update risk manager with current data
+        ml_service.risk_manager.set_portfolio_data(portfolio_data)
+        ml_service.risk_manager.set_positions_data(positions_data)
+
+        # Get comprehensive risk status
+        risk_status = ml_service.risk_manager.get_risk_status()
+
+        return jsonify({
+            'status': 'success',
+            'risk_status': risk_status,
+            'data_source': 'analytics_service',
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error getting risk status: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+def get_current_positions_from_analytics():
+    """Get current open positions from analytics service via HTTP"""
+    try:
+        import requests
+
+        # Get analytics service URL from environment or use default
+        analytics_url = os.getenv('ANALYTICS_URL', 'http://localhost:5001')
+        positions_endpoint = f"{analytics_url}/risk/positions"
+
+        logger.info(f"🌐 Requesting positions from analytics service: {positions_endpoint}")
+
+        response = requests.get(positions_endpoint, timeout=10)
+        response.raise_for_status()
+
+        data = response.json()
+
+        if data['status'] == 'success':
+            positions = data['positions']
+            logger.info(f"✅ Retrieved {len(positions)} positions from analytics service")
+            return positions
+        else:
+            logger.warning(f"⚠️ Analytics service returned error: {data.get('message', 'Unknown error')}")
+            return []
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ HTTP request failed to analytics service: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"❌ Error getting positions from analytics service: {e}")
+        return []
+
+def get_portfolio_summary_from_analytics():
+    """Get portfolio summary from analytics service via HTTP"""
+    try:
+        import requests
+
+        # Get analytics service URL from environment or use default
+        analytics_url = os.getenv('ANALYTICS_URL', 'http://localhost:5001')
+        portfolio_endpoint = f"{analytics_url}/risk/portfolio"
+
+        logger.info(f"🌐 Requesting portfolio from analytics service: {portfolio_endpoint}")
+
+        response = requests.get(portfolio_endpoint, timeout=10)
+        response.raise_for_status()
+
+        data = response.json()
+
+        if data['status'] == 'success':
+            portfolio = data['portfolio']
+            logger.info(f"✅ Retrieved portfolio from analytics service: {portfolio['total_positions']} positions")
+            return portfolio
+        else:
+            logger.warning(f"⚠️ Analytics service returned error: {data.get('message', 'Unknown error')}")
+            return get_default_portfolio()
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ HTTP request failed to analytics service: {e}")
+        return get_default_portfolio()
+    except Exception as e:
+        logger.error(f"❌ Error getting portfolio from analytics service: {e}")
+        return get_default_portfolio()
+
+def get_default_portfolio():
+    """Get default portfolio data when analytics service is unavailable"""
+    return {
+        'equity': 10000.0,
+        'balance': 10000.0,
+        'margin': 0.0,
+        'free_margin': 10000.0,
+        'total_positions': 0,
+        'long_positions': 0,
+        'short_positions': 0,
+        'total_volume': 0.0,
+        'avg_lot_size': 0.0
+    }
 
 @app.route('/models', methods=['GET'])
 def list_models():

@@ -49,6 +49,19 @@ class TestEnhancedPrediction:
             "combined_EURUSD+_PERIOD_M5": {"model_type": "gradient_boosting", "file_path": "test.pkl"}
         }
 
+        # Mock the risk manager to return reasonable values
+        mock_risk_manager = Mock()
+        mock_risk_manager.calculate_optimal_lot_size.return_value = (0.1, {'risk_amount': 10.0, 'stop_distance': 0.0015})
+        mock_risk_manager.can_open_new_trade.return_value = (True, {'status': 'approved'})
+        mock_risk_manager.get_risk_status.return_value = {
+            'status': 'healthy',
+            'portfolio': {
+                'total_risk_percent': 0.02,
+                'current_drawdown_percent': 0.01
+            }
+        }
+        service.risk_manager = mock_risk_manager
+
         return service
 
     @pytest.fixture
