@@ -2056,6 +2056,145 @@ def get_model_retraining_status():
         logger.error(f"❌ Error retrieving model retraining status: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/risk/positions', methods=['GET'])
+def get_current_positions():
+    """Get current open positions for risk management"""
+    try:
+        logger.info("📊 Retrieving current open positions for risk management")
+
+        # Query for open positions
+        query = """
+        SELECT
+            trade_id as ticket,
+            symbol,
+            direction,
+            lot_size as volume,
+            entry_price as open_price,
+            entry_price as current_price,  -- Use entry price as current for now
+            stop_loss,
+            take_profit,
+            0.0 as profit_loss,  -- Open positions have no P&L yet
+            trade_time as open_time,
+            strategy as comment
+        FROM ml_trade_logs
+        WHERE status = 'OPEN'
+        AND ml_model_key NOT IN ('RANDOM_MODEL', 'test_model')
+        AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+        AND strategy != 'TestStrategy'
+        ORDER BY trade_time DESC
+        """
+
+        result = analytics_db.execute_query(query)
+
+        if result:
+            # Convert to expected format
+            positions = []
+            for row in result:
+                position = {
+                    'ticket': str(row['ticket']),
+                    'symbol': row['symbol'],
+                    'direction': row['direction'].lower(),
+                    'volume': float(row['volume']),
+                    'open_price': float(row['open_price']),
+                    'current_price': float(row['current_price']),
+                    'stop_loss': float(row['stop_loss']) if row['stop_loss'] else 0.0,
+                    'take_profit': float(row['take_profit']) if row['take_profit'] else 0.0,
+                    'profit_loss': float(row['profit_loss']),
+                    'open_time': row['open_time'].isoformat() if row['open_time'] else '',
+                    'comment': row['comment']
+                }
+                positions.append(position)
+
+            logger.info(f"✅ Retrieved {len(positions)} open positions for risk management")
+            return jsonify({
+                'status': 'success',
+                'positions': positions,
+                'count': len(positions),
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            logger.info("ℹ️ No open positions found for risk management")
+            return jsonify({
+                'status': 'success',
+                'positions': [],
+                'count': 0,
+                'timestamp': datetime.now().isoformat()
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving positions for risk management: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/risk/portfolio', methods=['GET'])
+def get_portfolio_summary():
+    """Get portfolio summary for risk management"""
+    try:
+        logger.info("📈 Retrieving portfolio summary for risk management")
+
+        # Query for portfolio summary
+        query = """
+        SELECT
+            COUNT(*) as total_positions,
+            SUM(CASE WHEN UPPER(direction) = 'BUY' THEN 1 ELSE 0 END) as long_positions,
+            SUM(CASE WHEN UPPER(direction) = 'SELL' THEN 1 ELSE 0 END) as short_positions,
+            SUM(lot_size) as total_volume,
+            AVG(lot_size) as avg_lot_size
+        FROM ml_trade_logs
+        WHERE status = 'OPEN'
+        AND ml_model_key NOT IN ('RANDOM_MODEL', 'test_model')
+        AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+        AND strategy != 'TestStrategy'
+        """
+
+        result = analytics_db.execute_query(query)
+
+        if result and result[0]:
+            row = result[0]
+
+            # Get account balance from environment or use default
+            account_balance = float(os.getenv('DEFAULT_ACCOUNT_BALANCE', '10000'))
+
+            portfolio_summary = {
+                'equity': account_balance,  # Simplified - in production you'd want real-time equity
+                'balance': account_balance,
+                'margin': 0.0,  # Not tracked in analytics
+                'free_margin': account_balance,  # Simplified
+                'total_positions': int(row['total_positions']),
+                'long_positions': int(row['long_positions']),
+                'short_positions': int(row['short_positions']),
+                'total_volume': float(row['total_volume']) if row['total_volume'] else 0.0,
+                'avg_lot_size': float(row['avg_lot_size']) if row['avg_lot_size'] else 0.0
+            }
+
+            logger.info(f"✅ Retrieved portfolio summary for risk management: {portfolio_summary['total_positions']} positions")
+            return jsonify({
+                'status': 'success',
+                'portfolio': portfolio_summary,
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            logger.info("ℹ️ No portfolio data found for risk management")
+            default_portfolio = {
+                'equity': 10000.0,
+                'balance': 10000.0,
+                'margin': 0.0,
+                'free_margin': 10000.0,
+                'total_positions': 0,
+                'long_positions': 0,
+                'short_positions': 0,
+                'total_volume': 0.0,
+                'avg_lot_size': 0.0
+            }
+            return jsonify({
+                'status': 'success',
+                'portfolio': default_portfolio,
+                'timestamp': datetime.now().isoformat()
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving portfolio for risk management: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 if __name__ == '__main__':
     # Initialize database connection
     try:

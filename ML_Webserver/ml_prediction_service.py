@@ -27,6 +27,9 @@ warnings.filterwarnings('ignore')
 # Import shared feature engineering utilities
 from feature_engineering_utils import FeatureEngineeringUtils
 
+# Import risk manager
+from risk_manager import MLRiskManager
+
 # Configure logging
 # Only set up file logging if we're running the service directly
 if __name__ == "__main__":
@@ -76,6 +79,9 @@ class MLPredictionService:
         analytics_url = os.getenv('ANALYTICS_URL', 'http://localhost:5001')
         logger.info(f'analytics_url: {analytics_url}')
         self.analytics_url = analytics_url
+
+        # Initialize risk manager
+        self.risk_manager = MLRiskManager()
 
         # Load models
         self._load_all_models()
@@ -687,7 +693,8 @@ class MLPredictionService:
                     'entry_price': 0.0,
                     'stop_loss': 0.0,
                     'take_profit': 0.0,
-                    'lot_size': 0.1
+                    'lot_size': 0.1,
+                    'risk_validation': {'status': 'error', 'reason': 'No current price'}
                 }
 
             # Calculate ATR-based stop loss and take profit
@@ -706,23 +713,56 @@ class MLPredictionService:
                 stop_loss = current_price + stop_loss_distance
                 take_profit = current_price - take_profit_distance
 
-            # Calculate lot size based on risk (1% risk per trade)
+            # Get account balance from features
             account_balance = features.get('account_balance', 10000)  # Default $10k
-            risk_amount = account_balance * 0.01  # 1% risk
-            risk_per_pip = features.get('risk_per_pip', 1.0)  # Default $1 per pip
 
-            if risk_per_pip > 0:
-                lot_size = risk_amount / (stop_loss_distance * risk_per_pip * 100)  # Convert to lots
-                lot_size = max(0.01, min(lot_size, 10.0))  # Clamp between 0.01 and 10.0
-            else:
-                lot_size = 0.1  # Default lot size
+            # Use risk manager for lot size calculation
+            lot_size, lot_calculation = self.risk_manager.calculate_optimal_lot_size(
+                symbol, current_price, stop_loss, account_balance
+            )
 
-            return {
+            # Check if new trade is allowed based on risk management rules
+            can_trade, trade_validation = self.risk_manager.can_open_new_trade(
+                symbol, lot_size, stop_loss_distance, direction.lower()
+            )
+
+            # Get current risk status
+            risk_status = self.risk_manager.get_risk_status()
+
+            # Prepare trade parameters with risk validation
+            trade_params = {
                 'entry_price': round(current_price, 5),
                 'stop_loss': round(stop_loss, 5),
                 'take_profit': round(take_profit, 5),
-                'lot_size': round(lot_size, 2)
+                'lot_size': round(lot_size, 2),
+                'risk_validation': {
+                    'can_trade': can_trade,
+                    'validation_details': trade_validation,
+                    'risk_status': risk_status['status'],
+                    'portfolio_risk': risk_status['portfolio']['total_risk_percent'],
+                    'current_drawdown': risk_status['portfolio']['current_drawdown_percent']
+                },
+                'lot_calculation': lot_calculation,
+                'risk_metrics': {
+                    'stop_distance': round(stop_loss_distance, 5),
+                    'risk_reward_ratio': 2.0,
+                    'atr_value': round(atr, 5)
+                }
             }
+
+            # If risk management blocks the trade, adjust parameters
+            if not can_trade:
+                logger.warning(f"Risk management blocked trade for {symbol}: {trade_validation.get('reason', 'Unknown')}")
+                trade_params['risk_validation']['blocked_reason'] = trade_validation.get('reason', 'Unknown')
+                # Set lot size to 0 to indicate blocked trade
+                trade_params['lot_size'] = 0.0
+
+            logger.info(f"Trade parameters calculated for {symbol} {direction}:")
+            logger.info(f"  Entry: {trade_params['entry_price']}, SL: {trade_params['stop_loss']}, TP: {trade_params['take_profit']}")
+            logger.info(f"  Lot Size: {trade_params['lot_size']}, Can Trade: {can_trade}")
+            logger.info(f"  Risk Status: {risk_status['status']}, Portfolio Risk: {risk_status['portfolio']['total_risk_percent']:.2f}%")
+
+            return trade_params
 
         except Exception as e:
             logger.error(f"Error calculating trade parameters: {e}")
@@ -730,7 +770,8 @@ class MLPredictionService:
                 'entry_price': 0.0,
                 'stop_loss': 0.0,
                 'take_profit': 0.0,
-                'lot_size': 0.1
+                'lot_size': 0.1,
+                'risk_validation': {'status': 'error', 'reason': str(e)}
             }
 
 def initialize_ml_service():
@@ -872,6 +913,14 @@ def trade_decision():
             except Exception as json_error:
                 logger.error(f"❌ JSON serialization error: {json_error}")
                 logger.error(f"   Result structure: {result}")
+
+                # Extract values from the result for simplified fallback
+                prediction = result.get('prediction', {})
+                should_trade = result.get('should_trade', 0)
+                confidence_threshold = result.get('confidence_threshold', 0.0)
+                probability = prediction.get('probability', 0.0)
+                confidence = prediction.get('confidence', 0.0)
+
                 # Try to create a simplified response
                 simplified_result = {
                     'status': 'success',
@@ -881,7 +930,8 @@ def trade_decision():
                         'probability': float(probability),
                         'confidence': float(confidence),
                         'direction': direction
-                    }
+                    },
+                    'message': 'Simplified response due to serialization error'
                 }
                 return jsonify(simplified_result)
 
@@ -898,6 +948,283 @@ def status():
         return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
 
     return jsonify(ml_service.get_status())
+
+
+@app.route('/active_trade_recommendation', methods=['POST'])
+def active_trade_recommendation():
+    """Get recommendation for active trade continuation"""
+    if ml_service is None:
+        return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No JSON data provided'}), 400
+
+        # Extract trade data
+        trade_direction = data.get('trade_direction', '')
+        entry_price = data.get('entry_price', 0.0)
+        current_price = data.get('current_price', 0.0)
+        trade_duration_minutes = data.get('trade_duration_minutes', 0)
+        current_profit_pips = data.get('current_profit_pips', 0.0)
+        account_balance = data.get('account_balance', 0.0)
+        current_profit_money = data.get('current_profit_money', 0.0)
+        features = data.get('features', {})
+
+        if not all([trade_direction, entry_price > 0, current_price > 0]):
+            return jsonify({'status': 'error', 'message': 'Missing required trade parameters'}), 400
+
+        logger.info(f"🔍 Active trade recommendation request - Direction: {trade_direction}, "
+                   f"Entry: {entry_price}, Current: {current_price}, Duration: {trade_duration_minutes}min, "
+                   f"Profit: {current_profit_pips} pips (${current_profit_money})")
+
+        # Get ML model prediction for current market conditions
+        ml_prediction = None
+        ml_confidence = 0.0
+        ml_probability = 0.5
+
+        try:
+            # Try to get ML prediction for current market conditions
+            symbol = features.get('symbol', '')
+            timeframe = features.get('timeframe', '')
+
+            if symbol and timeframe:
+                # Get current market prediction for the same direction
+                ml_result = ml_service.get_prediction(
+                    strategy="active_trade_analysis",
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    features=features,
+                    direction=trade_direction,
+                    enhanced=True
+                )
+
+                if ml_result.get('status') == 'success':
+                    ml_prediction = ml_result
+                    ml_confidence = ml_result.get('prediction', {}).get('confidence', 0.0)
+                    ml_probability = ml_result.get('prediction', {}).get('probability', 0.5)
+                    logger.info(f"🤖 ML model prediction: confidence={ml_confidence:.3f}, probability={ml_probability:.3f}")
+                else:
+                    logger.info(f"⚠️ ML model prediction failed: {ml_result.get('message', 'Unknown error')}")
+            else:
+                logger.info("⚠️ No symbol/timeframe in features, skipping ML analysis")
+
+        except Exception as e:
+            logger.warning(f"⚠️ Error getting ML prediction: {e}")
+
+        # Calculate trade health score based on profit/loss and duration
+        should_continue = True
+        base_confidence = 0.5  # Base confidence from trade health
+        final_confidence = 0.5  # Final confidence combining trade health and ML
+        probability = 0.5  # Final probability
+
+        # Check if trade is profitable
+        if current_profit_money > 0:
+            # Profitable trade - higher base confidence to continue
+            profit_percentage = (current_profit_money / account_balance) * 100
+            if profit_percentage > 1.0:  # More than 1% profit
+                base_confidence = 0.8
+            elif profit_percentage > 0.5:  # More than 0.5% profit
+                base_confidence = 0.7
+            else:  # Small profit
+                base_confidence = 0.6
+        else:
+            # Losing trade - check against max loss threshold
+            loss_percentage = abs(current_profit_money) / account_balance
+            max_loss_percentage = float(os.getenv('MAX_LOSS_PERCENTAGE', 0.01))  # 1% default
+            warning_threshold = max_loss_percentage * 0.5  # Warning at 50% of max loss (0.5%)
+
+            if loss_percentage >= max_loss_percentage:
+                # At or beyond max loss threshold - recommend closing (safety net)
+                should_continue = False
+                base_confidence = 0.1  # Very low confidence in trade health
+                probability = 0.1
+                logger.warning(f"🚨 Trade at max loss threshold: {loss_percentage:.2%} >= {max_loss_percentage:.2%} - Safety stop triggered")
+            elif loss_percentage >= warning_threshold:
+                # In warning zone (0.5% to 1%) - recommend closing unless ML is very confident
+                should_continue = False  # Default to closing
+                base_confidence = 0.3  # Low confidence in trade health
+                probability = 0.2
+                logger.warning(f"⚠️ Trade in warning zone: {loss_percentage:.2%} >= {warning_threshold:.2%} - Consider closing unless ML strongly supports continuation")
+            else:
+                # Within acceptable loss range (0% to 0.5%) - neutral base confidence
+                base_confidence = 0.5
+
+        # Consider trade duration (longer trades may need more scrutiny)
+        if trade_duration_minutes > 1440:  # More than 24 hours
+            base_confidence *= 0.9  # Reduce confidence for very long trades
+            if should_continue:
+                should_continue = current_profit_money > 0  # Only continue if profitable
+
+        # Combine trade health with ML prediction
+        if ml_prediction and ml_confidence > 0:
+            # Weight the final confidence: 60% ML prediction, 40% trade health
+            ml_weight = 0.6
+            trade_weight = 0.4
+
+            final_confidence = (ml_confidence * ml_weight) + (base_confidence * trade_weight)
+            probability = ml_probability  # Use ML probability as primary indicator
+
+            # Adjust recommendation based on ML confidence
+            if ml_confidence < 0.3:  # Low ML confidence
+                if should_continue:
+                    should_continue = current_profit_money > 0.5  # Only continue if significantly profitable
+                    logger.info(f"⚠️ Low ML confidence ({ml_confidence:.3f}), requiring higher profit to continue")
+            elif ml_confidence > 0.7:  # High ML confidence
+                if not should_continue and current_profit_money > -0.5:  # Small loss but strong ML signal
+                    should_continue = True
+                    logger.info(f"✅ High ML confidence ({ml_confidence:.3f}), allowing trade to continue despite small loss")
+
+        else:
+            # No ML prediction available, use trade health only
+            final_confidence = base_confidence
+            probability = 0.5 if should_continue else 0.1
+
+        # Create response
+        result = {
+            'status': 'success',
+            'should_trade': 1 if should_continue else 0,
+            'prediction': {
+                'probability': probability,
+                'confidence': final_confidence,
+                'model_key': ml_prediction.get('prediction', {}).get('model_key', 'active_trade_analysis') if ml_prediction else 'active_trade_analysis',
+                'model_type': 'ml_enhanced' if ml_prediction else 'trade_health',
+                'direction': trade_direction,
+                'timestamp': datetime.now().isoformat()
+            },
+            'trade_analysis': {
+                'entry_price': entry_price,
+                'current_price': current_price,
+                'profit_pips': current_profit_pips,
+                'profit_money': current_profit_money,
+                'profit_percentage': (current_profit_money / account_balance) * 100 if account_balance > 0 else 0,
+                'duration_minutes': trade_duration_minutes,
+                'recommendation': 'continue' if should_continue else 'close',
+                'reason': 'profitable_trade' if current_profit_money > 0 else 'max_loss_threshold' if abs(current_profit_money) / account_balance >= float(os.getenv('MAX_LOSS_PERCENTAGE', 0.01)) else 'acceptable_loss'
+            },
+            'ml_analysis': {
+                'ml_prediction_available': ml_prediction is not None,
+                'ml_confidence': ml_confidence,
+                'ml_probability': ml_probability,
+                'base_confidence': base_confidence,
+                'final_confidence': final_confidence,
+                'analysis_method': 'ml_enhanced' if ml_prediction else 'trade_health_only'
+            }
+        }
+
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"❌ Error in active_trade_recommendation endpoint: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/risk/status', methods=['GET'])
+def get_risk_status():
+    """Get current risk management status using existing analytics data"""
+    if ml_service is None:
+        return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
+
+    try:
+        # Get current positions from analytics service
+        positions_data = get_current_positions_from_analytics()
+
+        # Get portfolio summary from analytics service
+        portfolio_data = get_portfolio_summary_from_analytics()
+
+        # Update risk manager with current data
+        ml_service.risk_manager.set_portfolio_data(portfolio_data)
+        ml_service.risk_manager.set_positions_data(positions_data)
+
+        # Get comprehensive risk status
+        risk_status = ml_service.risk_manager.get_risk_status()
+
+        return jsonify({
+            'status': 'success',
+            'risk_status': risk_status,
+            'data_source': 'analytics_service',
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error getting risk status: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+def get_current_positions_from_analytics():
+    """Get current open positions from analytics service via HTTP"""
+    try:
+        import requests
+
+        # Get analytics service URL from environment or use default
+        analytics_url = os.getenv('ANALYTICS_URL', 'http://localhost:5001')
+        positions_endpoint = f"{analytics_url}/risk/positions"
+
+        logger.info(f"🌐 Requesting positions from analytics service: {positions_endpoint}")
+
+        response = requests.get(positions_endpoint, timeout=10)
+        response.raise_for_status()
+
+        data = response.json()
+
+        if data['status'] == 'success':
+            positions = data['positions']
+            logger.info(f"✅ Retrieved {len(positions)} positions from analytics service")
+            return positions
+        else:
+            logger.warning(f"⚠️ Analytics service returned error: {data.get('message', 'Unknown error')}")
+            return []
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ HTTP request failed to analytics service: {e}")
+        return []
+    except Exception as e:
+        logger.error(f"❌ Error getting positions from analytics service: {e}")
+        return []
+
+def get_portfolio_summary_from_analytics():
+    """Get portfolio summary from analytics service via HTTP"""
+    try:
+        import requests
+
+        # Get analytics service URL from environment or use default
+        analytics_url = os.getenv('ANALYTICS_URL', 'http://localhost:5001')
+        portfolio_endpoint = f"{analytics_url}/risk/portfolio"
+
+        logger.info(f"🌐 Requesting portfolio from analytics service: {portfolio_endpoint}")
+
+        response = requests.get(portfolio_endpoint, timeout=10)
+        response.raise_for_status()
+
+        data = response.json()
+
+        if data['status'] == 'success':
+            portfolio = data['portfolio']
+            logger.info(f"✅ Retrieved portfolio from analytics service: {portfolio['total_positions']} positions")
+            return portfolio
+        else:
+            logger.warning(f"⚠️ Analytics service returned error: {data.get('message', 'Unknown error')}")
+            return get_default_portfolio()
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ HTTP request failed to analytics service: {e}")
+        return get_default_portfolio()
+    except Exception as e:
+        logger.error(f"❌ Error getting portfolio from analytics service: {e}")
+        return get_default_portfolio()
+
+def get_default_portfolio():
+    """Get default portfolio data when analytics service is unavailable"""
+    return {
+        'equity': 10000.0,
+        'balance': 10000.0,
+        'margin': 0.0,
+        'free_margin': 10000.0,
+        'total_positions': 0,
+        'long_positions': 0,
+        'short_positions': 0,
+        'total_volume': 0.0,
+        'avg_lot_size': 0.0
+    }
 
 @app.route('/models', methods=['GET'])
 def list_models():
