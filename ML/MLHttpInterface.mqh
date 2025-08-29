@@ -129,6 +129,7 @@ struct MLFeatures {
 struct UnifiedTradeData {
     ulong ticket;                    // MT5 position ticket (0 if not yet opened)
     string direction;                 // BUY/SELL
+    string timeframe;                 // Timeframe this trade was opened on
     double entry_price;              // Entry price
     double stop_loss;                // Stop loss
     double take_profit;              // Take profit
@@ -139,6 +140,8 @@ struct UnifiedTradeData {
     bool is_open;                    // Whether position is currently open
     datetime created_time;           // When trade was created
     datetime opened_time;            // When position was opened
+    datetime last_monitoring_check;  // When this trade was last monitored
+    bool monitoring_enabled;         // Whether monitoring is enabled for this trade
 };
 
 //+------------------------------------------------------------------+
@@ -673,6 +676,7 @@ public:
         UnifiedTradeData new_trade;
         new_trade.ticket = 0;  // Will be set when actual ticket is known
         new_trade.direction = direction;
+        new_trade.timeframe = config.timeframe;  // Set the timeframe for this trade
         new_trade.entry_price = entry_price;
         new_trade.stop_loss = stop_loss;
         new_trade.take_profit = take_profit;
@@ -683,6 +687,8 @@ public:
         new_trade.is_open = false;
         new_trade.created_time = TimeCurrent();
         new_trade.opened_time = 0;
+        new_trade.last_monitoring_check = 0;  // Initialize monitoring timestamp
+        new_trade.monitoring_enabled = false;  // Will be enabled when monitoring starts
 
         AddUnifiedTrade(unified_trades, unified_trade_count, new_trade, maxCapacity);
         PrintUnifiedTrades(unified_trades, unified_trade_count, "After registering new pending trade");
@@ -1913,7 +1919,10 @@ private:
         return prediction;
     }
 
-    // Get current timeframe as string
+    //+------------------------------------------------------------------+
+    //| Get current timeframe as string                                  |
+    //| This is the inverse of StringToTimeframe()                       |
+    //+------------------------------------------------------------------+
     string GetCurrentTimeframeString() {
         switch(_Period) {
             case PERIOD_M1:  return "M1";
@@ -1923,6 +1932,8 @@ private:
             case PERIOD_H1:  return "H1";
             case PERIOD_H4:  return "H4";
             case PERIOD_D1:  return "D1";
+            case PERIOD_W1:  return "W1";
+            case PERIOD_MN1: return "MN1";
             default:         return "H1";
         }
     }
@@ -1973,6 +1984,7 @@ public:
                     UnifiedTradeData existing_trade;
                     existing_trade.ticket = pos_ticket;
                     existing_trade.direction = (pos_type == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+                    existing_trade.timeframe = config.timeframe;  // Set current timeframe
                     existing_trade.entry_price = open_price;
                     existing_trade.lot_size = volume;
                     existing_trade.opened_time = open_time;
@@ -1981,6 +1993,8 @@ public:
                     existing_trade.take_profit = 0.0; // Unknown for existing positions
                     existing_trade.is_logged = false; // Not logged yet
                     existing_trade.created_time = open_time; // Use open time as created time
+                    existing_trade.last_monitoring_check = 0; // Initialize monitoring timestamp
+                    existing_trade.monitoring_enabled = false; // Will be enabled when monitoring starts
 
                     // For existing positions, we don't have the original ML prediction/features
                     // Create default/empty prediction and features
@@ -2076,5 +2090,436 @@ public:
 
 };
 
-// Global instance
+    //+------------------------------------------------------------------+
+    //| Prepare JSON request for active trade recommendation              |
+    //+------------------------------------------------------------------+
+    string PrepareActiveTradeJsonRequest(MLFeatures &features, string trade_direction,
+                                       double entry_price, double current_price,
+                                       int trade_duration_minutes, double current_profit_pips,
+                                       double account_balance, double current_profit_money) {
+        string json = "{";
+
+        // Add trade-specific data
+        json += "\"trade_direction\":\"" + trade_direction + "\",";
+        json += "\"entry_price\":" + DoubleToString(entry_price, _Digits) + ",";
+        json += "\"current_price\":" + DoubleToString(current_price, _Digits) + ",";
+        json += "\"trade_duration_minutes\":" + IntegerToString(trade_duration_minutes) + ",";
+        json += "\"current_profit_pips\":" + DoubleToString(current_profit_pips, 1) + ",";
+        json += "\"account_balance\":" + DoubleToString(account_balance, 2) + ",";
+        json += "\"current_profit_money\":" + DoubleToString(current_profit_money, 2) + ",";
+
+        // Add market features
+        json += "\"features\":{";
+        json += "\"symbol\":\"" + config.symbol + "\",";
+        json += "\"timeframe\":\"" + config.timeframe + "\",";
+        json += "\"current_price\":" + DoubleToString(current_price, _Digits) + ",";
+        json += "\"atr\":" + DoubleToString(features.atr, _Digits) + ",";
+        json += "\"rsi\":" + DoubleToString(features.rsi, 2) + ",";
+        json += "\"macd\":" + DoubleToString(features.macd, _Digits) + ",";
+        json += "\"macd_signal\":" + DoubleToString(features.macd_signal, _Digits) + ",";
+        json += "\"macd_histogram\":" + DoubleToString(features.macd_histogram, _Digits) + ",";
+        json += "\"bollinger_upper\":" + DoubleToString(features.bollinger_upper, _Digits) + ",";
+        json += "\"bollinger_middle\":" + DoubleToString(features.bollinger_middle, _Digits) + ",";
+        json += "\"bollinger_lower\":" + DoubleToString(features.bollinger_lower, _Digits) + ",";
+        json += "\"volume\":" + DoubleToString(features.volume, 0) + ",";
+        json += "\"spread\":" + DoubleToString(features.spread, _Digits);
+        json += "}";
+
+        json += "}";
+
+        return json;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Parse response from active trade recommendation endpoint          |
+    //+------------------------------------------------------------------+
+    MLPrediction ParseActiveTradeResponse(string response) {
+        MLPrediction prediction;
+        prediction.is_valid = false;
+
+        // Reset prediction
+        prediction.model_key = "";
+        prediction.direction = "";
+        prediction.probability = 0.0;
+        prediction.confidence = 0.0;
+        prediction.error_message = "";
+
+        if(StringLen(response) == 0) {
+            prediction.error_message = "Empty response received";
+            return prediction;
+        }
+
+        // Use JSON library for proper parsing
+        CJAVal json_response;
+        if(!json_response.Deserialize(response)) {
+            prediction.error_message = "Failed to deserialize JSON response";
+            Print("❌ JSON deserialization failed for response: ", response);
+            return prediction;
+        }
+
+        // Check status
+        if(json_response["status"].ToStr() != "success") {
+            prediction.error_message = "API returned status: " + json_response["status"].ToStr();
+            if(json_response["message"].ToStr() != "") {
+                prediction.error_message += " - " + json_response["message"].ToStr();
+            }
+            return prediction;
+        }
+
+        // Extract should_trade value
+        if(json_response["should_trade"].ToInt() == 0) {
+            prediction.error_message = "Trade not recommended";
+            return prediction;
+        }
+
+        // Extract prediction data
+        CJAVal prediction_obj = json_response["prediction"];
+        if(prediction_obj.IsValid()) {
+            prediction.probability = prediction_obj["probability"].ToDbl();
+            prediction.confidence = prediction_obj["confidence"].ToDbl();
+            prediction.model_key = prediction_obj["model_key"].ToStr();
+            prediction.model_type = prediction_obj["model_type"].ToStr();
+            prediction.direction = prediction_obj["direction"].ToStr();
+
+            // Debug logging
+            Print("🔍 Parsed prediction data:");
+            Print("   Probability: ", DoubleToString(prediction.probability, 3));
+            Print("   Confidence: ", DoubleToString(prediction.confidence, 3));
+            Print("   Model Key: ", prediction.model_key);
+            Print("   Model Type: ", prediction.model_type);
+            Print("   Direction: ", prediction.direction);
+        } else {
+            prediction.error_message = "Missing prediction object in response";
+            Print("❌ Prediction object not found in JSON response");
+            return prediction;
+        }
+
+        // Extract ML analysis data if available
+        CJAVal ml_analysis = json_response["ml_analysis"];
+        bool ml_available = false;
+        string analysis_method = "unknown";
+
+        if(ml_analysis.IsValid()) {
+            ml_available = ml_analysis["ml_prediction_available"].ToBool();
+            analysis_method = ml_analysis["analysis_method"].ToStr();
+
+            // Debug logging
+            Print("🔍 Parsed ML analysis data:");
+            Print("   ML Available: ", ml_available ? "Yes" : "No");
+            Print("   Analysis Method: ", analysis_method);
+        } else {
+            Print("⚠️ ML analysis section not found in JSON response");
+        }
+
+        // Determine if prediction is valid
+        // A valid prediction should have reasonable values (probability and confidence can be 0 for close recommendations)
+        if(prediction.probability >= 0 && prediction.probability <= 1 &&
+           prediction.confidence >= 0 && prediction.confidence <= 1 &&
+           prediction.model_key != "" && prediction.model_type != "") {
+
+            prediction.is_valid = true;
+            prediction.error_message = "";
+
+            // Log the analysis method used
+            if(ml_available) {
+                Print("✅ Active trade recommendation: ML-enhanced analysis (", analysis_method, ")");
+            } else {
+                Print("✅ Active trade recommendation: Trade health analysis only (", analysis_method, ")");
+                Print("   This is normal when no suitable ML model is available");
+            }
+        } else {
+            prediction.error_message = "Invalid prediction data - probability: " + DoubleToString(prediction.probability, 3) +
+                                    ", confidence: " + DoubleToString(prediction.confidence, 3) +
+                                    ", model_key: " + prediction.model_key +
+                                    ", model_type: " + prediction.model_type;
+        }
+
+        return prediction;
+    }
+
+        //+------------------------------------------------------------------+
+    //| Get open positions from unified trade tracking system           |
+    //+------------------------------------------------------------------+
+    int GetOpenPositionsFromUnifiedSystem(UnifiedTradeData& openPositions[], int maxCapacity) {
+        int openCount = 0;
+
+        for(int i = 0; i < unified_trade_count && openCount < maxCapacity; i++) {
+            if(unified_trades[i].is_open && unified_trades[i].ticket > 0) {
+                openPositions[openCount] = unified_trades[i];
+                openCount++;
+            }
+        }
+
+        return openCount;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Get open positions filtered by timeframe                        |
+    //+------------------------------------------------------------------+
+    int GetOpenPositionsByTimeframe(UnifiedTradeData& openPositions[], int maxCapacity, string targetTimeframe) {
+        int openCount = 0;
+
+        for(int i = 0; i < unified_trade_count && openCount < maxCapacity; i++) {
+            if(unified_trades[i].is_open && unified_trades[i].ticket > 0 &&
+               unified_trades[i].timeframe == targetTimeframe) {
+                openPositions[openCount] = unified_trades[i];
+                openCount++;
+            }
+        }
+
+        return openCount;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Enable monitoring for trades on a specific timeframe            |
+    //+------------------------------------------------------------------+
+    void EnableMonitoringForTimeframe(string targetTimeframe) {
+        for(int i = 0; i < unified_trade_count; i++) {
+            if(unified_trades[i].timeframe == targetTimeframe) {
+                unified_trades[i].monitoring_enabled = true;
+                unified_trades[i].last_monitoring_check = 0; // Reset check timer
+            }
+        }
+        Print("✅ Enabled monitoring for timeframe: ", targetTimeframe);
+    }
+
+    //+------------------------------------------------------------------+
+    //| Check if monitoring is needed for a specific timeframe          |
+    //+------------------------------------------------------------------+
+    bool ShouldMonitorTimeframe(string targetTimeframe, int checkIntervalMinutes) {
+        datetime currentTime = TimeCurrent();
+
+        for(int i = 0; i < unified_trade_count; i++) {
+            if(unified_trades[i].timeframe == targetTimeframe &&
+               unified_trades[i].monitoring_enabled &&
+               unified_trades[i].is_open) {
+
+                // Check if enough time has passed since last monitoring
+                if(currentTime - unified_trades[i].last_monitoring_check >= checkIntervalMinutes * 60) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Update monitoring timestamp for a specific position             |
+    //+------------------------------------------------------------------+
+    void UpdatePositionMonitoringTimestamp(ulong ticket, datetime timestamp) {
+        for(int i = 0; i < unified_trade_count; i++) {
+            if(unified_trades[i].ticket == ticket) {
+                unified_trades[i].last_monitoring_check = timestamp;
+                break;
+            }
+        }
+    }
+
+        //+------------------------------------------------------------------+
+    //| Check for candle close and monitor active trades               |
+    //+------------------------------------------------------------------+
+    void CheckCandleCloseAndMonitorTrades(string& lastCandleCloseTime, string currentTimeframe,
+                                         int activeTradeCheckMinutes, bool enableTrading,
+                                         double accountBalance, int maxTrackedPositions,
+                                         string symbol, int digits) {
+        // Get current candle time
+        datetime currentCandleTime = iTime(symbol, StringToTimeframe(currentTimeframe), 0);
+
+        // Check if we have a new candle (candle close detected)
+        if(currentCandleTime != StringToInteger(lastCandleCloseTime)) {
+            Print("🕯️ New candle detected at ", TimeToString(currentCandleTime), " - enabling active trade monitoring for ", currentTimeframe);
+            lastCandleCloseTime = IntegerToString(currentCandleTime);
+
+            // Enable monitoring for this specific timeframe
+            EnableMonitoringForTimeframe(currentTimeframe);
+        }
+
+        // Check if we should monitor trades for this timeframe
+        if(ShouldMonitorTimeframe(currentTimeframe, activeTradeCheckMinutes)) {
+            MonitorActiveTrades(currentTimeframe, enableTrading, accountBalance, maxTrackedPositions, symbol, digits);
+        }
+    }
+
+        //+------------------------------------------------------------------+
+    //| Convert timeframe string to ENUM_TIMEFRAMES                     |
+    //| This is the inverse of GetCurrentTimeframeString()              |
+    //+------------------------------------------------------------------+
+    ENUM_TIMEFRAMES StringToTimeframe(string timeframe) {
+        if(timeframe == "M1") return PERIOD_M1;
+        if(timeframe == "M5") return PERIOD_M5;
+        if(timeframe == "M15") return PERIOD_M15;
+        if(timeframe == "M30") return PERIOD_M30;
+        if(timeframe == "H1") return PERIOD_H1;
+        if(timeframe == "H4") return PERIOD_H4;
+        if(timeframe == "D1") return PERIOD_D1;
+        if(timeframe == "W1") return PERIOD_W1;
+        if(timeframe == "MN1") return PERIOD_MN1;
+
+        // Default to H1 if unknown (same as GetCurrentTimeframeString default)
+        Print("⚠️ Unknown timeframe: ", timeframe, " - defaulting to H1");
+        return PERIOD_H1;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Monitor active trades for health and recommendations            |
+    //+------------------------------------------------------------------+
+    void MonitorActiveTrades(string timeframe, bool enableTrading, double accountBalance,
+                             int maxTrackedPositions, string symbol, int digits) {
+        Print("🔍 Monitoring active trades for health and recommendations on ", timeframe, "...");
+
+        // Get current market features for the request
+        MLFeatures features;
+        CollectMarketFeatures(features);
+
+        if(accountBalance <= 0) {
+            Print("❌ Invalid account balance, skipping active trade monitoring");
+            return;
+        }
+
+        // Get open positions from the unified trade tracking system for this specific timeframe
+        UnifiedTradeData openPositions[100]; // Temporary array for open positions
+        int openCount = GetOpenPositionsByTimeframe(openPositions, 100, timeframe);
+
+        if(openCount == 0) {
+            Print("ℹ️ No open positions found in unified tracking system for timeframe ", timeframe);
+            return;
+        }
+
+        Print("🔍 Found ", openCount, " open position(s) in unified tracking system for timeframe ", timeframe);
+
+        int totalPositions = 0;
+        int positionsToClose = 0;
+        datetime currentTime = TimeCurrent();
+
+        // Analyze each open position
+        for(int i = 0; i < openCount; i++) {
+            UnifiedTradeData& position = openPositions[i];
+
+            if(position.ticket > 0) {
+                totalPositions++;
+
+                // Get current market price for this position
+                double currentPrice = (position.direction == "BUY") ? SymbolInfoDouble(symbol, SYMBOL_BID) : SymbolInfoDouble(symbol, SYMBOL_ASK);
+
+                // Calculate profit/loss in pips
+                double profitLossPips = 0;
+                if(position.direction == "BUY") {
+                    profitLossPips = (currentPrice - position.entry_price) / SymbolInfoDouble(symbol, SYMBOL_POINT) * 10;
+                } else {
+                    profitLossPips = (position.entry_price - currentPrice) / SymbolInfoDouble(symbol, SYMBOL_POINT) * 10;
+                }
+
+                // Calculate trade duration in minutes
+                int durationMinutes = (int)((currentTime - position.opened_time) / 60);
+
+                // Get current profit/loss from MT5 (if position is still open)
+                double profitLoss = 0;
+                if(PositionSelectByTicket(position.ticket)) {
+                    profitLoss = PositionGetDouble(POSITION_PROFIT);
+                }
+
+                Print("📊 Analyzing Position ", position.ticket, " (", symbol, " ", position.direction, "):");
+                Print("   Entry Price: ", DoubleToString(position.entry_price, digits));
+                Print("   Current Price: ", DoubleToString(currentPrice, digits));
+                Print("   Duration: ", durationMinutes, " minutes");
+                Print("   Profit/Loss: $", DoubleToString(profitLoss, 2), " (", DoubleToString(profitLossPips, 1), " pips)");
+                Print("   Profit %: ", DoubleToString((profitLoss / accountBalance) * 100, 3), "%");
+
+                // Get active trade recommendation from ML service
+                MLPrediction recommendation = GetActiveTradeRecommendation(
+                    features,
+                    position.direction,
+                    position.entry_price,
+                    currentPrice,
+                    durationMinutes,
+                    profitLossPips,
+                    accountBalance,
+                    profitLoss
+                );
+
+                if(recommendation.is_valid) {
+                    Print("   ML Recommendation: ", recommendation.should_trade ? "CONTINUE" : "CLOSE");
+                    Print("   ML Confidence: ", DoubleToString(recommendation.confidence, 3));
+                    Print("   ML Probability: ", DoubleToString(recommendation.probability, 3));
+                    Print("   Model Key: ", recommendation.model_key);
+                    Print("   Model Type: ", recommendation.model_type);
+
+                    // Check if this is a fallback analysis (no ML model available)
+                    if(recommendation.model_type == "trade_health" || recommendation.model_key == "active_trade_analysis") {
+                        Print("   ℹ️ Using trade health analysis (no suitable ML model found)");
+                        Print("   ℹ️ This is normal and expected for some market conditions");
+                    }
+
+                    // Act on recommendation if confidence is high enough
+                    if(recommendation.confidence >= 0.7) {
+                        if(!recommendation.should_trade && recommendation.confidence >= 0.8) {
+                            // High confidence recommendation to close
+                            Print("🚨 High confidence recommendation to CLOSE position ", position.ticket);
+                            positionsToClose++;
+
+                            if(enableTrading) {
+                                // Close the position
+                                MqlTradeRequest closeRequest = {};
+                                closeRequest.action = TRADE_ACTION_DEAL;
+                                closeRequest.position = position.ticket;
+                                closeRequest.symbol = symbol;
+                                closeRequest.volume = position.lot_size;
+                                closeRequest.type = (position.direction == "BUY") ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
+                                closeRequest.price = currentPrice;
+                                closeRequest.deviation = 5;
+                                closeRequest.comment = "ML_ActiveTrade_Close";
+
+                                MqlTradeResult closeResult = {};
+                                if(OrderSend(closeRequest, closeResult)) {
+                                    if(closeResult.retcode == TRADE_RETCODE_DONE) {
+                                        Print("✅ Position ", position.ticket, " closed based on ML recommendation");
+                                    } else {
+                                        Print("❌ Failed to close position ", position.ticket, ": ", closeResult.retcode);
+                                    }
+                                } else {
+                                    Print("❌ OrderSend failed for position ", position.ticket);
+                                }
+                            } else {
+                                Print("ℹ️ Trading disabled - would close position ", position.ticket, " based on ML recommendation");
+                            }
+                        } else {
+                            Print("✅ Position ", position.ticket, " should continue based on ML recommendation");
+                        }
+                    } else {
+                        Print("ℹ️ ML confidence too low (", DoubleToString(recommendation.confidence, 3), ") - no action taken");
+                    }
+                } else {
+                    Print("❌ Failed to get ML recommendation: ", recommendation.error_message);
+
+                    // Check if this is a "No suitable model found" scenario
+                    if(StringFind(recommendation.error_message, "No suitable model found") != -1) {
+                        Print("   ℹ️ No suitable ML model found - this is normal for some market conditions");
+                        Print("   ℹ️ The system will continue to monitor using basic trade health metrics");
+                        Print("   ℹ️ Position will be re-evaluated on next monitoring cycle");
+                    }
+                }
+                Print(""); // Empty line for readability
+            }
+        }
+
+        if(totalPositions == 0) {
+            Print("ℹ️ No open positions found for timeframe ", timeframe);
+        } else {
+            Print("✅ Monitored ", totalPositions, " active position(s) on timeframe ", timeframe);
+            if(positionsToClose > 0) {
+                Print("🚨 Recommended closing ", positionsToClose, " position(s) based on ML analysis");
+            }
+        }
+
+        // Update monitoring timestamps for all monitored positions
+        for(int i = 0; i < openCount; i++) {
+            if(openPositions[i].ticket > 0) {
+                UpdatePositionMonitoringTimestamp(openPositions[i].ticket, currentTime);
+            }
+        }
+
+        Print("✅ Updated monitoring timestamps for ", openCount, " position(s)");
+    }
+
+    // Global instance
 MLHttpInterface g_ml_interface;

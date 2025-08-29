@@ -25,11 +25,17 @@ input bool MLUseDirectionalModels = true;      // Use buy/sell specific models
 input bool MLUseCombinedModels = true;         // Use combined models
 input bool MLUseEnhancedEndpoint = true;       // Use enhanced /trade_decision endpoint
 
+input group "Risk Management Configuration"
+input bool EnableRiskManagement = true;        // Enable comprehensive risk management (ML service handles details)
+input int MaxTotalPositions = 40;              // Local safety limit for maximum open positions
+input bool EnableActiveTradeMonitoring = true; // Enable active trade health monitoring
+input int ActiveTradeCheckMinutes = 1;         // Check active trades every N minutes after candle close
+
 input group "Testing Configuration"
 input int TestIntervalMinutes = 5;             // Test interval in minutes
 input bool EnableTrading = false;              // Enable actual trading (for safety)
 input bool AllowMultipleSimultaneousOrders = false; // Allow multiple simultaneous orders
-input double TestLotSize = 0.01;               // Lot size for test trades
+input double TestLotSize = 0.01;               // Lot size for test trades (fallback if risk management disabled)
 input int MaxTrackedPositions = 50;            // Maximum number of positions to track simultaneously
 input bool EnableRandomTrading = true;         // Enable random trading when no ML predictions available
 input double RandomTradeProbability = 0.3;     // Probability of placing random trade (0.0-1.0)
@@ -65,6 +71,10 @@ int errorCount = 0;
 //--- Position tracking (unified system - no separate arrays needed)
 datetime lastPositionOpenTime = 0;
 string lastTradeID = ""; // Store the trade ID for matching close
+
+//--- Active trade monitoring variables (timeframe-specific)
+string lastCandleCloseTime = "0";  // String for passing by reference to MLHttpInterface
+string currentTimeframe = "";
 
 //--- Pending trade data for ML retraining (unified system - no legacy variables needed)
 
@@ -130,6 +140,18 @@ int OnInit() {
         Print("   Minutes after news: ", NewsMinutesAfter);
         Print("   High-impact only: ", NewsHighImpactOnly ? "Yes" : "No");
         Print("   Debug logs: ", NewsEnableDebugLogs ? "Yes" : "No");
+    }
+
+    // Show simplified risk management configuration
+    Print("🛡️ Risk Management Configuration:");
+    Print("   Enabled: ", EnableRiskManagement ? "Yes" : "No");
+    if(EnableRiskManagement) {
+        Print("   Active Trade Monitoring: ", EnableActiveTradeMonitoring ? "Yes" : "No");
+        if(EnableActiveTradeMonitoring) {
+            Print("   Check Interval: ", ActiveTradeCheckMinutes, " minutes after candle close");
+        }
+        Print("   Max Total Positions: ", MaxTotalPositions);
+        Print("   Note: Detailed risk parameters now controlled by ML service environment variables");
     }
 
     // Check historical data availability
@@ -206,6 +228,23 @@ int OnInit() {
     g_ml_interface.ScanForExistingOpenPositions(ea_identifier, MaxTrackedPositions,
                                                    RecordTradeEntry, RecordMarketConditions, EnableHttpAnalytics, MLStrategyName + "_Testing", SetTradeIDFromTicket);
 
+            // Initialize active trade monitoring
+    if(EnableActiveTradeMonitoring && EnableRiskManagement) {
+        currentTimeframe = EnumToString(_Period);
+
+        Print("🔍 Active trade monitoring initialized:");
+        Print("   Symbol: ", _Symbol);
+        Print("   Timeframe: ", currentTimeframe);
+        Print("   Check interval: ", ActiveTradeCheckMinutes, " minutes after candle close");
+        Print("   Monitoring enabled: Yes");
+
+        // Initialize candle close detection
+        lastCandleCloseTime = IntegerToString(iTime(_Symbol, _Period, 0));
+        Print("   Initial candle time: ", lastCandleCloseTime);
+    } else {
+        Print("ℹ️ Active trade monitoring disabled");
+    }
+
     return(INIT_SUCCEEDED);
 }
 
@@ -263,6 +302,12 @@ void OnTick() {
         RunMLTest();
         lastTestTime = TimeCurrent();
     }
+
+    // Check for candle close and monitor active trades
+    g_ml_interface.CheckCandleCloseAndMonitorTrades(lastCandleCloseTime, currentTimeframe,
+                                                   ActiveTradeCheckMinutes, EnableTrading,
+                                                   AccountInfoDouble(ACCOUNT_BALANCE),
+                                                   MaxTrackedPositions, _Symbol, _Digits);
 }
 
 //+------------------------------------------------------------------+
@@ -318,9 +363,31 @@ void RunMLTest() {
         ExecuteTestTrade(buyPrediction, sellPrediction);
     }
 
-    // Execute random trade if ML predictions failed and random trading is enabled
+    // Execute random trade only if ML predictions failed due to "No suitable model found" and random trading is enabled
+    // This prevents random trades when there are other errors like server issues, validation failures, or risk limits
     if(EnableRandomTrading && (!buyPrediction.is_valid || !sellPrediction.is_valid)) {
-        ExecuteRandomTrade();
+        // Check if the failure is specifically due to "No suitable model found"
+        bool shouldExecuteRandom = false;
+
+        if(!buyPrediction.is_valid && StringFind(buyPrediction.error_message, "No suitable model found") != -1) {
+            shouldExecuteRandom = true;
+            Print("ℹ️ BUY prediction failed due to 'No suitable model found' - random trade allowed");
+        }
+
+        if(!sellPrediction.is_valid && StringFind(sellPrediction.error_message, "No suitable model found") != -1) {
+            shouldExecuteRandom = true;
+            Print("ℹ️ SELL prediction failed due to 'No suitable model found' - random trade allowed");
+        }
+
+        if(shouldExecuteRandom) {
+            Print("🎲 Executing random trade for data collection (no suitable ML model available)");
+            ExecuteRandomTrade();
+        } else {
+            Print("⚠️ ML predictions failed for reasons other than 'No suitable model found' - skipping random trade");
+            Print("   BUY error: ", buyPrediction.error_message);
+            Print("   SELL error: ", sellPrediction.error_message);
+            Print("   ℹ️ Random trades are only allowed when ML models are unavailable, not when there are other errors");
+        }
     }
 
     Print("✅ ML test #", testCount, " completed");
@@ -1089,4 +1156,3 @@ bool HasOpenPositionForThisEA() {
 void PrintUnifiedTradeArrayStatus() {
     g_ml_interface.PrintUnifiedTradeArrayStatus(MaxTrackedPositions);
 }
-
