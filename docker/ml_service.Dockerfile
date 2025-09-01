@@ -7,7 +7,7 @@ WORKDIR /app
 # Install system dependencies including timezone support
 RUN apt-get update \
     && apt-get upgrade -y \
-    && apt-get install -y gcc default-libmysqlclient-dev pkg-config tzdata \
+    && apt-get install -y gcc default-libmysqlclient-dev pkg-config tzdata curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set timezone to Stockholm, Sweden
@@ -36,11 +36,11 @@ ENV FLASK_APP=ML_Webserver/ml_prediction_service.py
 ENV FLASK_ENV=production
 
 # Expose port (will be overridden by docker-compose)
-EXPOSE 5002
+EXPOSE ${ML_SERVICE_PORT}
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5002/health || exit 1
+    CMD curl -f http://localhost:${ML_SERVICE_PORT}/health || exit 1
 
 # Run the application (will use environment variables from docker-compose)
 CMD python -m flask run --host=0.0.0.0 --port=$ML_SERVICE_PORT

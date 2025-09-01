@@ -75,7 +75,8 @@ class PositionData:
 
     def __init__(self, ticket: str, symbol: str, direction: str, volume: float,
                  open_price: float, current_price: float, stop_loss: float,
-                 take_profit: float, profit_loss: float, open_time: str, comment: str):
+                 take_profit: float, profit_loss: float, open_time: str, comment: str,
+                 tick_value: float = 0.0, tick_size: float = 0.0):
         self.ticket = ticket
         self.symbol = symbol
         self.direction = direction
@@ -87,6 +88,8 @@ class PositionData:
         self.profit_loss = profit_loss
         self.open_time = open_time
         self.comment = comment
+        self.tick_value = tick_value
+        self.tick_size = tick_size
         self.risk_amount = 0.0
 
 class MLRiskManager:
@@ -98,9 +101,9 @@ class MLRiskManager:
 
         # Risk tracking
         self.initial_balance = 0.0
-        self.peak_balance = 0.0
         self.daily_start_balance = 0.0
         self.last_daily_reset = datetime.now()
+        self.weekly_drawdown = 0.0  # Weekly drawdown from EA
 
         # Position tracking
         self.positions: List[PositionData] = []
@@ -114,22 +117,62 @@ class MLRiskManager:
 
     def set_portfolio_data(self, portfolio_data: Dict) -> None:
         """Set portfolio data from external source (e.g., MT5 account info)"""
-        self.portfolio.total_equity = portfolio_data.get('equity', 0.0)
-        self.portfolio.total_balance = portfolio_data.get('balance', 0.0)
-        self.portfolio.total_margin = portfolio_data.get('margin', 0.0)
-        self.portfolio.free_margin = portfolio_data.get('free_margin', 0.0)
+        logger.info("🔍 ===== SETTING PORTFOLIO DATA =====")
+        logger.info(f"🔍 Received portfolio data: {portfolio_data}")
+        logger.info(f"🔍 Data type: {type(portfolio_data)}")
+        logger.info(f"🔍 Data keys: {list(portfolio_data.keys()) if isinstance(portfolio_data, dict) else 'Not a dict'}")
+
+        # Analytics service only provides position counts and volume data
+        # Account balance and equity are set separately via set_account_info
+        self.portfolio.total_positions = portfolio_data.get('total_positions', 0)
+        self.portfolio.long_positions = portfolio_data.get('long_positions', 0)
+        self.portfolio.short_positions = portfolio_data.get('short_positions', 0)
+
+        logger.info(f"🔍 Set portfolio values:")
+        logger.info(f"  Total Positions: {self.portfolio.total_positions}")
+        logger.info(f"  Long Positions: {self.portfolio.long_positions}")
+        logger.info(f"  Short Positions: {self.portfolio.short_positions}")
+        logger.info("🔍 ===== END PORTFOLIO DATA =====")
+
+    def set_weekly_drawdown(self, weekly_drawdown: float) -> None:
+        """Set weekly drawdown from EA for risk management"""
+        logger.info("🔍 ===== SETTING WEEKLY DRAWDOWN =====")
+        logger.info(f"🔍 Weekly Drawdown: {weekly_drawdown * 100:.2f}%")
+
+        self.weekly_drawdown = weekly_drawdown
+
+        # Log weekly drawdown status
+        if weekly_drawdown >= 0.20:  # 20% threshold
+            logger.warning(f"🔍 ⚠️ Weekly drawdown {weekly_drawdown * 100:.2f}% exceeds 20% threshold!")
+        elif weekly_drawdown >= 0.15:  # 15% warning
+            logger.warning(f"🔍 ⚠️ Weekly drawdown {weekly_drawdown * 100:.2f}% approaching 20% threshold")
+        else:
+            logger.info(f"🔍 ✅ Weekly drawdown {weekly_drawdown * 100:.2f}% within acceptable range")
+
+        logger.info("🔍 ===== END WEEKLY DRAWDOWN =====")
+
+    def get_weekly_drawdown(self) -> float:
+        """Get current weekly drawdown value"""
+        return self.weekly_drawdown
+
+    def set_account_info(self, account_balance: float, account_equity: float = None) -> None:
+        """Set account balance and equity for risk calculations"""
+        logger.info("🔍 ===== SETTING ACCOUNT INFO =====")
+        logger.info(f"🔍 Account Balance: ${account_balance:,.2f}")
+
+        self.portfolio.total_balance = account_balance
+        self.portfolio.total_equity = account_equity if account_equity is not None else account_balance
+
+
+
+        logger.info(f"🔍 Set account values:")
+        logger.info(f"  Balance: ${self.portfolio.total_balance:,.2f}")
+        logger.info(f"  Equity: ${self.portfolio.total_equity:,.2f}")
+        logger.info("🔍 ===== END ACCOUNT INFO =====")
 
         # Calculate margin level
         if self.portfolio.total_margin > 0:
             self.portfolio.margin_level = (self.portfolio.total_equity / self.portfolio.total_margin) * 100
-
-        # Update peak balance and drawdown
-        if self.portfolio.total_equity > self.peak_balance:
-            self.peak_balance = self.portfolio.total_equity
-
-        if self.peak_balance > 0:
-            self.portfolio.current_drawdown_percent = (self.peak_balance - self.portfolio.total_equity) / self.peak_balance
-            self.portfolio.max_drawdown_percent = max(self.portfolio.max_drawdown_percent, self.portfolio.current_drawdown_percent)
 
         # Calculate daily loss
         if self.daily_start_balance > 0:
@@ -141,6 +184,15 @@ class MLRiskManager:
 
     def set_positions_data(self, positions_data: List[Dict]) -> None:
         """Set positions data from external source (e.g., MT5 open positions)"""
+        logger.info("🔍 ===== SETTING POSITIONS DATA =====")
+        logger.info(f"🔍 Received positions data: {positions_data}")
+        logger.info(f"🔍 Data type: {type(positions_data)}")
+        logger.info(f"🔍 Number of positions: {len(positions_data) if isinstance(positions_data, list) else 'Not a list'}")
+
+        if isinstance(positions_data, list) and len(positions_data) > 0:
+            logger.info(f"🔍 First position sample: {positions_data[0]}")
+            logger.info(f"🔍 Position keys: {list(positions_data[0].keys()) if positions_data[0] else 'Empty position'}")
+
         self.positions = []
         self.portfolio.total_positions = 0
         self.portfolio.long_positions = 0
@@ -160,7 +212,9 @@ class MLRiskManager:
                 take_profit=pos_data.get('take_profit', 0.0),
                 profit_loss=pos_data.get('profit_loss', 0.0),
                 open_time=pos_data.get('open_time', ''),
-                comment=pos_data.get('comment', '')
+                comment=pos_data.get('comment', ''),
+                tick_value=pos_data.get('tick_value', 0.0),
+                tick_size=pos_data.get('tick_size', 0.0)
             )
 
             # Calculate risk amount
@@ -169,6 +223,10 @@ class MLRiskManager:
             # Update counters
             self.portfolio.total_positions += 1
             self.portfolio.total_profit_loss += position.profit_loss
+
+            # Log significant P&L positions
+            if abs(position.profit_loss) > 10.0:  # Log positions with >$10 P&L
+                logger.info(f"🔍 Position {position.symbol} {position.direction}: P&L ${position.profit_loss:,.2f}")
 
             if position.direction.lower() == 'buy':
                 self.portfolio.long_positions += 1
@@ -183,14 +241,46 @@ class MLRiskManager:
             self.positions.append(position)
 
         # Calculate total risk percentage
+        logger.info("🔍 Calculating total portfolio risk...")
+
+        # Debug: Log positions with extremely high risk
+        high_risk_positions = [pos for pos in self.positions if pos.risk_amount > 1000]
+        if high_risk_positions:
+            logger.warning(f"🔍 ⚠️ Found {len(high_risk_positions)} positions with risk > $1,000:")
+            for i, pos in enumerate(high_risk_positions[:5]):  # Show first 5
+                logger.warning(f"🔍   [{i}] {pos.symbol} {pos.direction}: Risk ${pos.risk_amount:,.2f}, Volume: {pos.volume}, Price: {pos.current_price}, SL: {pos.stop_loss}")
+            if len(high_risk_positions) > 5:
+                logger.warning(f"🔍   ... and {len(high_risk_positions) - 5} more high-risk positions")
+
         self.portfolio.total_risk_percent = self._calculate_total_portfolio_risk()
+        logger.info(f"🔍 Calculated total risk: {self.portfolio.total_risk_percent * 100:.2f}%")
+
+        # Log total P&L summary
+        logger.info(f"🔍 Total P&L from {self.portfolio.total_positions} positions: ${self.portfolio.total_profit_loss:,.2f}")
+        if self.portfolio.total_profit_loss > 0:
+            logger.info(f"🔍 Portfolio is profitable: +${self.portfolio.total_profit_loss:,.2f}")
+        elif self.portfolio.total_profit_loss < 0:
+            logger.info(f"🔍 Portfolio is losing: ${self.portfolio.total_profit_loss:,.2f}")
+        else:
+            logger.info(f"🔍 Portfolio is break-even: $0.00")
+
+        # Calculate real equity based on account balance + unrealized P&L
+        self.portfolio.total_equity = self.portfolio.total_balance + self.portfolio.total_profit_loss
+        logger.info(f"🔍 Calculated real equity: ${self.portfolio.total_equity:,.2f} (Balance: ${self.portfolio.total_balance:,.2f} + P&L: ${self.portfolio.total_profit_loss:,.2f})")
+
+        # Use weekly drawdown from EA instead of calculating peak-based drawdown
+        # The EA provides accurate weekly drawdown from MT5 deal history
+        if self.weekly_drawdown > 0:
+            logger.info(f"🔍 Using weekly drawdown from EA: {self.weekly_drawdown * 100:.2f}%")
+            # Set current drawdown to weekly drawdown for consistency
+            self.portfolio.current_drawdown_percent = self.weekly_drawdown
+            self.portfolio.max_drawdown_percent = max(self.portfolio.max_drawdown_percent, self.weekly_drawdown)
+        else:
+            logger.info("🔍 No weekly drawdown data from EA - using 0% as default")
+            self.portfolio.current_drawdown_percent = 0.0
 
         # Calculate risk ratios
         self._calculate_risk_ratios()
-
-        logger.info(f"Portfolio updated: {self.portfolio.total_positions} positions, "
-                   f"Risk: {self.portfolio.total_risk_percent * 100:.2f}%, "
-                   f"Drawdown: {self.portfolio.current_drawdown_percent * 100:.2f}%")
 
     def calculate_optimal_lot_size(self, symbol: str, entry_price: float, stop_loss: float,
                                  account_balance: float, risk_override: float = 0.0) -> Tuple[float, Dict]:
@@ -252,6 +342,12 @@ class MLRiskManager:
             if self.portfolio.current_drawdown_percent > self.config.max_drawdown_percent:
                 return False, {"reason": "Drawdown limit exceeded",
                              "current": f"{self.portfolio.current_drawdown_percent * 100:.2f}%",
+                             "limit": f"{self.config.max_drawdown_percent * 100:.2f}%"}
+
+            # 2b. Check weekly drawdown limit (additional safety)
+            if hasattr(self, 'weekly_drawdown') and self.weekly_drawdown > self.config.max_drawdown_percent:
+                return False, {"reason": "Weekly drawdown limit exceeded",
+                             "current": f"{self.weekly_drawdown * 100:.2f}%",
                              "limit": f"{self.config.max_drawdown_percent * 100:.2f}%"}
 
             # 3. Check daily loss limit
@@ -325,21 +421,76 @@ class MLRiskManager:
         logger.info(f"Daily tracking reset - Start balance: ${self.daily_start_balance:.2f}")
 
     def _calculate_position_risk(self, position: PositionData) -> float:
-        """Calculate risk amount for a position"""
+        """Calculate risk amount for a position using MT5-style calculations"""
+        # If no stop loss is set, use a reasonable default risk calculation
         if position.stop_loss <= 0:
-            return 0.0
+            # For positions without stop loss, estimate risk as 2% of position value
+            # This is a conservative estimate for risk management
+            position_value = position.volume * position.current_price * 100000  # Standard lot size calculation
+            default_risk = position_value * 0.02  # 2% of position value
 
+            # Safety check: cap extremely high risk amounts
+            if default_risk > 10000:  # Cap at $10,000 per position
+                logger.warning(f"🔍   ⚠️ Default risk amount ${default_risk:.2f} exceeds $10,000 cap, capping to $10,000")
+                default_risk = 10000
+
+            logger.info(f"🔍   No stop loss set, using default risk: ${default_risk:.2f} (2% of position value)")
+            return default_risk
+
+        # Calculate risk based on actual stop loss using MT5-style approach
         stop_distance = abs(position.current_price - position.stop_loss)
-        # Simplified risk calculation - in production use symbol-specific tick values
-        return position.volume * stop_distance * 100
+
+        # Use the same logic as TradeUtils.mqh CalculateLotSize function
+        # Risk per lot = (stop_distance / tick_size) * tick_value
+        # Then scale by actual position volume
+
+        # Use tick information from the position data (sent by the EA)
+        tick_value = position.tick_value
+        tick_size = position.tick_size
+
+        if tick_size <= 0 or tick_value <= 0:
+            logger.warning(f"🔍   ⚠️ Missing tick info for {position.symbol} (tick_value: {tick_value}, tick_size: {tick_size}), using fallback calculation")
+            # Fallback to percentage-based risk
+            price_change_percent = (stop_distance / position.current_price) * 100
+            position_value = position.volume * position.current_price * 100000
+            risk_amount = position_value * (price_change_percent / 100) * 0.1  # Scale down to 0.1% for safety
+        else:
+            # Calculate risk using MT5-style formula
+            risk_per_lot = (stop_distance / tick_size) * tick_value
+            risk_amount = risk_per_lot * position.volume
+
+        # Safety check: cap extremely high risk amounts
+        if risk_amount > 10000:  # Cap at $10,000 per position
+            logger.warning(f"🔍   ⚠️ Risk amount ${risk_amount:.2f} exceeds $10,000 cap, capping to $10,000")
+            risk_amount = 10000
+
+        return risk_amount
 
     def _calculate_total_portfolio_risk(self) -> float:
         """Calculate total portfolio risk percentage"""
+        logger.info(f"🔍 _calculate_total_portfolio_risk called with {len(self.positions)} positions")
+        logger.info(f"🔍 Portfolio balance: {self.portfolio.total_balance}")
+
         total_risk = sum(pos.risk_amount for pos in self.positions)
+        logger.info(f"🔍 Sum of position risks: {total_risk}")
 
         if self.portfolio.total_balance > 0:
-            return total_risk / self.portfolio.total_balance
+            risk_percent = total_risk / self.portfolio.total_balance
+            logger.info(f"🔍 Calculated risk percentage: {risk_percent * 100:.2f}%")
 
+            # Factor in weekly drawdown if available
+            if hasattr(self, 'weekly_drawdown') and self.weekly_drawdown > 0:
+                logger.info(f"🔍 Weekly drawdown factor: {self.weekly_drawdown * 100:.2f}%")
+                # Increase risk percentage based on weekly drawdown
+                # Higher drawdown = higher risk multiplier
+                drawdown_multiplier = 1.0 + (self.weekly_drawdown * 2)  # Max 3x multiplier at 100% drawdown
+                adjusted_risk = risk_percent * drawdown_multiplier
+                logger.info(f"🔍 Risk adjusted for weekly drawdown: {adjusted_risk * 100:.2f}% (multiplier: {drawdown_multiplier:.2f})")
+                return adjusted_risk
+
+            return risk_percent
+
+        logger.info("🔍 Portfolio balance is 0, returning 0.0")
         return 0.0
 
     def _calculate_trade_risk(self, symbol: str, lot_size: float, stop_loss_distance: float) -> float:

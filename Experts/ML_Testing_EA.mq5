@@ -29,7 +29,6 @@ input group "Risk Management Configuration"
 input bool EnableRiskManagement = true;        // Enable comprehensive risk management (ML service handles details)
 input int MaxTotalPositions = 40;              // Local safety limit for maximum open positions
 input bool EnableActiveTradeMonitoring = true; // Enable active trade health monitoring
-input int ActiveTradeCheckMinutes = 1;         // Check active trades every N minutes after candle close
 
 input group "Testing Configuration"
 input int TestIntervalMinutes = 5;             // Test interval in minutes
@@ -148,7 +147,7 @@ int OnInit() {
     if(EnableRiskManagement) {
         Print("   Active Trade Monitoring: ", EnableActiveTradeMonitoring ? "Yes" : "No");
         if(EnableActiveTradeMonitoring) {
-            Print("   Check Interval: ", ActiveTradeCheckMinutes, " minutes after candle close");
+            Print("   Check Interval: Immediate after candle close");
         }
         Print("   Max Total Positions: ", MaxTotalPositions);
         Print("   Note: Detailed risk parameters now controlled by ML service environment variables");
@@ -230,12 +229,12 @@ int OnInit() {
 
             // Initialize active trade monitoring
     if(EnableActiveTradeMonitoring && EnableRiskManagement) {
-        currentTimeframe = EnumToString(_Period);
+        currentTimeframe = g_ml_interface.GetCurrentTimeframeString();
 
         Print("🔍 Active trade monitoring initialized:");
         Print("   Symbol: ", _Symbol);
         Print("   Timeframe: ", currentTimeframe);
-        Print("   Check interval: ", ActiveTradeCheckMinutes, " minutes after candle close");
+        Print("   Check interval: Immediate after candle close");
         Print("   Monitoring enabled: Yes");
 
         // Initialize candle close detection
@@ -305,8 +304,7 @@ void OnTick() {
 
     // Check for candle close and monitor active trades
     g_ml_interface.CheckCandleCloseAndMonitorTrades(lastCandleCloseTime, currentTimeframe,
-                                                   ActiveTradeCheckMinutes, EnableTrading,
-                                                   AccountInfoDouble(ACCOUNT_BALANCE),
+                                                   EnableTrading, AccountInfoDouble(ACCOUNT_BALANCE),
                                                    MaxTrackedPositions, _Symbol, _Digits);
 }
 

@@ -165,6 +165,188 @@ private:
     MLPrediction prediction_cache[10];
     int cache_index;
 
+    //+------------------------------------------------------------------+
+    //| Prepare JSON request for API using JSON library                  |
+    //+------------------------------------------------------------------+
+    string PrepareJsonRequest(MLFeatures &features, string direction) {
+        Print("📋 Preparing JSON request - Strategy: ", config.strategy_name, ", Symbol: ", config.symbol, ", Timeframe: ", config.timeframe, ", Direction: ", direction);
+
+                // Create JSON object using the library
+        CJAVal json_request;
+
+        // Set main properties
+        json_request["strategy"] = config.strategy_name;
+        json_request["symbol"] = config.symbol;
+        json_request["timeframe"] = config.timeframe;
+        json_request["direction"] = direction;
+
+        // Add features directly to main request (avoiding nested object issue)
+        json_request["rsi"] = features.rsi;
+        json_request["stoch_main"] = features.stoch_main;
+        json_request["stoch_signal"] = features.stoch_signal;
+        json_request["macd_main"] = features.macd_main;
+        json_request["macd_signal"] = features.macd_signal;
+        json_request["bb_upper"] = features.bb_upper;
+        json_request["bb_lower"] = features.bb_lower;
+        json_request["williams_r"] = features.williams_r;
+        json_request["cci"] = features.cci;
+        json_request["momentum"] = features.momentum;
+        json_request["force_index"] = features.force_index;
+        json_request["volume_ratio"] = features.volume_ratio;
+        json_request["price_change"] = features.price_change;
+        json_request["volatility"] = features.volatility;
+        json_request["spread"] = features.spread;
+        json_request["session_hour"] = features.session_hour;
+        json_request["is_news_time"] = features.is_news_time;
+        json_request["day_of_week"] = features.day_of_week;
+        json_request["month"] = features.month;
+
+        // Add trade calculation features (required for enhanced endpoint)
+        json_request["current_price"] = features.current_price;
+        json_request["atr"] = features.atr;
+        json_request["account_balance"] = features.account_balance;
+        json_request["risk_per_pip"] = features.risk_per_pip;
+
+        // Add all open positions with real-time P&L for risk management
+        CJAVal positions_data;
+        if(positions_data.Deserialize(GetOpenPositionsWithPandL())) {
+            json_request["positions"] = positions_data["positions"];
+            Print("📊 Added ", positions_data["total_count"].ToInt(), " positions to trade decision request");
+        } else {
+            Print("⚠️ Failed to parse positions data for trade decision, creating empty positions array");
+            CJAVal empty_positions;
+            json_request["positions"] = empty_positions;
+        }
+
+        // Add weekly drawdown for risk management
+        double weekly_drawdown = GetWeeklyDrawdown();
+        json_request["weekly_drawdown"] = weekly_drawdown;
+        Print("📊 Added weekly drawdown: ", DoubleToString(weekly_drawdown * 100, 2), "% to trade decision request");
+
+        // Serialize to string
+        string json_string;
+        json_request.Serialize(json_string);
+
+        Print("📊 JSON length: ", StringLen(json_string), " characters");
+        Print("✅ JSON created successfully using JSON library");
+
+        return json_string;
+    }
+
+    // Parse JSON response from API using JSON library
+    MLPrediction ParseJsonResponse(string response) {
+        Print("🔍 Parsing JSON response using JSON library");
+
+        MLPrediction prediction;
+        prediction.is_valid = false;
+        prediction.timestamp = TimeCurrent();
+
+        // Parse JSON using the library
+        CJAVal json_response;
+        if(!json_response.Deserialize(response)) {
+            prediction.error_message = "Failed to deserialize JSON response";
+            return prediction;
+        }
+
+        // Check status
+        if(json_response["status"].ToStr() != "success") {
+            prediction.error_message = "API returned status: " + json_response["status"].ToStr();
+            if(json_response["message"].ToStr() != "") {
+                prediction.error_message += " - " + json_response["message"].ToStr();
+            }
+            return prediction;
+        }
+
+        // Extract prediction data
+        CJAVal prediction_obj = json_response["prediction"];
+
+        prediction.direction = prediction_obj["direction"].ToStr();
+        prediction.probability = prediction_obj["probability"].ToDbl();
+        prediction.confidence = prediction_obj["confidence"].ToDbl();
+        prediction.model_type = prediction_obj["model_type"].ToStr();
+        prediction.model_key = prediction_obj["model_key"].ToStr();
+
+        // Validate essential fields
+        if(StringLen(prediction.direction) > 0 &&
+           prediction.confidence > 0 &&
+           prediction.probability > 0) {
+            prediction.is_valid = true;
+            prediction.error_message = "";
+
+            Print("✅ JSON parsing successful using library");
+            Print("   Direction: ", prediction.direction);
+            Print("   Probability: ", DoubleToString(prediction.probability, 4));
+            Print("   Confidence: ", DoubleToString(prediction.confidence, 4));
+            Print("   Model Type: ", prediction.model_type);
+            Print("   Model Key: ", prediction.model_key);
+        } else {
+            prediction.error_message = "Missing essential prediction fields";
+            Print("❌ JSON parsing failed: ", prediction.error_message);
+        }
+
+        return prediction;
+    }
+
+    // Parse enhanced JSON response from /trade_decision endpoint
+    MLPrediction ParseEnhancedJsonResponse(string response) {
+        Print("🔍 Parsing enhanced JSON response using JSON library");
+
+        MLPrediction prediction;
+        prediction.is_valid = false;
+        prediction.timestamp = TimeCurrent();
+
+        // Parse JSON using the library
+        CJAVal json_response;
+        if(!json_response.Deserialize(response)) {
+            prediction.error_message = "Failed to deserialize enhanced JSON response";
+            return prediction;
+        }
+
+        // Check status
+        if(json_response["status"].ToStr() != "success") {
+            prediction.error_message = "API returned status: " + json_response["status"].ToStr();
+            if(json_response["message"].ToStr() != "") {
+                prediction.error_message += " - " + json_response["message"].ToStr();
+            }
+            return prediction;
+        }
+
+                // Extract enhanced prediction data
+        CJAVal prediction_obj = json_response["prediction"];
+
+        prediction.direction = prediction_obj["direction"].ToStr();
+        prediction.probability = prediction_obj["probability"].ToDbl();
+        prediction.confidence = prediction_obj["confidence"].ToDbl();
+        prediction.model_type = prediction_obj["model_type"].ToStr();
+        prediction.model_key = prediction_obj["model_key"].ToStr();
+
+        // Extract enhanced fields
+        prediction.should_trade = json_response["should_trade"].ToInt() == 1;  // Convert int (0/1) to bool
+        prediction.confidence_threshold = json_response["confidence_threshold"].ToDbl();
+
+        // Validate essential fields
+        if(StringLen(prediction.direction) > 0 &&
+           prediction.confidence > 0 &&
+           prediction.probability > 0) {
+            prediction.is_valid = true;
+            prediction.error_message = "";
+
+            Print("✅ Enhanced JSON parsing successful using library");
+            Print("   Direction: ", prediction.direction);
+            Print("   Probability: ", DoubleToString(prediction.probability, 4));
+            Print("   Confidence: ", DoubleToString(prediction.confidence, 4));
+            Print("   Model Type: ", prediction.model_type);
+            Print("   Model Key: ", prediction.model_key);
+            Print("   Should Trade: ", prediction.should_trade ? "Yes" : "No");
+            Print("   Confidence Threshold: ", DoubleToString(prediction.confidence_threshold, 4));
+        } else {
+            prediction.error_message = "Missing essential prediction fields";
+            Print("❌ Enhanced JSON parsing failed: ", prediction.error_message);
+        }
+
+        return prediction;
+    }
+
 public:
     // Constructor
     MLHttpInterface() {
@@ -205,6 +387,25 @@ public:
 
         Print("✅ ML HTTP Interface initialized successfully");
         return true;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Get current timeframe as string                                  |
+    //| This is the inverse of StringToTimeframe()                       |
+    //+------------------------------------------------------------------+
+    string GetCurrentTimeframeString() {
+        switch(_Period) {
+            case PERIOD_M1:  return "M1";
+            case PERIOD_M5:  return "M5";
+            case PERIOD_M15: return "M15";
+            case PERIOD_M30: return "M30";
+            case PERIOD_H1:  return "H1";
+            case PERIOD_H4:  return "H4";
+            case PERIOD_D1:  return "D1";
+            case PERIOD_W1:  return "W1";
+            case PERIOD_MN1: return "MN1";
+            default:         return "H1";
+        }
     }
 
     // Test connection to API server
@@ -322,7 +523,7 @@ public:
                     prediction.error_message = "WebRequest failed - check internet connection and URL";
                     break;
                 case 400:
-                    prediction.error_message = "Bad request - check JSON format and data";
+                    prediction.error_message = "No suitable model found";
                     break;
                 case 404:
                     prediction.error_message = "API endpoint not found - check URL";
@@ -425,7 +626,7 @@ public:
                     prediction.error_message = "WebRequest failed - check internet connection and URL";
                     break;
                 case 400:
-                    prediction.error_message = "Bad request - check JSON format and data";
+                    prediction.error_message = "No suitable model found";
                     break;
                 case 404:
                     prediction.error_message = "Enhanced endpoint not found - check if ML service is updated";
@@ -452,12 +653,37 @@ public:
                                             double entry_price, double current_price,
                                             int trade_duration_minutes, double current_profit_pips,
                                             double account_balance, double current_profit_money) {
+        // Rate limiting: prevent excessive API calls
+        static datetime lastApiCallTime = 0;
+        static int apiCallCount = 0;
+        datetime currentTime = TimeCurrent();
+
+        // Reset counter if more than 1 hour has passed
+        if(currentTime - lastApiCallTime > 3600) {
+            apiCallCount = 0;
+        }
+
+        // Limit to max 10 calls per minute
+        if(apiCallCount >= 10 && (currentTime - lastApiCallTime) < 60) {
+            Print("⚠️ Rate limit exceeded: Too many API calls to active_trade_recommendation endpoint");
+            Print("   Waiting for rate limit reset...");
+
+            MLPrediction rateLimitedPrediction;
+            rateLimitedPrediction.is_valid = false;
+            rateLimitedPrediction.error_message = "Rate limit exceeded - too many API calls";
+            return rateLimitedPrediction;
+        }
+
+        apiCallCount++;
+        lastApiCallTime = currentTime;
+
         MLPrediction prediction;
         prediction.is_valid = false;
         prediction.timestamp = TimeCurrent();
 
         Print("🔍 Active Trade Recommendation Request - Direction: ", trade_direction,
-              ", Symbol: ", config.symbol, ", Timeframe: ", config.timeframe);
+              ", Symbol: ", config.symbol, ", Timeframe: ", config.timeframe,
+              " (API call #", apiCallCount, " in current period)");
 
         if(!config.enabled) {
             prediction.error_message = "ML is disabled";
@@ -544,7 +770,6 @@ public:
         return prediction;
     }
 
-public:
     // Check if a signal is valid based on confidence thresholds
     bool IsSignalValid(MLPrediction &prediction) {
         if(!prediction.is_valid) {
@@ -658,7 +883,6 @@ public:
         return "Error - HTTP " + IntegerToString(res);
     }
 
-public:
     //+------------------------------------------------------------------+
     //| Register a pending trade for ML logging                           |
     //+------------------------------------------------------------------+
@@ -691,7 +915,6 @@ public:
         new_trade.monitoring_enabled = false;  // Will be enabled when monitoring starts
 
         AddUnifiedTrade(unified_trades, unified_trade_count, new_trade, maxCapacity);
-        PrintUnifiedTrades(unified_trades, unified_trade_count, "After registering new pending trade");
     }
 
     //+------------------------------------------------------------------+
@@ -962,7 +1185,48 @@ public:
     typedef void (*SetTradeIDCallback)(ulong position_ticket);
     typedef void (*TradeExitCallback)(double close_price, double profit, double profitLossPips);
 
+    //+------------------------------------------------------------------+
+    //| Check for candle close and monitor active trades               |
+    //+------------------------------------------------------------------+
+    //| Check for candle close and monitor active trades                 |
+    //| IMPORTANT: This function now makes API calls immediately after  |
+    //| candle close only. No additional monitoring between candles.    |
+    //| This provides timely recommendations while preventing excessive  |
+    //| API calls.                                                       |
+    //+------------------------------------------------------------------+
+    void CheckCandleCloseAndMonitorTrades(string& lastCandleCloseTime, string currentTimeframe,
+                                         bool enableTrading, double accountBalance,
+                                         int maxTrackedPositions, string symbol, int digits) {
+        // Get current candle time
+        datetime currentCandleTime = iTime(symbol, StringToTimeframe(currentTimeframe), 0);
+
+        // Check if we have a new candle (candle close detected)
+        if(currentCandleTime != StringToInteger(lastCandleCloseTime)) {
+            Print("🕯️ New candle detected at ", TimeToString(currentCandleTime), " - enabling active trade monitoring for ", currentTimeframe);
+            lastCandleCloseTime = IntegerToString(currentCandleTime);
+
+            // Enable monitoring for this specific timeframe
+            EnableMonitoringForTimeframe(currentTimeframe);
+
+            // IMPORTANT: Make recommendation request immediately after candle close
+            Print("🔍 Candle close detected - making immediate recommendation request for ", currentTimeframe);
+            MonitorActiveTrades(currentTimeframe, enableTrading, accountBalance, maxTrackedPositions, symbol, digits);
+
+        } else {
+            // No new candle - only log occasionally to avoid spam
+            static datetime lastTickLogTime = 0;
+            if(TimeCurrent() - lastTickLogTime > 300) { // Log every 5 minutes max
+                Print("ℹ️ No new candle detected - waiting for next candle close on ", currentTimeframe);
+                lastTickLogTime = TimeCurrent();
+            }
+        }
+
+        // REMOVED: The old logic that was calling MonitorActiveTrades on every tick
+        // This was causing excessive API calls and Docker UI performance issues
+    }
+
 public:
+
     //+------------------------------------------------------------------+
     //| Collect market features - unified function for all EAs           |
     //+------------------------------------------------------------------+
@@ -1282,7 +1546,6 @@ public:
         }
     }
 
-public:
     //+------------------------------------------------------------------+
     //| Check if we can track more trades (unified system)                |
     //+------------------------------------------------------------------+
@@ -1379,6 +1642,239 @@ public:
         Print("✅ Removed unified trade at index ", index, " - Remaining: ", tradeCount);
     }
 
+    //+------------------------------------------------------------------+
+    //| Prepare JSON request for active trade recommendation              |
+    //+------------------------------------------------------------------+
+    string PrepareActiveTradeJsonRequest(MLFeatures &features, string trade_direction,
+                                       double entry_price, double current_price,
+                                       int trade_duration_minutes, double current_profit_pips,
+                                       double account_balance, double current_profit_money) {
+        Print("📋 Preparing Active Trade JSON request using JSON library");
+
+        // Create JSON object using the library
+        CJAVal json_request;
+
+        // Add trade-specific data
+        json_request["trade_direction"] = trade_direction;
+        json_request["entry_price"] = entry_price;
+        json_request["current_price"] = current_price;
+        json_request["trade_duration_minutes"] = trade_duration_minutes;
+        json_request["current_profit_pips"] = current_profit_pips;
+        json_request["account_balance"] = account_balance;
+        json_request["current_profit_money"] = current_profit_money;
+
+        // Add all open positions with real-time P&L for risk management
+        CJAVal positions_data;
+        if(positions_data.Deserialize(GetOpenPositionsWithPandL())) {
+            json_request["positions"] = positions_data["positions"];
+            Print("📊 Added ", positions_data["total_count"].ToInt(), " positions to active trade request");
+        } else {
+            Print("⚠️ Failed to parse positions data, creating empty positions array");
+            CJAVal empty_positions;
+            json_request["positions"] = empty_positions;
+        }
+
+        // Add weekly drawdown for risk management
+        double weekly_drawdown = GetWeeklyDrawdown();
+        json_request["weekly_drawdown"] = weekly_drawdown;
+        Print("📊 Added weekly drawdown: ", DoubleToString(weekly_drawdown * 100, 2), "% to active trade request");
+
+        // Add all features directly to the root level (flattened structure)
+        // This avoids nested JSON issues with CJAVal library
+
+        // Debug: Log the config values being used
+        Print("🔍 Config values for features:");
+        Print("   Symbol: '", config.symbol, "'");
+        Print("   Timeframe: '", config.timeframe, "'");
+
+        // Validate and add symbol/timeframe directly to root
+        if(StringLen(config.symbol) == 0) {
+            Print("⚠️ Warning: config.symbol is empty, using current symbol");
+            json_request["symbol"] = _Symbol; // Use current symbol as fallback
+        } else {
+            json_request["symbol"] = config.symbol;
+        }
+
+        if(StringLen(config.timeframe) == 0) {
+            Print("⚠️ Warning: config.timeframe is empty, using current timeframe");
+            json_request["timeframe"] = GetCurrentTimeframeString(); // Use current timeframe as fallback
+        } else {
+            json_request["timeframe"] = config.timeframe;
+        }
+
+        // Add all feature values directly to root level
+        json_request["current_price"] = current_price;
+        json_request["atr"] = features.atr;
+        json_request["rsi"] = features.rsi;
+        json_request["macd_main"] = features.macd_main;
+        json_request["macd_signal"] = features.macd_signal;
+        json_request["bb_upper"] = features.bb_upper;
+        json_request["bb_lower"] = features.bb_lower;
+        json_request["williams_r"] = features.williams_r;
+        json_request["cci"] = features.cci;
+        json_request["momentum"] = features.momentum;
+        json_request["volume_ratio"] = features.volume_ratio;
+        json_request["price_change"] = features.price_change;
+        json_request["volatility"] = features.volatility;
+        json_request["spread"] = features.spread;
+        json_request["session_hour"] = features.session_hour;
+        json_request["day_of_week"] = features.day_of_week;
+        json_request["month"] = features.month;
+        json_request["rsi_regime"] = features.rsi_regime;
+        json_request["stoch_regime"] = features.stoch_regime;
+        json_request["volatility_regime"] = features.volatility_regime;
+        json_request["hour"] = features.hour;
+        json_request["session"] = features.session;
+        json_request["is_london_session"] = features.is_london_session;
+        json_request["is_ny_session"] = features.is_ny_session;
+        json_request["is_asian_session"] = features.is_asian_session;
+        json_request["is_session_overlap"] = features.is_session_overlap;
+
+        // Debug: Check what keys are in the JSON before serialization
+        Print("🔍 JSON keys before serialization:");
+        Print("   Main keys count: ", json_request.Size());
+
+        // Serialize to string
+        string json_string;
+        json_request.Serialize(json_string);
+
+        // Debug: Log the serialized JSON to see what's actually being sent
+        Print("🔍 Serialized JSON preview: ", StringSubstr(json_string, 0, 200));
+        Print("🔍 JSON contains 'symbol': ", StringFind(json_string, "\"symbol\"") != -1 ? "Yes" : "No");
+        Print("🔍 JSON contains 'timeframe': ", StringFind(json_string, "\"timeframe\"") != -1 ? "Yes" : "No");
+        Print("🔍 JSON contains 'rsi': ", StringFind(json_string, "\"rsi\"") != -1 ? "Yes" : "No");
+        Print("🔍 JSON contains 'atr': ", StringFind(json_string, "\"atr\"") != -1 ? "Yes" : "No");
+
+        Print("📊 Active Trade JSON length: ", StringLen(json_string), " characters");
+        Print("✅ Active Trade JSON created successfully using JSON library");
+
+        return json_string;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Parse response from active trade recommendation endpoint          |
+    //+------------------------------------------------------------------+
+    MLPrediction ParseActiveTradeResponse(string response) {
+        MLPrediction prediction;
+        prediction.is_valid = false;
+
+        // Reset prediction
+        prediction.model_key = "";
+        prediction.direction = "";
+        prediction.probability = 0.0;
+        prediction.confidence = 0.0;
+        prediction.error_message = "";
+
+        if(StringLen(response) == 0) {
+            prediction.error_message = "Empty response received";
+            return prediction;
+        }
+
+        // Check if response looks like valid JSON (starts with { and ends with })
+        if(StringFind(response, "{") != 0 || StringFind(response, "}") == -1) {
+            prediction.error_message = "Response does not appear to be valid JSON";
+            Print("❌ Response does not appear to be valid JSON");
+            Print("❌ Response starts with: ", StringSubstr(response, 0, 10));
+            Print("❌ Response ends with: ", StringSubstr(response, StringLen(response) - 10, 10));
+            Print("❌ Full response: ", response);
+            return prediction;
+        }
+
+        // Check if response contains expected fields (now flattened)
+        if(StringFind(response, "\"direction\"") == -1) {
+            prediction.error_message = "Response missing 'direction' field";
+            Print("❌ Response missing 'direction' field");
+            Print("❌ Full response: ", response);
+            return prediction;
+        }
+
+        // Use JSON library for proper parsing
+        CJAVal json_response;
+        if(!json_response.Deserialize(response)) {
+            prediction.error_message = "Failed to deserialize JSON response";
+            Print("❌ JSON deserialization failed for response: ", response);
+            Print("❌ Response length: ", StringLen(response), " characters");
+            return prediction;
+        }
+
+        // Debug: Log the parsed JSON structure
+        Print("🔍 JSON response parsed successfully");
+
+        // Check status
+        if(json_response["status"].ToStr() != "success") {
+            prediction.error_message = "API returned status: " + json_response["status"].ToStr();
+            if(json_response["message"].ToStr() != "") {
+                prediction.error_message += " - " + json_response["message"].ToStr();
+            }
+            return prediction;
+        }
+
+        // Extract should_trade value
+        if(json_response["should_trade"].ToInt() == 0) {
+            prediction.error_message = "Trade not recommended";
+            return prediction;
+        }
+
+        // Extract prediction data (now flattened at root level)
+        prediction.probability = json_response["probability"].ToDbl();
+        prediction.confidence = json_response["confidence"].ToDbl();
+        prediction.model_key = json_response["model_key"].ToStr();
+        prediction.model_type = json_response["model_type"].ToStr();
+        prediction.direction = json_response["direction"].ToStr();
+
+        // Debug: Log extracted values
+        Print("🔍 Extracted prediction values:");
+        Print("   Probability: ", DoubleToString(prediction.probability, 3));
+        Print("   Confidence: ", DoubleToString(prediction.confidence, 3));
+        Print("   Model Key: ", prediction.model_key);
+        Print("   Model Type: ", prediction.model_type);
+        Print("   Direction: ", prediction.direction);
+
+        // Validate that we got meaningful values
+        if(prediction.direction == "" || prediction.model_key == "") {
+            prediction.error_message = "Prediction fields missing required values";
+            Print("❌ Prediction fields missing required values:");
+            Print("   Direction: '", prediction.direction, "'");
+            Print("   Model Key: '", prediction.model_key, "'");
+            Print("   Model Type: '", prediction.model_type, "'");
+            return prediction;
+        }
+
+        // Extract ML analysis data (now flattened at root level)
+        bool ml_available = json_response["ml_prediction_available"].ToBool();
+        string analysis_method = json_response["analysis_method"].ToStr();
+
+        // Debug logging
+        Print("🔍 Parsed ML analysis data:");
+        Print("   ML Available: ", ml_available ? "Yes" : "No");
+        Print("   Analysis Method: ", analysis_method);
+
+        // Determine if prediction is valid
+        // A valid prediction should have reasonable values (probability and confidence can be 0 for close recommendations)
+        if(prediction.probability >= 0 && prediction.probability <= 1 &&
+           prediction.confidence >= 0 && prediction.confidence <= 1 &&
+           prediction.model_key != "" && prediction.model_type != "") {
+
+            prediction.is_valid = true;
+            prediction.error_message = "";
+
+            // Log the analysis method used
+            if(ml_available) {
+                Print("✅ Active trade recommendation: ML-enhanced analysis (", analysis_method, ")");
+            } else {
+                Print("✅ Active trade recommendation: Trade health analysis only (", analysis_method, ")");
+                Print("   This is normal when no suitable ML model is available");
+            }
+        } else {
+            prediction.error_message = "Invalid prediction data - probability: " + DoubleToString(prediction.probability, 3) +
+                                    ", confidence: " + DoubleToString(prediction.confidence, 3) +
+                                    ", model_key: " + prediction.model_key +
+                                    ", model_type: " + prediction.model_type;
+        }
+
+        return prediction;
+    }
+
     int FindUnifiedTradeByTicket(ulong ticket, const UnifiedTradeData& trades[], int tradeCount) {
         for(int i = 0; i < tradeCount; i++) {
             if(trades[i].ticket == ticket || trades[i].ticket == 0) {
@@ -1407,8 +1903,6 @@ public:
         }
     }
 
-
-
     //+------------------------------------------------------------------+
     //| Handle complete trade transaction - UNIFIED SYSTEM (no legacy params) |
     //+------------------------------------------------------------------+
@@ -1432,7 +1926,6 @@ public:
 
         Print("🔄 OnTradeTransaction() called - UNIFIED SYSTEM - Transaction type: ", EnumToString(trans.type));
         Print("🔍 Position ticket: ", trans.position, ", Deal ticket: ", trans.deal);
-        PrintUnifiedTrades(unified_trades, unified_trade_count, "Before processing transaction");
 
         // Debug logging to track parameter values
         Print("🔍 HandleCompleteTradeTransactionUnified received:");
@@ -1526,7 +2019,6 @@ public:
                         Print("📊 Logged trade for ML retraining with SL: ", DoubleToString(actual_sl, _Digits), ", TP: ", DoubleToString(actual_tp, _Digits));
                     }
                     param_lastPositionOpenTime = TimeCurrent();
-                    PrintUnifiedTrades(unified_trades, unified_trade_count, "After processing position open");
 
                     // Handle unified analytics for trade open
                     if(enableHttpAnalytics) {
@@ -1595,7 +2087,6 @@ public:
 
                         // NOW remove from unified array after all processing is complete
                         RemoveUnifiedTrade(tradeIndex, unified_trades, unified_trade_count);
-                        PrintUnifiedTrades(unified_trades, unified_trade_count, "After removing closed position");
                     }
                 }
             }
@@ -1739,7 +2230,6 @@ public:
 
                 // Remove the closed position from unified array
                 RemoveUnifiedTrade(tradeIndex, unified_trades, unified_trade_count);
-                PrintUnifiedTrades(unified_trades, unified_trade_count, "After removing position moved to history");
             } else {
                 Print("⚠️ Position ", trans.position, " not found in unified array or already closed");
             }
@@ -1748,197 +2238,9 @@ public:
         // Check if any position was closed and handle analytics cleanup
         if(originalTradeCount > unified_trade_count) {
             Print("🔄 Trade count decreased from ", originalTradeCount, " to ", unified_trade_count);
-            PrintUnifiedTrades(unified_trades, unified_trade_count, "After position closure");
         }
     }
 
-private:
-    //+------------------------------------------------------------------+
-    //| Prepare JSON request for API using JSON library                  |
-    //+------------------------------------------------------------------+
-    string PrepareJsonRequest(MLFeatures &features, string direction) {
-        Print("📋 Preparing JSON request - Strategy: ", config.strategy_name, ", Symbol: ", config.symbol, ", Timeframe: ", config.timeframe, ", Direction: ", direction);
-
-                // Create JSON object using the library
-        CJAVal json_request;
-
-        // Set main properties
-        json_request["strategy"] = config.strategy_name;
-        json_request["symbol"] = config.symbol;
-        json_request["timeframe"] = config.timeframe;
-        json_request["direction"] = direction;
-
-        // Add features directly to main request (avoiding nested object issue)
-        json_request["rsi"] = features.rsi;
-        json_request["stoch_main"] = features.stoch_main;
-        json_request["stoch_signal"] = features.stoch_signal;
-        json_request["macd_main"] = features.macd_main;
-        json_request["macd_signal"] = features.macd_signal;
-        json_request["bb_upper"] = features.bb_upper;
-        json_request["bb_lower"] = features.bb_lower;
-        json_request["williams_r"] = features.williams_r;
-        json_request["cci"] = features.cci;
-        json_request["momentum"] = features.momentum;
-        json_request["force_index"] = features.force_index;
-        json_request["volume_ratio"] = features.volume_ratio;
-        json_request["price_change"] = features.price_change;
-        json_request["volatility"] = features.volatility;
-        json_request["spread"] = features.spread;
-        json_request["session_hour"] = features.session_hour;
-        json_request["is_news_time"] = features.is_news_time;
-        json_request["day_of_week"] = features.day_of_week;
-        json_request["month"] = features.month;
-
-        // Add trade calculation features (required for enhanced endpoint)
-        json_request["current_price"] = features.current_price;
-        json_request["atr"] = features.atr;
-        json_request["account_balance"] = features.account_balance;
-        json_request["risk_per_pip"] = features.risk_per_pip;
-
-        // Serialize to string
-        string json_string;
-        json_request.Serialize(json_string);
-
-        Print("📊 JSON length: ", StringLen(json_string), " characters");
-        Print("✅ JSON created successfully using JSON library");
-
-        return json_string;
-    }
-
-    // Parse JSON response from API using JSON library
-    MLPrediction ParseJsonResponse(string response) {
-        Print("🔍 Parsing JSON response using JSON library");
-
-        MLPrediction prediction;
-        prediction.is_valid = false;
-        prediction.timestamp = TimeCurrent();
-
-        // Parse JSON using the library
-        CJAVal json_response;
-        if(!json_response.Deserialize(response)) {
-            prediction.error_message = "Failed to deserialize JSON response";
-            return prediction;
-        }
-
-        // Check status
-        if(json_response["status"].ToStr() != "success") {
-            prediction.error_message = "API returned status: " + json_response["status"].ToStr();
-            if(json_response["message"].ToStr() != "") {
-                prediction.error_message += " - " + json_response["message"].ToStr();
-            }
-            return prediction;
-        }
-
-        // Extract prediction data
-        CJAVal prediction_obj = json_response["prediction"];
-
-        prediction.direction = prediction_obj["direction"].ToStr();
-        prediction.probability = prediction_obj["probability"].ToDbl();
-        prediction.confidence = prediction_obj["confidence"].ToDbl();
-        prediction.model_type = prediction_obj["model_type"].ToStr();
-        prediction.model_key = prediction_obj["model_key"].ToStr();
-
-        // Validate essential fields
-        if(StringLen(prediction.direction) > 0 &&
-           prediction.confidence > 0 &&
-           prediction.probability > 0) {
-            prediction.is_valid = true;
-            prediction.error_message = "";
-
-            Print("✅ JSON parsing successful using library");
-            Print("   Direction: ", prediction.direction);
-            Print("   Probability: ", DoubleToString(prediction.probability, 4));
-            Print("   Confidence: ", DoubleToString(prediction.confidence, 4));
-            Print("   Model Type: ", prediction.model_type);
-            Print("   Model Key: ", prediction.model_key);
-        } else {
-            prediction.error_message = "Missing essential prediction fields";
-            Print("❌ JSON parsing failed: ", prediction.error_message);
-        }
-
-        return prediction;
-    }
-
-    // Parse enhanced JSON response from /trade_decision endpoint
-    MLPrediction ParseEnhancedJsonResponse(string response) {
-        Print("🔍 Parsing enhanced JSON response using JSON library");
-
-        MLPrediction prediction;
-        prediction.is_valid = false;
-        prediction.timestamp = TimeCurrent();
-
-        // Parse JSON using the library
-        CJAVal json_response;
-        if(!json_response.Deserialize(response)) {
-            prediction.error_message = "Failed to deserialize enhanced JSON response";
-            return prediction;
-        }
-
-        // Check status
-        if(json_response["status"].ToStr() != "success") {
-            prediction.error_message = "API returned status: " + json_response["status"].ToStr();
-            if(json_response["message"].ToStr() != "") {
-                prediction.error_message += " - " + json_response["message"].ToStr();
-            }
-            return prediction;
-        }
-
-                // Extract enhanced prediction data
-        CJAVal prediction_obj = json_response["prediction"];
-
-        prediction.direction = prediction_obj["direction"].ToStr();
-        prediction.probability = prediction_obj["probability"].ToDbl();
-        prediction.confidence = prediction_obj["confidence"].ToDbl();
-        prediction.model_type = prediction_obj["model_type"].ToStr();
-        prediction.model_key = prediction_obj["model_key"].ToStr();
-
-        // Extract enhanced fields
-        prediction.should_trade = json_response["should_trade"].ToInt() == 1;  // Convert int (0/1) to bool
-        prediction.confidence_threshold = json_response["confidence_threshold"].ToDbl();
-
-        // Validate essential fields
-        if(StringLen(prediction.direction) > 0 &&
-           prediction.confidence > 0 &&
-           prediction.probability > 0) {
-            prediction.is_valid = true;
-            prediction.error_message = "";
-
-            Print("✅ Enhanced JSON parsing successful using library");
-            Print("   Direction: ", prediction.direction);
-            Print("   Probability: ", DoubleToString(prediction.probability, 4));
-            Print("   Confidence: ", DoubleToString(prediction.confidence, 4));
-            Print("   Model Type: ", prediction.model_type);
-            Print("   Model Key: ", prediction.model_key);
-            Print("   Should Trade: ", prediction.should_trade ? "Yes" : "No");
-            Print("   Confidence Threshold: ", DoubleToString(prediction.confidence_threshold, 4));
-        } else {
-            prediction.error_message = "Missing essential prediction fields";
-            Print("❌ Enhanced JSON parsing failed: ", prediction.error_message);
-        }
-
-        return prediction;
-    }
-
-    //+------------------------------------------------------------------+
-    //| Get current timeframe as string                                  |
-    //| This is the inverse of StringToTimeframe()                       |
-    //+------------------------------------------------------------------+
-    string GetCurrentTimeframeString() {
-        switch(_Period) {
-            case PERIOD_M1:  return "M1";
-            case PERIOD_M5:  return "M5";
-            case PERIOD_M15: return "M15";
-            case PERIOD_M30: return "M30";
-            case PERIOD_H1:  return "H1";
-            case PERIOD_H4:  return "H4";
-            case PERIOD_D1:  return "D1";
-            case PERIOD_W1:  return "W1";
-            case PERIOD_MN1: return "MN1";
-            default:         return "H1";
-        }
-    }
-
-public:
     //+------------------------------------------------------------------+
     //| Scan for existing open positions and add to tracking system      |
     //+------------------------------------------------------------------+
@@ -1984,7 +2286,7 @@ public:
                     UnifiedTradeData existing_trade;
                     existing_trade.ticket = pos_ticket;
                     existing_trade.direction = (pos_type == POSITION_TYPE_BUY) ? "BUY" : "SELL";
-                    existing_trade.timeframe = config.timeframe;  // Set current timeframe
+                    existing_trade.timeframe = GetCurrentTimeframeString();  // Set current timeframe
                     existing_trade.entry_price = open_price;
                     existing_trade.lot_size = volume;
                     existing_trade.opened_time = open_time;
@@ -2038,7 +2340,7 @@ public:
 
                             tradeEntryCallback(existing_trade.direction, existing_trade.entry_price,
                                              estimated_sl, estimated_tp, existing_trade.lot_size,
-                                             strategy_name, "1.00"); // Use passed strategy name
+                                             "ML_Testing_EA", "1.00"); // Use hardcoded strategy name
                             Print("✅ Recorded trade entry analytics for existing position");
                         }
 
@@ -2056,11 +2358,6 @@ public:
 
         Print("🔍 Scan complete: Found ", found_positions, " existing positions for EA '", ea_identifier, "'");
         Print("📊 Total tracked positions: ", unified_trade_count, "/", maxCapacity);
-
-        if(found_positions > 0) {
-            PrintUnifiedTradeArrayStatus(maxCapacity);
-            PrintDetailedTrackedPositions();
-        }
     }
 
     //+------------------------------------------------------------------+
@@ -2088,156 +2385,7 @@ public:
         }
     }
 
-};
-
     //+------------------------------------------------------------------+
-    //| Prepare JSON request for active trade recommendation              |
-    //+------------------------------------------------------------------+
-    string PrepareActiveTradeJsonRequest(MLFeatures &features, string trade_direction,
-                                       double entry_price, double current_price,
-                                       int trade_duration_minutes, double current_profit_pips,
-                                       double account_balance, double current_profit_money) {
-        string json = "{";
-
-        // Add trade-specific data
-        json += "\"trade_direction\":\"" + trade_direction + "\",";
-        json += "\"entry_price\":" + DoubleToString(entry_price, _Digits) + ",";
-        json += "\"current_price\":" + DoubleToString(current_price, _Digits) + ",";
-        json += "\"trade_duration_minutes\":" + IntegerToString(trade_duration_minutes) + ",";
-        json += "\"current_profit_pips\":" + DoubleToString(current_profit_pips, 1) + ",";
-        json += "\"account_balance\":" + DoubleToString(account_balance, 2) + ",";
-        json += "\"current_profit_money\":" + DoubleToString(current_profit_money, 2) + ",";
-
-        // Add market features
-        json += "\"features\":{";
-        json += "\"symbol\":\"" + config.symbol + "\",";
-        json += "\"timeframe\":\"" + config.timeframe + "\",";
-        json += "\"current_price\":" + DoubleToString(current_price, _Digits) + ",";
-        json += "\"atr\":" + DoubleToString(features.atr, _Digits) + ",";
-        json += "\"rsi\":" + DoubleToString(features.rsi, 2) + ",";
-        json += "\"macd\":" + DoubleToString(features.macd, _Digits) + ",";
-        json += "\"macd_signal\":" + DoubleToString(features.macd_signal, _Digits) + ",";
-        json += "\"macd_histogram\":" + DoubleToString(features.macd_histogram, _Digits) + ",";
-        json += "\"bollinger_upper\":" + DoubleToString(features.bollinger_upper, _Digits) + ",";
-        json += "\"bollinger_middle\":" + DoubleToString(features.bollinger_middle, _Digits) + ",";
-        json += "\"bollinger_lower\":" + DoubleToString(features.bollinger_lower, _Digits) + ",";
-        json += "\"volume\":" + DoubleToString(features.volume, 0) + ",";
-        json += "\"spread\":" + DoubleToString(features.spread, _Digits);
-        json += "}";
-
-        json += "}";
-
-        return json;
-    }
-
-    //+------------------------------------------------------------------+
-    //| Parse response from active trade recommendation endpoint          |
-    //+------------------------------------------------------------------+
-    MLPrediction ParseActiveTradeResponse(string response) {
-        MLPrediction prediction;
-        prediction.is_valid = false;
-
-        // Reset prediction
-        prediction.model_key = "";
-        prediction.direction = "";
-        prediction.probability = 0.0;
-        prediction.confidence = 0.0;
-        prediction.error_message = "";
-
-        if(StringLen(response) == 0) {
-            prediction.error_message = "Empty response received";
-            return prediction;
-        }
-
-        // Use JSON library for proper parsing
-        CJAVal json_response;
-        if(!json_response.Deserialize(response)) {
-            prediction.error_message = "Failed to deserialize JSON response";
-            Print("❌ JSON deserialization failed for response: ", response);
-            return prediction;
-        }
-
-        // Check status
-        if(json_response["status"].ToStr() != "success") {
-            prediction.error_message = "API returned status: " + json_response["status"].ToStr();
-            if(json_response["message"].ToStr() != "") {
-                prediction.error_message += " - " + json_response["message"].ToStr();
-            }
-            return prediction;
-        }
-
-        // Extract should_trade value
-        if(json_response["should_trade"].ToInt() == 0) {
-            prediction.error_message = "Trade not recommended";
-            return prediction;
-        }
-
-        // Extract prediction data
-        CJAVal prediction_obj = json_response["prediction"];
-        if(prediction_obj.IsValid()) {
-            prediction.probability = prediction_obj["probability"].ToDbl();
-            prediction.confidence = prediction_obj["confidence"].ToDbl();
-            prediction.model_key = prediction_obj["model_key"].ToStr();
-            prediction.model_type = prediction_obj["model_type"].ToStr();
-            prediction.direction = prediction_obj["direction"].ToStr();
-
-            // Debug logging
-            Print("🔍 Parsed prediction data:");
-            Print("   Probability: ", DoubleToString(prediction.probability, 3));
-            Print("   Confidence: ", DoubleToString(prediction.confidence, 3));
-            Print("   Model Key: ", prediction.model_key);
-            Print("   Model Type: ", prediction.model_type);
-            Print("   Direction: ", prediction.direction);
-        } else {
-            prediction.error_message = "Missing prediction object in response";
-            Print("❌ Prediction object not found in JSON response");
-            return prediction;
-        }
-
-        // Extract ML analysis data if available
-        CJAVal ml_analysis = json_response["ml_analysis"];
-        bool ml_available = false;
-        string analysis_method = "unknown";
-
-        if(ml_analysis.IsValid()) {
-            ml_available = ml_analysis["ml_prediction_available"].ToBool();
-            analysis_method = ml_analysis["analysis_method"].ToStr();
-
-            // Debug logging
-            Print("🔍 Parsed ML analysis data:");
-            Print("   ML Available: ", ml_available ? "Yes" : "No");
-            Print("   Analysis Method: ", analysis_method);
-        } else {
-            Print("⚠️ ML analysis section not found in JSON response");
-        }
-
-        // Determine if prediction is valid
-        // A valid prediction should have reasonable values (probability and confidence can be 0 for close recommendations)
-        if(prediction.probability >= 0 && prediction.probability <= 1 &&
-           prediction.confidence >= 0 && prediction.confidence <= 1 &&
-           prediction.model_key != "" && prediction.model_type != "") {
-
-            prediction.is_valid = true;
-            prediction.error_message = "";
-
-            // Log the analysis method used
-            if(ml_available) {
-                Print("✅ Active trade recommendation: ML-enhanced analysis (", analysis_method, ")");
-            } else {
-                Print("✅ Active trade recommendation: Trade health analysis only (", analysis_method, ")");
-                Print("   This is normal when no suitable ML model is available");
-            }
-        } else {
-            prediction.error_message = "Invalid prediction data - probability: " + DoubleToString(prediction.probability, 3) +
-                                    ", confidence: " + DoubleToString(prediction.confidence, 3) +
-                                    ", model_key: " + prediction.model_key +
-                                    ", model_type: " + prediction.model_type;
-        }
-
-        return prediction;
-    }
-
-        //+------------------------------------------------------------------+
     //| Get open positions from unified trade tracking system           |
     //+------------------------------------------------------------------+
     int GetOpenPositionsFromUnifiedSystem(UnifiedTradeData& openPositions[], int maxCapacity) {
@@ -2287,6 +2435,14 @@ public:
     //| Check if monitoring is needed for a specific timeframe          |
     //+------------------------------------------------------------------+
     bool ShouldMonitorTimeframe(string targetTimeframe, int checkIntervalMinutes) {
+        // Safety check: prevent extremely frequent monitoring (minimum 5 minutes)
+        if(checkIntervalMinutes < 5) {
+            Print("⚠️ Warning: ActiveTradeCheckMinutes is set to ", checkIntervalMinutes, " minutes, which is very frequent.");
+            Print("   This may cause excessive API calls and performance issues.");
+            Print("   Recommended minimum: 15 minutes for active monitoring, 30+ minutes for normal operation.");
+            checkIntervalMinutes = MathMax(5, checkIntervalMinutes); // Enforce minimum 5 minutes
+        }
+
         datetime currentTime = TimeCurrent();
 
         for(int i = 0; i < unified_trade_count; i++) {
@@ -2294,10 +2450,16 @@ public:
                unified_trades[i].monitoring_enabled &&
                unified_trades[i].is_open) {
 
-                // Check if enough time has passed since last monitoring
-                if(currentTime - unified_trades[i].last_monitoring_check >= checkIntervalMinutes * 60) {
-                    return true;
-                }
+                        // Check if enough time has passed since last monitoring
+        if(currentTime - unified_trades[i].last_monitoring_check >= checkIntervalMinutes * 60) {
+            Print("✅ Timeframe ", targetTimeframe, " ready for monitoring - ",
+                  checkIntervalMinutes, " minutes have passed since last check");
+            return true;
+        } else {
+            int remainingSeconds = (int)((checkIntervalMinutes * 60) - (currentTime - unified_trades[i].last_monitoring_check));
+            Print("⏳ Timeframe ", targetTimeframe, " not ready for monitoring yet - ",
+                  remainingSeconds, " seconds remaining until next check");
+        }
             }
         }
         return false;
@@ -2315,32 +2477,8 @@ public:
         }
     }
 
-        //+------------------------------------------------------------------+
-    //| Check for candle close and monitor active trades               |
+
     //+------------------------------------------------------------------+
-    void CheckCandleCloseAndMonitorTrades(string& lastCandleCloseTime, string currentTimeframe,
-                                         int activeTradeCheckMinutes, bool enableTrading,
-                                         double accountBalance, int maxTrackedPositions,
-                                         string symbol, int digits) {
-        // Get current candle time
-        datetime currentCandleTime = iTime(symbol, StringToTimeframe(currentTimeframe), 0);
-
-        // Check if we have a new candle (candle close detected)
-        if(currentCandleTime != StringToInteger(lastCandleCloseTime)) {
-            Print("🕯️ New candle detected at ", TimeToString(currentCandleTime), " - enabling active trade monitoring for ", currentTimeframe);
-            lastCandleCloseTime = IntegerToString(currentCandleTime);
-
-            // Enable monitoring for this specific timeframe
-            EnableMonitoringForTimeframe(currentTimeframe);
-        }
-
-        // Check if we should monitor trades for this timeframe
-        if(ShouldMonitorTimeframe(currentTimeframe, activeTradeCheckMinutes)) {
-            MonitorActiveTrades(currentTimeframe, enableTrading, accountBalance, maxTrackedPositions, symbol, digits);
-        }
-    }
-
-        //+------------------------------------------------------------------+
     //| Convert timeframe string to ENUM_TIMEFRAMES                     |
     //| This is the inverse of GetCurrentTimeframeString()              |
     //+------------------------------------------------------------------+
@@ -2365,7 +2503,18 @@ public:
     //+------------------------------------------------------------------+
     void MonitorActiveTrades(string timeframe, bool enableTrading, double accountBalance,
                              int maxTrackedPositions, string symbol, int digits) {
-        Print("🔍 Monitoring active trades for health and recommendations on ", timeframe, "...");
+        static datetime lastMonitoringTime = 0;
+        datetime currentTime = TimeCurrent();
+
+        // Log monitoring frequency for debugging
+        if(lastMonitoringTime > 0) {
+            int secondsSinceLastMonitoring = (int)(currentTime - lastMonitoringTime);
+            Print("🔍 Monitoring active trades for health and recommendations on ", timeframe, "...");
+            Print("   Time since last monitoring: ", secondsSinceLastMonitoring, " seconds");
+        } else {
+            Print("🔍 Monitoring active trades for health and recommendations on ", timeframe, "... (first time)");
+        }
+        lastMonitoringTime = currentTime;
 
         // Get current market features for the request
         MLFeatures features;
@@ -2389,11 +2538,10 @@ public:
 
         int totalPositions = 0;
         int positionsToClose = 0;
-        datetime currentTime = TimeCurrent();
 
         // Analyze each open position
         for(int i = 0; i < openCount; i++) {
-            UnifiedTradeData& position = openPositions[i];
+            UnifiedTradeData position = openPositions[i];
 
             if(position.ticket > 0) {
                 totalPositions++;
@@ -2521,5 +2669,154 @@ public:
         Print("✅ Updated monitoring timestamps for ", openCount, " position(s)");
     }
 
-    // Global instance
+    //+------------------------------------------------------------------+
+    //| Get all open positions with real-time P&L for risk management     |
+    //+------------------------------------------------------------------+
+    string GetOpenPositionsWithPandL() {
+        Print("📊 Getting all open positions with real-time P&L for risk management");
+
+        CJAVal json_request;
+        CJAVal positions_array;
+
+        int total_positions = PositionsTotal();
+        int found_positions = 0;
+
+        Print("🔍 Found ", total_positions, " total open positions");
+
+        for(int pos_idx = 0; pos_idx < total_positions; pos_idx++) {
+            ulong pos_ticket = PositionGetTicket(pos_idx);
+            if(pos_ticket <= 0) continue;
+
+            if(PositionSelectByTicket(pos_ticket)) {
+                string symbol = PositionGetString(POSITION_SYMBOL);
+                double volume = PositionGetDouble(POSITION_VOLUME);
+                double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
+                datetime open_time = (datetime)PositionGetInteger(POSITION_TIME);
+                ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+
+                // Get current market prices
+                double current_bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+                double current_ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+
+                // Calculate current P&L
+                double current_price = (pos_type == POSITION_TYPE_BUY) ? current_bid : current_ask;
+                double price_diff = current_price - open_price;
+                if(pos_type == POSITION_TYPE_SELL) price_diff = -price_diff;
+
+                // Calculate P&L in money using accurate tick-based calculation
+                double tick_value = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+                double tick_size = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+
+                // Calculate P&L using the same method as risk calculation
+                // Convert price difference to ticks, then multiply by tick value and volume
+                double ticks = price_diff / tick_size;
+                double profit_loss_money = ticks * tick_value * volume;
+
+                // Get stop loss and take profit from MT5
+                double stop_loss = PositionGetDouble(POSITION_SL);
+                double take_profit = PositionGetDouble(POSITION_TP);
+
+                // Create position object
+                CJAVal position;
+                position["ticket"] = IntegerToString(pos_ticket);
+                position["symbol"] = symbol;
+                position["direction"] = (pos_type == POSITION_TYPE_BUY) ? "buy" : "sell";
+                position["volume"] = volume;
+                position["open_price"] = open_price;
+                position["current_price"] = current_price;
+                position["stop_loss"] = stop_loss;
+                position["take_profit"] = take_profit;
+                position["profit_loss"] = profit_loss_money;
+                position["open_time"] = TimeToString(open_time);
+                position["comment"] = "MT5_Position";
+                position["tick_value"] = tick_value;
+                position["tick_size"] = tick_size;
+
+                // Add to positions array
+                positions_array.Add(position);
+                found_positions++;
+            }
+        }
+
+        // Create final JSON with positions array
+        json_request["positions"] = positions_array;
+        json_request["total_count"] = found_positions;
+        json_request["timestamp"] = TimeToString(TimeCurrent());
+
+        // Serialize to string
+        string json_string;
+        json_request.Serialize(json_string);
+
+        Print("📊 Created positions JSON with ", found_positions, " positions, length: ", StringLen(json_string), " chars");
+        return json_string;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Get weekly drawdown from MT5 order history                        |
+    //+------------------------------------------------------------------+
+    double GetWeeklyDrawdown() {
+        Print("📊 Calculating weekly drawdown from MT5 order history");
+
+        datetime start_time = TimeCurrent() - 604800; // 7 days ago
+        double weekly_peak = 0;
+        double current_balance = AccountInfoDouble(ACCOUNT_BALANCE);
+        double current_equity = AccountInfoDouble(ACCOUNT_EQUITY);
+
+        // Start with current balance as baseline
+        weekly_peak = current_balance;
+
+        // Get account history for the last 7 days
+        int history_total = HistoryDealsTotal();
+        Print("🔍 Found ", history_total, " total deals in history");
+
+        // Calculate balance over time by accumulating deal profits
+        double running_balance = current_balance;
+        double highest_balance = current_balance;
+
+        // Iterate through deals in reverse chronological order (newest first)
+        for(int i = history_total - 1; i >= 0; i--) {
+            ulong deal_ticket = HistoryDealGetTicket(i);
+            if(deal_ticket > 0) {
+                datetime deal_time = (datetime)HistoryDealGetInteger(deal_ticket, DEAL_TIME);
+
+                // Only consider deals within the last 7 days
+                if(deal_time >= start_time) {
+                    double deal_profit = HistoryDealGetDouble(deal_ticket, DEAL_PROFIT);
+
+                    // Subtract the deal profit to go back in time
+                    // (current balance = previous balance + deal profit)
+                    running_balance -= deal_profit;
+
+                    // Track the highest balance point
+                    if(running_balance > highest_balance) {
+                        highest_balance = running_balance;
+                        Print("🔍 New weekly peak: $", DoubleToString(highest_balance, 2), " at ", TimeToString(deal_time));
+                    }
+                } else {
+                    // We've gone back far enough in time
+                    break;
+                }
+            }
+        }
+
+        // Use the highest balance found as our weekly peak
+        weekly_peak = highest_balance;
+
+        // Calculate weekly drawdown percentage
+        double weekly_drawdown = 0;
+        if(weekly_peak > 0) {
+            weekly_drawdown = (weekly_peak - current_equity) / weekly_peak;
+        }
+
+        Print("📊 Weekly Drawdown Calculation:");
+        Print("   Weekly Peak: $", DoubleToString(weekly_peak, 2));
+        Print("   Current Equity: $", DoubleToString(current_equity, 2));
+        Print("   Weekly Drawdown: ", DoubleToString(weekly_drawdown * 100, 2), "%");
+
+        return weekly_drawdown;
+    }
+
+}; // End of MLHttpInterface class
+
+// Global instance
 MLHttpInterface g_ml_interface;

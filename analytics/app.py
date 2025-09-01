@@ -1998,15 +1998,18 @@ def get_model_retraining_status():
         logger.info("📁 Retrieving model retraining status from metadata files")
 
         # Look for metadata files in the ML_Webserver/ml_models directory
-        ml_models_dir = Path(__file__).parent.parent / "ML_Webserver" / "ml_models"
+        ml_models_dir = os.getenv('ML_MODELS_DIR', "/app/ml_models")
 
-        if not ml_models_dir.exists():
+        # Convert to Path object for file operations
+        ml_models_path = Path(ml_models_dir)
+
+        if not ml_models_path.exists():
             return jsonify({"models": [], "summary": "No ML models directory found"}), 200
 
         retraining_status = []
 
         # Find all metadata files
-        for metadata_file in ml_models_dir.glob("*_metadata_*.json"):
+        for metadata_file in ml_models_path.glob("*_metadata_*.json"):
             try:
                 with open(metadata_file, 'r') as f:
                     metadata = json.load(f)
@@ -2100,7 +2103,7 @@ def get_current_positions():
                     'stop_loss': float(row['stop_loss']) if row['stop_loss'] else 0.0,
                     'take_profit': float(row['take_profit']) if row['take_profit'] else 0.0,
                     'profit_loss': float(row['profit_loss']),
-                    'open_time': row['open_time'].isoformat() if row['open_time'] else '',
+                    'open_time': datetime.fromtimestamp(row['open_time']).isoformat() if row['open_time'] else '',
                     'comment': row['comment']
                 }
                 positions.append(position)
@@ -2152,19 +2155,17 @@ def get_portfolio_summary():
             row = result[0]
 
             # Get account balance from environment or use default
-            account_balance = float(os.getenv('DEFAULT_ACCOUNT_BALANCE', '10000'))
-
+            # Analytics service only provides position counts and volume data
+            # Account balance and risk calculations are handled by the ML service
             portfolio_summary = {
-                'equity': account_balance,  # Simplified - in production you'd want real-time equity
-                'balance': account_balance,
-                'margin': 0.0,  # Not tracked in analytics
-                'free_margin': account_balance,  # Simplified
                 'total_positions': int(row['total_positions']),
                 'long_positions': int(row['long_positions']),
                 'short_positions': int(row['short_positions']),
                 'total_volume': float(row['total_volume']) if row['total_volume'] else 0.0,
                 'avg_lot_size': float(row['avg_lot_size']) if row['avg_lot_size'] else 0.0
             }
+
+            logger.info(f"📊 Portfolio summary: {portfolio_summary['total_positions']} positions, {portfolio_summary['total_volume']:.2f} total volume")
 
             logger.info(f"✅ Retrieved portfolio summary for risk management: {portfolio_summary['total_positions']} positions")
             return jsonify({

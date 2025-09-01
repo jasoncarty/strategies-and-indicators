@@ -721,6 +721,29 @@ class MLPredictionService:
                 symbol, current_price, stop_loss, account_balance
             )
 
+            # Debug: Log what data the risk manager has before making calls
+            logger.info("🔍 ===== RISK MANAGER DATA DEBUG =====")
+            logger.info(f"🔍 Symbol: {symbol}")
+            logger.info(f"🔍 Direction: {direction}")
+            logger.info(f"🔍 Lot Size: {lot_size}")
+            logger.info(f"🔍 Stop Loss Distance: {stop_loss_distance}")
+            logger.info(f"🔍 Account Balance: {account_balance}")
+
+            # Log current portfolio state
+            logger.info("🔍 Current Portfolio State:")
+            logger.info(f"  Total Positions: {self.risk_manager.portfolio.total_positions}")
+            logger.info(f"  Total Balance: {self.risk_manager.portfolio.total_balance}")
+            logger.info(f"  Total Equity: {self.risk_manager.portfolio.total_equity}")
+            logger.info(f"  Current Risk: {self.risk_manager.portfolio.total_risk_percent * 100:.2f}%")
+            logger.info(f"  Current Drawdown: {self.risk_manager.portfolio.current_drawdown_percent * 100:.2f}%")
+
+            # Log risk manager configuration
+            logger.info("🔍 Risk Manager Config:")
+            logger.info(f"  Max Risk Per Trade: {self.risk_manager.config.max_risk_per_trade_percent * 100:.2f}%")
+            logger.info(f"  Max Total Risk: {self.risk_manager.config.max_total_risk_percent * 100:.2f}%")
+            logger.info(f"  Max Drawdown: {self.risk_manager.config.max_drawdown_percent * 100:.2f}%")
+            logger.info("🔍 ===== END RISK MANAGER DATA DEBUG =====")
+
             # Check if new trade is allowed based on risk management rules
             can_trade, trade_validation = self.risk_manager.can_open_new_trade(
                 symbol, lot_size, stop_loss_distance, direction.lower()
@@ -900,6 +923,62 @@ def trade_decision():
         if not all([strategy, symbol, timeframe]):
             return jsonify({'status': 'error', 'message': 'Missing required parameters: strategy, symbol, timeframe'}), 400
 
+                # Update risk manager with current portfolio and positions data BEFORE making trade decisions
+        logger.info("🔍 Updating risk manager with current portfolio data before trade decision...")
+        try:
+            # Get account balance from request data (sent by EA)
+            account_balance = data.get('account_balance')
+            if account_balance is None:
+                logger.warning("⚠️ No account_balance in request data - using default for risk calculations")
+                account_balance = 10000.0  # Default fallback
+            else:
+                logger.info(f"💰 Using account balance from EA: ${float(account_balance):,.2f}")
+
+            # Check if EA sent position data directly (preferred) or fall back to analytics service
+            positions_data = data.get('positions')
+            if positions_data and isinstance(positions_data, list):
+                logger.info(f"✅ Using position data directly from EA: {len(positions_data)} positions")
+                # Create portfolio summary from EA data
+                portfolio_data = {
+                    'total_positions': len(positions_data),
+                    'long_positions': sum(1 for p in positions_data if p.get('direction', '').lower() == 'buy'),
+                    'short_positions': sum(1 for p in positions_data if p.get('direction', '').lower() == 'sell'),
+                    'total_volume': sum(float(p.get('volume', 0)) for p in positions_data),
+                    'avg_lot_size': sum(float(p.get('volume', 0)) for p in positions_data) / len(positions_data) if positions_data else 0.0
+                }
+                logger.info(f"✅ Created portfolio summary from EA data: {portfolio_data}")
+            else:
+                logger.info("⚠️ No position data from EA, falling back to analytics service...")
+                # Get current positions from analytics service
+                logger.info("🔍 Fetching current positions from analytics service...")
+                positions_data = get_current_positions_from_analytics()
+                logger.info(f"🔍 Retrieved positions data: {len(positions_data)} positions")
+
+                # Get portfolio summary from analytics service
+                logger.info("🔍 Fetching portfolio summary from analytics service...")
+                portfolio_data = get_portfolio_summary_from_analytics()
+                logger.info(f"🔍 Retrieved portfolio data: {portfolio_data}")
+
+            # Update risk manager with current data
+            # Set account balance FIRST, then portfolio data, then positions
+            ml_service.risk_manager.set_account_info(account_balance)
+            ml_service.risk_manager.set_portfolio_data(portfolio_data)
+            ml_service.risk_manager.set_positions_data(positions_data)
+
+            # Extract and use weekly drawdown if provided by EA
+            weekly_drawdown = data.get('weekly_drawdown')
+            if weekly_drawdown is not None:
+                logger.info(f"📊 Using weekly drawdown from EA: {float(weekly_drawdown) * 100:.2f}%")
+                # Update risk manager with weekly drawdown
+                ml_service.risk_manager.set_weekly_drawdown(float(weekly_drawdown))
+            else:
+                logger.info("⚠️ No weekly_drawdown provided by EA - using default risk calculations")
+
+            logger.info(f"✅ Risk manager updated with {len(positions_data)} positions and portfolio data")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to update risk manager with current data: {e}")
+            logger.warning("   Risk management will use default/empty data")
+
         # Get enhanced prediction with trade decision
         result = ml_service.get_prediction(strategy, symbol, timeframe, features, direction, enhanced=True)
 
@@ -957,9 +1036,20 @@ def active_trade_recommendation():
         return jsonify({'status': 'error', 'message': 'ML service not initialized'}), 500
 
     try:
+        # Log the raw request data for debugging
+        logger.info("🔍 ===== ACTIVE TRADE RECOMMENDATION REQUEST =====")
+        logger.info(f"📥 Raw request data: {request.get_data(as_text=True)}")
+        logger.info(f"📥 Request headers: {dict(request.headers)}")
+
         data = request.get_json()
         if not data:
+            logger.error("❌ No JSON data provided in request")
             return jsonify({'status': 'error', 'message': 'No JSON data provided'}), 400
+
+        # Log the parsed JSON data
+        logger.info(f"📊 Parsed JSON data: {json.dumps(data, indent=2)}")
+        logger.info(f"📊 Data type: {type(data)}")
+        logger.info(f"📊 Data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
 
         # Extract trade data
         trade_direction = data.get('trade_direction', '')
@@ -971,12 +1061,93 @@ def active_trade_recommendation():
         current_profit_money = data.get('current_profit_money', 0.0)
         features = data.get('features', {})
 
+        # Log extracted trade data
+        logger.info(f"📊 Extracted trade data:")
+        logger.info(f"   Trade Direction: '{trade_direction}'")
+        logger.info(f"   Entry Price: {entry_price}")
+        logger.info(f"   Current Price: {current_price}")
+        logger.info(f"   Duration: {trade_duration_minutes} minutes")
+        logger.info(f"   Profit Pips: {current_profit_pips}")
+        logger.info(f"   Account Balance: {account_balance}")
+        logger.info(f"   Profit Money: {current_profit_money}")
+
+        # Log features data in detail
+        logger.info(f"📊 Features data:")
+        logger.info(f"   Features type: {type(features)}")
+        logger.info(f"   Features keys: {list(features.keys()) if isinstance(features, dict) else 'Not a dict'}")
+        logger.info(f"   Features content: {json.dumps(features, indent=2) if isinstance(features, dict) else features}")
+
+        # Check for symbol and timeframe specifically (now at root level)
+        symbol = data.get('symbol', '')  # Look at root level instead of nested features
+        timeframe = data.get('timeframe', '')  # Look at root level instead of nested features
+        logger.info(f"🔍 Symbol/Timeframe check:")
+        logger.info(f"   Symbol: '{symbol}' (type: {type(symbol)})")
+        logger.info(f"   Timeframe: '{timeframe}' (type: {type(timeframe)})")
+        logger.info(f"   Symbol exists: {bool(symbol)}")
+        logger.info(f"   Timeframe exists: {bool(timeframe)}")
+
         if not all([trade_direction, entry_price > 0, current_price > 0]):
             return jsonify({'status': 'error', 'message': 'Missing required trade parameters'}), 400
 
         logger.info(f"🔍 Active trade recommendation request - Direction: {trade_direction}, "
                    f"Entry: {entry_price}, Current: {current_price}, Duration: {trade_duration_minutes}min, "
                    f"Profit: {current_profit_pips} pips (${current_profit_money})")
+
+                # Update risk manager with current portfolio and positions data BEFORE making trade decisions
+        logger.info("🔍 Updating risk manager with current portfolio data before active trade recommendation...")
+        try:
+                        # Get account balance from request data (sent by EA)
+            account_balance = data.get('account_balance')
+            if account_balance is None:
+                logger.warning("⚠️ No account_balance in request data - using default for risk calculations")
+                account_balance = 10000.0  # Default fallback
+            else:
+                logger.info(f"💰 Using account balance from EA: ${float(account_balance):,.2f}")
+
+            # Check if EA sent position data directly (preferred) or fall back to analytics service
+            positions_data = data.get('positions')
+            if positions_data and isinstance(positions_data, list):
+                logger.info(f"✅ Using position data directly from EA: {len(positions_data)} positions")
+                # Create portfolio summary from EA data
+                portfolio_data = {
+                    'total_positions': len(positions_data),
+                    'long_positions': sum(1 for p in positions_data if p.get('direction', '').lower() == 'buy'),
+                    'short_positions': sum(1 for p in positions_data if p.get('direction', '').lower() == 'sell'),
+                    'total_volume': sum(float(p.get('volume', 0)) for p in positions_data),
+                    'avg_lot_size': sum(float(p.get('volume', 0)) for p in positions_data) / len(positions_data) if positions_data else 0.0
+                }
+                logger.info(f"✅ Created portfolio summary from EA data: {portfolio_data}")
+            else:
+                logger.info("⚠️ No position data from EA, falling back to analytics service...")
+                # Get current positions from analytics service
+                logger.info("🔍 Fetching current positions from analytics service...")
+                positions_data = get_current_positions_from_analytics()
+                logger.info(f"🔍 Retrieved positions data: {len(positions_data)} positions")
+
+                # Get portfolio summary from analytics service
+                logger.info("🔍 Fetching portfolio summary from analytics service...")
+                portfolio_data = get_portfolio_summary_from_analytics()
+                logger.info(f"🔍 Retrieved portfolio data: {portfolio_data}")
+
+            # Update risk manager with current data
+            # Set account balance FIRST, then portfolio data, then positions
+            ml_service.risk_manager.set_account_info(account_balance)
+            ml_service.risk_manager.set_portfolio_data(portfolio_data)
+            ml_service.risk_manager.set_positions_data(positions_data)
+
+            # Extract and use weekly drawdown if provided by EA
+            weekly_drawdown = data.get('weekly_drawdown')
+            if weekly_drawdown is not None:
+                logger.info(f"📊 Using weekly drawdown from EA: {float(weekly_drawdown) * 100:.2f}%")
+                # Update risk manager with weekly drawdown
+                ml_service.risk_manager.set_weekly_drawdown(float(weekly_drawdown))
+            else:
+                logger.info("⚠️ No weekly_drawdown provided by EA - using default risk calculations")
+
+            logger.info(f"✅ Risk manager updated with {len(positions_data)} positions and portfolio data")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to update risk manager with current data: {e}")
+            logger.warning("   Risk management will use default/empty data")
 
         # Get ML model prediction for current market conditions
         ml_prediction = None
@@ -985,16 +1156,20 @@ def active_trade_recommendation():
 
         try:
             # Try to get ML prediction for current market conditions
-            symbol = features.get('symbol', '')
-            timeframe = features.get('timeframe', '')
+            logger.info("🔍 Attempting ML analysis...")
 
             if symbol and timeframe:
+                logger.info(f"✅ Symbol and timeframe found - proceeding with ML analysis")
+                logger.info(f"   Symbol: '{symbol}'")
+                logger.info(f"   Timeframe: '{timeframe}'")
+
                 # Get current market prediction for the same direction
+                # Use the entire data object as features since everything is now at root level
                 ml_result = ml_service.get_prediction(
                     strategy="active_trade_analysis",
                     symbol=symbol,
                     timeframe=timeframe,
-                    features=features,
+                    features=data,  # Use root-level data instead of nested features
                     direction=trade_direction,
                     enhanced=True
                 )
@@ -1007,7 +1182,10 @@ def active_trade_recommendation():
                 else:
                     logger.info(f"⚠️ ML model prediction failed: {ml_result.get('message', 'Unknown error')}")
             else:
-                logger.info("⚠️ No symbol/timeframe in features, skipping ML analysis")
+                logger.warning("⚠️ No symbol/timeframe in features, skipping ML analysis")
+                logger.warning(f"   Symbol: '{symbol}' (exists: {bool(symbol)})")
+                logger.warning(f"   Timeframe: '{timeframe}' (exists: {bool(timeframe)})")
+                logger.warning(f"   Features keys: {list(features.keys()) if isinstance(features, dict) else 'Not a dict'}")
 
         except Exception as e:
             logger.warning(f"⚠️ Error getting ML prediction: {e}")
@@ -1080,37 +1258,46 @@ def active_trade_recommendation():
             final_confidence = base_confidence
             probability = 0.5 if should_continue else 0.1
 
-        # Create response
+        # Create flattened response (all fields at root level to avoid nested JSON issues)
         result = {
             'status': 'success',
             'should_trade': 1 if should_continue else 0,
-            'prediction': {
-                'probability': probability,
-                'confidence': final_confidence,
-                'model_key': ml_prediction.get('prediction', {}).get('model_key', 'active_trade_analysis') if ml_prediction else 'active_trade_analysis',
-                'model_type': 'ml_enhanced' if ml_prediction else 'trade_health',
-                'direction': trade_direction,
-                'timestamp': datetime.now().isoformat()
-            },
-            'trade_analysis': {
-                'entry_price': entry_price,
-                'current_price': current_price,
-                'profit_pips': current_profit_pips,
-                'profit_money': current_profit_money,
-                'profit_percentage': (current_profit_money / account_balance) * 100 if account_balance > 0 else 0,
-                'duration_minutes': trade_duration_minutes,
-                'recommendation': 'continue' if should_continue else 'close',
-                'reason': 'profitable_trade' if current_profit_money > 0 else 'max_loss_threshold' if abs(current_profit_money) / account_balance >= float(os.getenv('MAX_LOSS_PERCENTAGE', 0.01)) else 'acceptable_loss'
-            },
-            'ml_analysis': {
-                'ml_prediction_available': ml_prediction is not None,
-                'ml_confidence': ml_confidence,
-                'ml_probability': ml_probability,
-                'base_confidence': base_confidence,
-                'final_confidence': final_confidence,
-                'analysis_method': 'ml_enhanced' if ml_prediction else 'trade_health_only'
-            }
+
+            # Prediction fields (flattened)
+            'probability': probability,
+            'confidence': final_confidence,
+            'model_key': ml_prediction.get('prediction', {}).get('model_key', 'active_trade_analysis') if ml_prediction else 'active_trade_analysis',
+            'model_type': 'ml_enhanced' if ml_prediction else 'trade_health',
+            'direction': trade_direction,
+            'timestamp': datetime.now().isoformat(),
+
+            # Trade analysis fields (flattened)
+            'entry_price': entry_price,
+            'current_price': current_price,
+            'profit_pips': current_profit_pips,
+            'profit_money': current_profit_money,
+            'profit_percentage': (current_profit_money / account_balance) * 100 if account_balance > 0 else 0,
+            'duration_minutes': trade_duration_minutes,
+            'recommendation': 'continue' if should_continue else 'close',
+            'reason': 'profitable_trade' if current_profit_money > 0 else 'max_loss_threshold' if abs(current_profit_money) / account_balance >= float(os.getenv('MAX_LOSS_PERCENTAGE', 0.01)) else 'acceptable_loss',
+
+            # ML analysis fields (flattened)
+            'ml_prediction_available': ml_prediction is not None,
+            'ml_confidence': ml_confidence,
+            'ml_probability': ml_probability,
+            'base_confidence': base_confidence,
+            'final_confidence': final_confidence,
+            'analysis_method': 'ml_enhanced' if ml_prediction else 'trade_health_only'
         }
+
+        # Log the final response being sent back
+        logger.info("📤 ===== ACTIVE TRADE RECOMMENDATION RESPONSE =====")
+        logger.info(f"📤 Response status: {result['status']}")
+        logger.info(f"📤 Should trade: {result['should_trade']}")
+        logger.info(f"📤 Prediction fields: probability={result['probability']}, confidence={result['confidence']}, direction={result['direction']}")
+        logger.info(f"📤 ML Analysis fields: ml_available={result['ml_prediction_available']}, method={result['analysis_method']}")
+        logger.info(f"📤 Trade Analysis fields: entry={result['entry_price']}, current={result['current_price']}, profit={result['profit_money']}")
+        logger.info("📤 ===== END RESPONSE =====")
 
         return jsonify(result)
 
@@ -1160,11 +1347,16 @@ def get_current_positions_from_analytics():
         positions_endpoint = f"{analytics_url}/risk/positions"
 
         logger.info(f"🌐 Requesting positions from analytics service: {positions_endpoint}")
+        logger.info(f"🔍 Analytics URL from env: {os.getenv('ANALYTICS_URL', 'Not set (using default)')}")
 
         response = requests.get(positions_endpoint, timeout=10)
+        logger.info(f"🔍 HTTP Response status: {response.status_code}")
+        logger.info(f"🔍 HTTP Response headers: {dict(response.headers)}")
+
         response.raise_for_status()
 
         data = response.json()
+        logger.info(f"🔍 Response JSON data: {data}")
 
         if data['status'] == 'success':
             positions = data['positions']
@@ -1172,6 +1364,7 @@ def get_current_positions_from_analytics():
             return positions
         else:
             logger.warning(f"⚠️ Analytics service returned error: {data.get('message', 'Unknown error')}")
+            logger.warning(f"⚠️ Full response data: {data}")
             return []
 
     except requests.exceptions.RequestException as e:
@@ -1191,11 +1384,16 @@ def get_portfolio_summary_from_analytics():
         portfolio_endpoint = f"{analytics_url}/risk/portfolio"
 
         logger.info(f"🌐 Requesting portfolio from analytics service: {portfolio_endpoint}")
+        logger.info(f"🔍 Analytics URL from env: {os.getenv('ANALYTICS_URL', 'Not set (using default)')}")
 
         response = requests.get(portfolio_endpoint, timeout=10)
+        logger.info(f"🔍 HTTP Response status: {response.status_code}")
+        logger.info(f"🔍 HTTP Response headers: {dict(response.headers)}")
+
         response.raise_for_status()
 
         data = response.json()
+        logger.info(f"🔍 Response JSON data: {data}")
 
         if data['status'] == 'success':
             portfolio = data['portfolio']
@@ -1203,6 +1401,7 @@ def get_portfolio_summary_from_analytics():
             return portfolio
         else:
             logger.warning(f"⚠️ Analytics service returned error: {data.get('message', 'Unknown error')}")
+            logger.warning(f"⚠️ Full response data: {data}")
             return get_default_portfolio()
 
     except requests.exceptions.RequestException as e:
