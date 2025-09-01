@@ -185,7 +185,6 @@ class MLRiskManager:
     def set_positions_data(self, positions_data: List[Dict]) -> None:
         """Set positions data from external source (e.g., MT5 open positions)"""
         logger.info("🔍 ===== SETTING POSITIONS DATA =====")
-        logger.info(f"🔍 Received positions data: {positions_data}")
         logger.info(f"🔍 Data type: {type(positions_data)}")
         logger.info(f"🔍 Number of positions: {len(positions_data) if isinstance(positions_data, list) else 'Not a list'}")
 
@@ -223,10 +222,6 @@ class MLRiskManager:
             # Update counters
             self.portfolio.total_positions += 1
             self.portfolio.total_profit_loss += position.profit_loss
-
-            # Log significant P&L positions
-            if abs(position.profit_loss) > 10.0:  # Log positions with >$10 P&L
-                logger.info(f"🔍 Position {position.symbol} {position.direction}: P&L ${position.profit_loss:,.2f}")
 
             if position.direction.lower() == 'buy':
                 self.portfolio.long_positions += 1
