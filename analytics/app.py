@@ -2258,11 +2258,11 @@ def get_portfolio_summary():
             # Analytics service only provides position counts and volume data
             # Account balance and risk calculations are handled by the ML service
             portfolio_summary = {
-                'total_positions': int(row['total_positions']),
-                'long_positions': int(row['long_positions']),
-                'short_positions': int(row['short_positions']),
-                'total_volume': float(row['total_volume']) if row['total_volume'] else 0.0,
-                'avg_lot_size': float(row['avg_lot_size']) if row['avg_lot_size'] else 0.0
+                'total_positions': int(row['total_positions']) if row['total_positions'] is not None else 0,
+                'long_positions': int(row['long_positions']) if row['long_positions'] is not None else 0,
+                'short_positions': int(row['short_positions']) if row['short_positions'] is not None else 0,
+                'total_volume': float(row['total_volume']) if row['total_volume'] is not None else 0.0,
+                'avg_lot_size': float(row['avg_lot_size']) if row['avg_lot_size'] is not None else 0.0
             }
 
             logger.info(f"📊 Portfolio summary: {portfolio_summary['total_positions']} positions, {portfolio_summary['total_volume']:.2f} total volume")
@@ -2293,17 +2293,8 @@ def get_portfolio_summary():
             })
 
     except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
         logger.error(f"❌ Error retrieving portfolio for risk management: {e}")
-        logger.error(f"❌ Full traceback: {error_details}")
-        logger.error(f"❌ Exception type: {type(e).__name__}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e),
-            'error_type': type(e).__name__,
-            'traceback': error_details
-        }), 500
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
     # Initialize database connection
