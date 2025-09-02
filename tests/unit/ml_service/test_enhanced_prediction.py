@@ -49,18 +49,54 @@ class TestEnhancedPrediction:
             "combined_EURUSD+_PERIOD_M5": {"model_type": "gradient_boosting", "file_path": "test.pkl"}
         }
 
-        # Mock the risk manager to return reasonable values
-        mock_risk_manager = Mock()
-        mock_risk_manager.calculate_optimal_lot_size.return_value = (0.1, {'risk_amount': 10.0, 'stop_distance': 0.0015})
-        mock_risk_manager.can_open_new_trade.return_value = (True, {'status': 'approved'})
-        mock_risk_manager.get_risk_status.return_value = {
-            'status': 'healthy',
-            'portfolio': {
-                'total_risk_percent': 0.02,
-                'current_drawdown_percent': 0.01
-            }
-        }
-        service.risk_manager = mock_risk_manager
+        # Create a simple mock risk manager that returns fixed values
+        class MockRiskManager:
+            def __init__(self):
+                # Mock portfolio object with required attributes
+                self.portfolio = Mock()
+                self.portfolio.total_balance = 10000.0
+                self.portfolio.total_equity = 10000.0
+                self.portfolio.total_positions = 0
+                self.portfolio.long_positions = 0
+                self.portfolio.short_positions = 0
+                self.portfolio.total_profit_loss = 0.0
+                self.portfolio.current_drawdown_percent = 0.01
+                self.portfolio.daily_loss_percent = 0.0
+                self.portfolio.total_risk_percent = 0.02
+                self.portfolio.positions_per_symbol = {}
+                self.portfolio.total_margin = 0.0
+                self.portfolio.margin_level = 0.0
+                self.portfolio.sharpe_ratio = 0.0
+                self.portfolio.calmar_ratio = 0.0
+                self.portfolio.sortino_ratio = 0.0
+
+                # Mock config object
+                self.config = Mock()
+                self.config.max_total_positions = 100
+                self.config.max_drawdown_percent = 0.20
+                self.config.max_daily_loss_percent = 0.10
+                self.config.max_total_risk_percent = 0.50
+                self.config.max_positions_per_symbol = 10
+                self.config.risk_per_trade_percent = 0.02
+                self.config.max_risk_per_trade_percent = 0.05
+                self.config.risk_free_rate = 0.02
+
+            def calculate_optimal_lot_size(self, symbol, entry_price, stop_loss, account_balance, risk_override=0.0):
+                return 0.1, {'risk_amount': 10.0, 'stop_distance': 0.0015}
+
+            def can_open_new_trade(self, symbol, lot_size, stop_loss_distance, direction):
+                return True, {'status': 'approved'}
+
+            def get_risk_status(self):
+                return {
+                    'status': 'healthy',
+                    'portfolio': {
+                        'total_risk_percent': 0.02,
+                        'current_drawdown_percent': 0.01
+                    }
+                }
+
+        service.risk_manager = MockRiskManager()
 
         return service
 
