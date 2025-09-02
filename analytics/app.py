@@ -1987,6 +1987,106 @@ def get_model_degradation_alerts():
         logger.error(f"   Traceback: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/analytics/model_discovery', methods=['GET'])
+def get_model_discovery():
+    """Discover symbols/timeframes that have training data but no models"""
+    try:
+        analytics_db.connect()
+        logger.info("🔍 Discovering new models from available training data")
+
+        # Find symbols/timeframes with recent training data but no existing models
+        discovery_query = """
+            SELECT
+                symbol,
+                timeframe,
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                AVG(profit_loss) as avg_profit_loss,
+                MIN(trade_time) as earliest_trade,
+                MAX(trade_time) as latest_trade
+            FROM ml_trade_logs
+            WHERE symbol NOT IN ('RANDOM_MODEL', 'test_symbol')
+            AND status = 'CLOSED'
+            AND profit_loss IS NOT NULL
+            AND trade_time >= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 7 DAY))
+            AND ml_model_key IN ('RANDOM_MODEL', '')  -- Only trades without specific models
+            GROUP BY symbol, timeframe
+            HAVING total_trades >= 20  -- Minimum 20 trades for training
+            ORDER BY total_trades DESC, symbol, timeframe
+        """
+
+        discovery_results = analytics_db.execute_query(discovery_query)
+
+        if not discovery_results:
+            logger.info("No new model opportunities discovered")
+            return jsonify({"new_models": [], "summary": "No new models needed"}), 200
+
+        new_models = []
+        for result in discovery_results:
+            symbol = result['symbol']
+            timeframe = result['timeframe']
+            total_trades = result['total_trades']
+            winning_trades = result['winning_trades']
+            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+
+            # Check if we already have models for this symbol/timeframe
+            existing_models_query = """
+                SELECT COUNT(*) as model_count
+                FROM ml_trade_logs
+                WHERE symbol = %s
+                AND timeframe = %s
+                AND ml_model_key NOT IN ('RANDOM_MODEL', '')
+                AND ml_model_key IS NOT NULL
+                LIMIT 1
+            """
+
+            existing_check = analytics_db.execute_query(existing_models_query, (symbol, timeframe))
+            has_existing_models = existing_check and existing_check[0]['model_count'] > 0
+
+            if not has_existing_models:
+                # Determine direction based on performance
+                # For now, create both buy and sell models
+                for direction in ['buy', 'sell']:
+                    new_models.append({
+                        'symbol': symbol,
+                        'timeframe': timeframe,
+                        'direction': direction,
+                        'total_trades': total_trades,
+                        'winning_trades': winning_trades,
+                        'win_rate': win_rate,
+                        'avg_profit_loss': float(result['avg_profit_loss']) if result['avg_profit_loss'] else 0.0,
+                        'earliest_trade': result['earliest_trade'],
+                        'latest_trade': result['latest_trade'],
+                        'training_opportunity': 'high' if total_trades >= 50 else 'medium'
+                    })
+
+        summary = {
+            'total_opportunities': len(new_models),
+            'symbols_discovered': len(set(m['symbol'] for m in new_models)),
+            'timeframes_discovered': len(set(m['timeframe'] for m in new_models)),
+            'high_opportunity': len([m for m in new_models if m['training_opportunity'] == 'high'])
+        }
+
+        result = {
+            'new_models': new_models,
+            'summary': summary,
+            'timestamp': datetime.now().isoformat()
+        }
+
+        logger.info(f"✅ Discovered {len(new_models)} new model opportunities: {summary}")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error discovering new models: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        analytics_db.disconnect()
+        logger.info("   🔌 Disconnected from analytics database")
+
 @app.route('/analytics/model_retraining_status', methods=['GET'])
 def get_model_retraining_status():
     """Get retraining status from metadata files"""
@@ -1998,15 +2098,18 @@ def get_model_retraining_status():
         logger.info("📁 Retrieving model retraining status from metadata files")
 
         # Look for metadata files in the ML_Webserver/ml_models directory
-        ml_models_dir = Path(__file__).parent.parent / "ML_Webserver" / "ml_models"
+        ml_models_dir = os.getenv('ML_MODELS_DIR', "/app/ml_models")
 
-        if not ml_models_dir.exists():
+        # Convert to Path object for file operations
+        ml_models_path = Path(ml_models_dir)
+
+        if not ml_models_path.exists():
             return jsonify({"models": [], "summary": "No ML models directory found"}), 200
 
         retraining_status = []
 
         # Find all metadata files
-        for metadata_file in ml_models_dir.glob("*_metadata_*.json"):
+        for metadata_file in ml_models_path.glob("*_metadata_*.json"):
             try:
                 with open(metadata_file, 'r') as f:
                     metadata = json.load(f)
@@ -2055,6 +2158,143 @@ def get_model_retraining_status():
     except Exception as e:
         logger.error(f"❌ Error retrieving model retraining status: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/risk/positions', methods=['GET'])
+def get_current_positions():
+    """Get current open positions for risk management"""
+    try:
+        logger.info("📊 Retrieving current open positions for risk management")
+
+        # Query for open positions
+        query = """
+        SELECT
+            trade_id as ticket,
+            symbol,
+            direction,
+            lot_size as volume,
+            entry_price as open_price,
+            entry_price as current_price,  -- Use entry price as current for now
+            stop_loss,
+            take_profit,
+            0.0 as profit_loss,  -- Open positions have no P&L yet
+            trade_time as open_time,
+            strategy as comment
+        FROM ml_trade_logs
+        WHERE status = 'OPEN'
+        AND ml_model_key NOT IN ('RANDOM_MODEL', 'test_model')
+        AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+        AND strategy != 'TestStrategy'
+        ORDER BY trade_time DESC
+        """
+
+        result = analytics_db.execute_query(query)
+
+        if result:
+            # Convert to expected format
+            positions = []
+            for row in result:
+                position = {
+                    'ticket': str(row['ticket']),
+                    'symbol': row['symbol'],
+                    'direction': row['direction'].lower(),
+                    'volume': float(row['volume']),
+                    'open_price': float(row['open_price']),
+                    'current_price': float(row['current_price']),
+                    'stop_loss': float(row['stop_loss']) if row['stop_loss'] else 0.0,
+                    'take_profit': float(row['take_profit']) if row['take_profit'] else 0.0,
+                    'profit_loss': float(row['profit_loss']),
+                    'open_time': datetime.fromtimestamp(row['open_time']).isoformat() if row['open_time'] else '',
+                    'comment': row['comment']
+                }
+                positions.append(position)
+
+            logger.info(f"✅ Retrieved {len(positions)} open positions for risk management")
+            return jsonify({
+                'status': 'success',
+                'positions': positions,
+                'count': len(positions),
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            logger.info("ℹ️ No open positions found for risk management")
+            return jsonify({
+                'status': 'success',
+                'positions': [],
+                'count': 0,
+                'timestamp': datetime.now().isoformat()
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving positions for risk management: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/risk/portfolio', methods=['GET'])
+def get_portfolio_summary():
+    """Get portfolio summary for risk management"""
+    try:
+        logger.info("📈 Retrieving portfolio summary for risk management")
+
+        # Query for portfolio summary
+        query = """
+        SELECT
+            COUNT(*) as total_positions,
+            SUM(CASE WHEN UPPER(direction) = 'BUY' THEN 1 ELSE 0 END) as long_positions,
+            SUM(CASE WHEN UPPER(direction) = 'SELL' THEN 1 ELSE 0 END) as short_positions,
+            SUM(lot_size) as total_volume,
+            AVG(lot_size) as avg_lot_size
+        FROM ml_trade_logs
+        WHERE status = 'OPEN'
+        AND ml_model_key NOT IN ('RANDOM_MODEL', 'test_model')
+        AND trade_id != '0' AND trade_id != '' AND trade_id IS NOT NULL
+        AND strategy != 'TestStrategy'
+        """
+
+        result = analytics_db.execute_query(query)
+
+        if result and result[0]:
+            row = result[0]
+
+            # Get account balance from environment or use default
+            # Analytics service only provides position counts and volume data
+            # Account balance and risk calculations are handled by the ML service
+            portfolio_summary = {
+                'total_positions': int(row['total_positions']) if row['total_positions'] is not None else 0,
+                'long_positions': int(row['long_positions']) if row['long_positions'] is not None else 0,
+                'short_positions': int(row['short_positions']) if row['short_positions'] is not None else 0,
+                'total_volume': float(row['total_volume']) if row['total_volume'] is not None else 0.0,
+                'avg_lot_size': float(row['avg_lot_size']) if row['avg_lot_size'] is not None else 0.0
+            }
+
+            logger.info(f"📊 Portfolio summary: {portfolio_summary['total_positions']} positions, {portfolio_summary['total_volume']:.2f} total volume")
+
+            logger.info(f"✅ Retrieved portfolio summary for risk management: {portfolio_summary['total_positions']} positions")
+            return jsonify({
+                'status': 'success',
+                'portfolio': portfolio_summary,
+                'timestamp': datetime.now().isoformat()
+            })
+        else:
+            logger.info("ℹ️ No portfolio data found for risk management")
+            default_portfolio = {
+                'equity': 10000.0,
+                'balance': 10000.0,
+                'margin': 0.0,
+                'free_margin': 10000.0,
+                'total_positions': 0,
+                'long_positions': 0,
+                'short_positions': 0,
+                'total_volume': 0.0,
+                'avg_lot_size': 0.0
+            }
+            return jsonify({
+                'status': 'success',
+                'portfolio': default_portfolio,
+                'timestamp': datetime.now().isoformat()
+            })
+
+    except Exception as e:
+        logger.error(f"❌ Error retrieving portfolio for risk management: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 if __name__ == '__main__':
     # Initialize database connection

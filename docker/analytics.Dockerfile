@@ -7,7 +7,7 @@ WORKDIR /app
 # Install system dependencies including timezone support
 RUN apt-get update \
     && apt-get upgrade -y \
-    && apt-get install -y gcc default-libmysqlclient-dev pkg-config tzdata \
+    && apt-get install -y gcc default-libmysqlclient-dev pkg-config tzdata curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Set timezone to Stockholm, Sweden
@@ -40,7 +40,7 @@ EXPOSE 5001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5001/health || exit 1
+    CMD curl -f http://localhost:${ANALYTICS_PORT}/health || exit 1
 
 # Run the application (will use environment variables from docker-compose)
 CMD python -m flask run --host=0.0.0.0 --port=$ANALYTICS_PORT
