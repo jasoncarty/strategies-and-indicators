@@ -78,11 +78,11 @@ jobs:
 
         # Build the custom services first
         echo "🔨 Building Docker services..."
-        docker-compose --env-file docker.test.env build analytics ml_service
+        docker-compose --env-file docker.test.env build
 
         # Start all services using docker-compose with test profile
         echo "🚀 Starting Docker services..."
-        docker-compose --env-file docker.test.env up -d mysql analytics ml_service
+        docker-compose --env-file docker.test.env up -d
 
         # Show running containers
         echo "📋 Running containers:"
