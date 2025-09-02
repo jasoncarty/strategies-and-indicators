@@ -2293,8 +2293,17 @@ def get_portfolio_summary():
             })
 
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         logger.error(f"❌ Error retrieving portfolio for risk management: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        logger.error(f"❌ Full traceback: {error_details}")
+        logger.error(f"❌ Exception type: {type(e).__name__}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'error_type': type(e).__name__,
+            'traceback': error_details
+        }), 500
 
 if __name__ == '__main__':
     # Initialize database connection

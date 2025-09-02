@@ -84,6 +84,17 @@ class TestRiskManagementEndpointsIntegration:
         # Make actual HTTP request to analytics service
         response = requests.get(f"{analytics_base_url}/risk/portfolio", timeout=10)
 
+        # Print error details if request fails
+        if response.status_code != 200:
+            print(f"❌ Analytics /risk/portfolio failed with status {response.status_code}")
+            try:
+                error_data = response.json()
+                print(f"❌ Error response: {error_data}")
+                if 'traceback' in error_data:
+                    print(f"❌ Full traceback: {error_data['traceback']}")
+            except:
+                print(f"❌ Raw response: {response.text}")
+
         # Verify response structure
         assert response.status_code == 200
         data = response.json()
@@ -173,20 +184,32 @@ class TestRiskManagementEndpointsIntegration:
 
         # Step 2: Get portfolio from analytics service
         portfolio_response = requests.get(f"{analytics_base_url}/risk/portfolio", timeout=10)
+
+        # Print error details if request fails
+        if portfolio_response.status_code != 200:
+            print(f"❌ Analytics /risk/portfolio failed with status {portfolio_response.status_code}")
+            try:
+                error_data = portfolio_response.json()
+                print(f"❌ Error response: {error_data}")
+                if 'traceback' in error_data:
+                    print(f"❌ Full traceback: {error_data['traceback']}")
+            except:
+                print(f"❌ Raw response: {portfolio_response.text}")
+
         assert portfolio_response.status_code == 200
         portfolio_data = portfolio_response.json()
 
-        # Step 3: Verify data consistency between endpoints
+        # Step 4: Verify data consistency between endpoints
         assert positions_data['count'] == portfolio_data['portfolio']['total_positions']
 
-        # Step 4: Verify position counts match
+        # Step 5: Verify position counts match
         actual_long_count = sum(1 for p in positions_data['positions'] if p['direction'].lower() == 'buy')
         actual_short_count = sum(1 for p in positions_data['positions'] if p['direction'].lower() == 'sell')
 
         assert actual_long_count == portfolio_data['portfolio']['long_positions']
         assert actual_short_count == portfolio_data['portfolio']['short_positions']
 
-        # Step 5: Verify volume calculations
+        # Step 6: Verify volume calculations
         total_volume = sum(p['volume'] for p in positions_data['positions'])
         if positions_data['count'] > 0:
             avg_lot_size = total_volume / positions_data['count']
