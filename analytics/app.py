@@ -1987,6 +1987,106 @@ def get_model_degradation_alerts():
         logger.error(f"   Traceback: {traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/analytics/model_discovery', methods=['GET'])
+def get_model_discovery():
+    """Discover symbols/timeframes that have training data but no models"""
+    try:
+        analytics_db.connect()
+        logger.info("🔍 Discovering new models from available training data")
+
+        # Find symbols/timeframes with recent training data but no existing models
+        discovery_query = """
+            SELECT
+                symbol,
+                timeframe,
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as winning_trades,
+                AVG(profit_loss) as avg_profit_loss,
+                MIN(trade_time) as earliest_trade,
+                MAX(trade_time) as latest_trade
+            FROM ml_trade_logs
+            WHERE symbol NOT IN ('RANDOM_MODEL', 'test_symbol')
+            AND status = 'CLOSED'
+            AND profit_loss IS NOT NULL
+            AND trade_time >= UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL 7 DAY))
+            AND ml_model_key IN ('RANDOM_MODEL', '')  -- Only trades without specific models
+            GROUP BY symbol, timeframe
+            HAVING total_trades >= 20  -- Minimum 20 trades for training
+            ORDER BY total_trades DESC, symbol, timeframe
+        """
+
+        discovery_results = analytics_db.execute_query(discovery_query)
+
+        if not discovery_results:
+            logger.info("No new model opportunities discovered")
+            return jsonify({"new_models": [], "summary": "No new models needed"}), 200
+
+        new_models = []
+        for result in discovery_results:
+            symbol = result['symbol']
+            timeframe = result['timeframe']
+            total_trades = result['total_trades']
+            winning_trades = result['winning_trades']
+            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+
+            # Check if we already have models for this symbol/timeframe
+            existing_models_query = """
+                SELECT COUNT(*) as model_count
+                FROM ml_trade_logs
+                WHERE symbol = %s
+                AND timeframe = %s
+                AND ml_model_key NOT IN ('RANDOM_MODEL', '')
+                AND ml_model_key IS NOT NULL
+                LIMIT 1
+            """
+
+            existing_check = analytics_db.execute_query(existing_models_query, (symbol, timeframe))
+            has_existing_models = existing_check and existing_check[0]['model_count'] > 0
+
+            if not has_existing_models:
+                # Determine direction based on performance
+                # For now, create both buy and sell models
+                for direction in ['buy', 'sell']:
+                    new_models.append({
+                        'symbol': symbol,
+                        'timeframe': timeframe,
+                        'direction': direction,
+                        'total_trades': total_trades,
+                        'winning_trades': winning_trades,
+                        'win_rate': win_rate,
+                        'avg_profit_loss': float(result['avg_profit_loss']) if result['avg_profit_loss'] else 0.0,
+                        'earliest_trade': result['earliest_trade'],
+                        'latest_trade': result['latest_trade'],
+                        'training_opportunity': 'high' if total_trades >= 50 else 'medium'
+                    })
+
+        summary = {
+            'total_opportunities': len(new_models),
+            'symbols_discovered': len(set(m['symbol'] for m in new_models)),
+            'timeframes_discovered': len(set(m['timeframe'] for m in new_models)),
+            'high_opportunity': len([m for m in new_models if m['training_opportunity'] == 'high'])
+        }
+
+        result = {
+            'new_models': new_models,
+            'summary': summary,
+            'timestamp': datetime.now().isoformat()
+        }
+
+        logger.info(f"✅ Discovered {len(new_models)} new model opportunities: {summary}")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error discovering new models: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        analytics_db.disconnect()
+        logger.info("   🔌 Disconnected from analytics database")
+
 @app.route('/analytics/model_retraining_status', methods=['GET'])
 def get_model_retraining_status():
     """Get retraining status from metadata files"""

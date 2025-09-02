@@ -36,10 +36,12 @@ class AutomatedRetrainingPipeline:
 
     def __init__(self,
                  analytics_url: str = os.getenv('ANALYTICS_URL', "http://localhost:5001"),
+                 ml_service_url: str = os.getenv('ML_SERVICE_URL', "http://localhost:5003"),
                  models_dir: str = "ml_models",
                  check_interval_minutes: int = 60):
 
         self.analytics_url = analytics_url
+        self.ml_service_url = ml_service_url
         self.models_dir = Path(models_dir)
         self.check_interval = check_interval_minutes * 60  # Convert to seconds
 
@@ -78,6 +80,25 @@ class AutomatedRetrainingPipeline:
             logger.error(f"Analytics URL: {os.getenv('ANALYTICS_URL')}")
             logger.error(f"Error checking model alerts: {e}")
             return {"alerts": [], "summary": {}}
+
+    def discover_new_models(self) -> List[Dict[str, Any]]:
+        """Discover symbols/timeframes that have training data but no models"""
+        try:
+            logger.info("🔍 Discovering new models from available training data...")
+
+            # Get all symbols/timeframes with recent training data
+            response = requests.get(f"{self.analytics_url}/analytics/model_discovery", timeout=30)
+            if response.status_code == 200:
+                discovery_data = response.json()
+                logger.info(f"✅ Discovered {len(discovery_data.get('new_models', []))} potential new models")
+                return discovery_data.get('new_models', [])
+            else:
+                logger.warning(f"Model discovery endpoint returned {response.status_code}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error discovering new models: {e}")
+            return []
 
     def check_model_health(self) -> Dict[str, Any]:
         """Check overall model health status"""
@@ -217,7 +238,7 @@ class AutomatedRetrainingPipeline:
                 self.active_retraining[model_key]['status'] = 'failed'
                 return False
 
-                        # Use advanced retraining framework
+            # Use advanced retraining framework
             success = self.retraining_framework.retrain_model(symbol, timeframe, training_data, direction)
 
             if success:
@@ -304,6 +325,91 @@ class AutomatedRetrainingPipeline:
                 }
 
                 return False
+
+        except Exception as e:
+            import traceback
+
+            logger.error(f"❌ Exception during retraining of {model_key}: {e}")
+            logger.error(f"   Exception type: {type(e).__name__}")
+            logger.error(f"   Full traceback:")
+            logger.error(traceback.format_exc())
+
+            if model_key in self.active_retraining:
+                self.active_retraining[model_key]['status'] = 'failed'
+                self.active_retraining[model_key]['error'] = str(e)
+                self.active_retraining[model_key]['exception_type'] = type(e).__name__
+                self.active_retraining[model_key]['traceback'] = traceback.format_exc()
+                self.active_retraining[model_key]['failure_time'] = datetime.now().isoformat()
+
+            return False
+
+    def create_new_model(self, symbol: str, timeframe: str, direction: str, reason: str) -> bool:
+        """Create a new model from scratch using available training data"""
+        try:
+            model_key = f"{direction}_{symbol}_PERIOD_{timeframe}"
+            logger.info(f"🆕 Creating new model: {model_key}")
+            logger.info(f"   Symbol: {symbol}")
+            logger.info(f"   Timeframe: {timeframe}")
+            logger.info(f"   Direction: {direction}")
+            logger.info(f"   Reason: {reason}")
+
+            # Mark as actively creating
+            self.active_retraining[model_key] = {
+                'started_at': datetime.now(),
+                'reason': reason,
+                'priority': 'high',
+                'status': 'creating',
+                'type': 'new_model'
+            }
+
+            # Get training data for this symbol/timeframe combination
+            training_data = self.get_training_data(symbol, timeframe)
+            if not training_data:
+                logger.error(f"No training data available for {symbol} {timeframe}")
+                self.active_retraining[model_key]['status'] = 'failed'
+                return False
+
+            logger.info(f"📊 Retrieved {len(training_data)} training samples for new {symbol} {timeframe} model")
+
+            # Use advanced retraining framework to create the model
+            success = self.retraining_framework.retrain_model(symbol, timeframe, training_data, direction)
+
+            if success:
+                self.active_retraining[model_key]['status'] = 'completed'
+                self.active_retraining[model_key]['completed_at'] = datetime.now()
+
+                # Add to retraining history
+                self.retraining_history[model_key] = {
+                    'last_retrained': datetime.now().isoformat(),
+                    'reason': reason,
+                    'priority': 'high',
+                    'success': True,
+                    'training_samples': len(training_data),
+                    'type': 'new_model_creation'
+                }
+
+                logger.info(f"✅ New model created successfully: {model_key}")
+                return True
+            else:
+                self.active_retraining[model_key]['status'] = 'failed'
+                logger.error(f"❌ Failed to create new model: {model_key}")
+                return False
+
+        except Exception as e:
+            import traceback
+            logger.error(f"❌ Exception during new model creation of {model_key}: {e}")
+            logger.error(f"   Exception type: {type(e).__name__}")
+            logger.error(f"   Full traceback:")
+            logger.error(traceback.format_exc())
+
+            if model_key in self.active_retraining:
+                self.active_retraining[model_key]['status'] = 'failed'
+                self.active_retraining[model_key]['error'] = str(e)
+                self.active_retraining[model_key]['exception_type'] = type(e).__name__
+                self.active_retraining[model_key]['traceback'] = traceback.format_exc()
+                self.active_retraining[model_key]['failure_time'] = datetime.now().isoformat()
+
+            return False
 
         except Exception as e:
             import traceback
@@ -423,28 +529,99 @@ class AutomatedRetrainingPipeline:
             alerts_data = self.check_model_alerts()
             health_data = self.check_model_health()
 
-            if not alerts_data.get('alerts'):
-                logger.info("No alerts to process")
-                return {"processed": 0, "retrained": 0, "skipped": 0}
+            # Discover new models that need to be created
+            new_models = self.discover_new_models()
 
-            # Group alerts by model
-            model_alerts = {}
-            for alert in alerts_data['alerts']:
-                model_key = alert['model_key']
-                if model_key not in model_alerts:
-                    model_alerts[model_key] = []
-                model_alerts[model_key].extend(alert['alerts'])
+            # Combine existing alerts with new model discoveries
+            all_models_to_process = []
 
-            # Process each model
+            # Add existing alerts
+            if alerts_data.get('alerts'):
+                for alert in alerts_data['alerts']:
+                    all_models_to_process.append({
+                        'model_key': alert['model_key'],
+                        'type': 'existing_model',
+                        'reason': 'degradation_alert',
+                        'priority': 'high' if alert['alert_level'] == 'critical' else 'medium'
+                    })
+
+            # Add new model discoveries
+            for new_model in new_models:
+                all_models_to_process.append({
+                    'model_key': f"{new_model['direction']}_{new_model['symbol']}_PERIOD_{new_model['timeframe']}",
+                    'type': 'new_model',
+                    'reason': 'new_model_discovery',
+                    'priority': 'high',
+                    'discovery_data': new_model
+                })
+
+            if not all_models_to_process:
+                logger.info("No models to process (alerts or new discoveries)")
+                return {"processed": 0, "retrained": 0, "skipped": 0, "new_models": 0}
+
+            # Process each model (existing alerts + new discoveries)
             processed = 0
             retrained = 0
             skipped = 0
+            new_models_created = 0
 
-            for model_key, alerts in model_alerts.items():
+            for model_info in all_models_to_process:
+                model_key = model_info['model_key']
+                model_type = model_info['type']
+                reason = model_info['reason']
+                priority = model_info['priority']
+
                 processed += 1
 
-                # Check if retraining is needed
-                retrain_decision = self.should_retrain_model(model_key, alerts, health_data)
+                if model_type == 'new_model':
+                    # This is a new model discovery - create it from scratch
+                    logger.info(f"🆕 Creating new model: {model_key}")
+                    logger.info(f"   Reason: {reason}")
+                    logger.info(f"   Priority: {priority}")
+
+                    # Check if we can start more retraining
+                    active_count = len([k for k, v in self.active_retraining.items()
+                                     if v['status'] == 'in_progress'])
+
+                    if active_count >= self.max_concurrent_retraining:
+                        logger.info(f"Max concurrent retraining reached, skipping {model_key}")
+                        skipped += 1
+                        continue
+
+                    # Create new model using discovery data
+                    discovery_data = model_info['discovery_data']
+                    success = self.create_new_model(
+                        discovery_data['symbol'],
+                        discovery_data['timeframe'],
+                        discovery_data['direction'],
+                        reason
+                    )
+
+                    if success:
+                        new_models_created += 1
+                        logger.info(f"✅ New model created successfully: {model_key}")
+                    else:
+                        skipped += 1
+                        logger.error(f"❌ Failed to create new model: {model_key}")
+
+                    continue
+
+                # Handle existing model alerts vs new model creation
+                if model_type == 'existing_model':
+                    # Handle existing model alerts
+                    if model_key in alerts_data.get('alerts', []):
+                        alerts = alerts_data['alerts'][model_key]
+                        # Check if retraining is needed
+                        retrain_decision = self.should_retrain_model(model_key, alerts, health_data)
+                    else:
+                        # No alerts for this model, skip
+                        retrain_decision = {'should_retrain': False, 'reason': 'No alerts found', 'priority': 'low'}
+                elif model_type == 'new_model':
+                    # For new models, we always want to create them
+                    retrain_decision = {'should_retrain': True, 'reason': 'new_model_discovery', 'priority': 'high'}
+                else:
+                    # Unknown model type, skip
+                    retrain_decision = {'should_retrain': False, 'reason': 'Unknown model type', 'priority': 'low'}
 
                 if retrain_decision['should_retrain']:
                     # Check if we can start more retraining
@@ -456,17 +633,31 @@ class AutomatedRetrainingPipeline:
                         skipped += 1
                         continue
 
-                    # Start retraining
-                    success = self.retrain_model(
-                        model_key,
-                        retrain_decision['reason'],
-                        retrain_decision['priority']
-                    )
-
-                    if success:
-                        retrained += 1
+                    # Start retraining or model creation
+                    if model_type == 'new_model':
+                        # Create new model from scratch
+                        discovery_data = model_info['discovery_data']
+                        success = self.create_new_model(
+                            discovery_data['symbol'],
+                            discovery_data['timeframe'],
+                            discovery_data['direction'],
+                            retrain_decision['reason']
+                        )
+                        if success:
+                            new_models_created += 1
+                        else:
+                            skipped += 1
                     else:
-                        skipped += 1
+                        # Retrain existing model
+                        success = self.retrain_model(
+                            model_key,
+                            retrain_decision['reason'],
+                            retrain_decision['priority']
+                        )
+                        if success:
+                            retrained += 1
+                        else:
+                            skipped += 1
                 else:
                     skipped += 1
                     logger.info(f"Skipping {model_key}: {retrain_decision['reason']}")
@@ -474,10 +665,18 @@ class AutomatedRetrainingPipeline:
             # Clean up completed retraining
             self._cleanup_completed_retraining()
 
+            # Reload ML service models if any were created or retrained
+            if retrained > 0 or new_models_created > 0:
+                logger.info(f"🔄 Reloading ML service models after {retrained} retrains and {new_models_created} new models")
+                reload_success = self._reload_ml_service_models()
+                if not reload_success:
+                    logger.warning("⚠️ Failed to reload ML service models - they may not be available until service restart")
+
             result = {
                 "processed": processed,
                 "retrained": retrained,
                 "skipped": skipped,
+                "new_models_created": new_models_created,
                 "active_retraining": len([k for k, v in self.active_retraining.items()
                                        if v['status'] == 'in_progress'])
             }
@@ -581,6 +780,29 @@ class AutomatedRetrainingPipeline:
         """Manually trigger retraining for a specific model"""
         logger.info(f"🔧 Manual retraining requested for {model_key}")
         return self.retrain_model(model_key, reason, 'manual')
+
+    def _reload_ml_service_models(self) -> bool:
+        """Reload models in the ML service after retraining"""
+        try:
+            logger.info("🔄 Reloading models in ML service...")
+            response = requests.post(f"{self.ml_service_url}/reload_models", timeout=30)
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('status') == 'success':
+                    model_count = result.get('models_loaded', 0)
+                    logger.info(f"✅ Successfully reloaded {model_count} models in ML service")
+                    return True
+                else:
+                    logger.error(f"❌ ML service reload failed: {result.get('message', 'Unknown error')}")
+                    return False
+            else:
+                logger.error(f"❌ ML service reload request failed with status {response.status_code}")
+                return False
+
+        except Exception as e:
+            logger.error(f"❌ Error reloading ML service models: {e}")
+            return False
 
     def debug_retraining_failure(self, model_key: str) -> Dict[str, Any]:
         """Debug a specific retraining failure"""
