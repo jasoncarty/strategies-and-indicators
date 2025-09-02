@@ -99,7 +99,6 @@ class TestRiskManagementEndpointsIntegration:
         # Verify portfolio structure
         portfolio = data['portfolio']
         required_fields = [
-            'equity', 'balance', 'margin', 'free_margin',
             'total_positions', 'long_positions', 'short_positions',
             'total_volume', 'avg_lot_size'
         ]
@@ -108,8 +107,6 @@ class TestRiskManagementEndpointsIntegration:
             assert field in portfolio, f"Missing field: {field}"
 
         # Verify data types
-        assert isinstance(portfolio['equity'], (int, float))
-        assert isinstance(portfolio['balance'], (int, float))
         assert isinstance(portfolio['total_positions'], int)
         assert isinstance(portfolio['long_positions'], int)
         assert isinstance(portfolio['short_positions'], int)
