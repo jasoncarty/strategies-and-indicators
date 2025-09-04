@@ -2128,7 +2128,10 @@ def get_model_retraining_status():
                     'training_samples': metadata.get('training_samples'),
                     'model_type': metadata.get('model_type'),
                     'retrained_by': metadata.get('retrained_by'),
-                    'model_version': metadata.get('model_version', 1.0)
+                    'model_version': metadata.get('model_version', 1.0),
+                    # New fields for UI badges
+                    'used_lenient_threshold': metadata.get('used_lenient_threshold', False),
+                    'model_quality': metadata.get('model_quality', 'standard')
                 }
 
                 retraining_status.append(model_info)
