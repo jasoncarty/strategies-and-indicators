@@ -224,3 +224,110 @@ export interface ModelRetrainingStatusResponse {
   };
   timestamp: string;
 }
+
+// Recommendation Tracking Types
+export interface RecommendationSummary {
+  total_recommendations: number;
+  overall_accuracy: number;
+  total_profit: number;
+  avg_confidence: number;
+  recommendation_value: number;
+  correct_recommendations: number;
+  incorrect_recommendations: number;
+}
+
+export interface RecommendationPerformance {
+  strategy: string;
+  symbol: string;
+  timeframe: string;
+  ml_model_key: string;
+  analysis_method: string;
+  total_recommendations: number;
+  continue_recommendations: number;
+  close_recommendations: number;
+  correct_recommendations: number;
+  incorrect_recommendations: number;
+  accuracy_percentage: number;
+  avg_ml_confidence: number;
+  avg_final_confidence: number;
+  total_profit_if_followed: number;
+  total_profit_if_opposite: number;
+  total_recommendation_value: number;
+  avg_profit_per_recommendation: number;
+}
+
+export interface RecommendationCharts {
+  accuracy_by_model: Array<{
+    model: string;
+    accuracy: number;
+    recommendations: number;
+  }>;
+  confidence_distribution: Array<{
+    model: string;
+    avg_confidence: number;
+    accuracy: number;
+  }>;
+  profit_trend: Array<{
+    model: string;
+    profit_if_followed: number;
+    profit_if_opposite: number;
+    recommendation_value: number;
+  }>;
+  recommendation_breakdown: Array<{
+    model: string;
+    continue_recommendations: number;
+    close_recommendations: number;
+    analysis_method: string;
+  }>;
+}
+
+export interface RecommendationInsight {
+  type: 'positive' | 'warning' | 'critical' | 'info';
+  title: string;
+  description: string;
+  priority: 'low' | 'medium' | 'high';
+}
+
+export interface RecommendationAction {
+  type: 'retrain' | 'threshold' | 'calibration' | 'risk_management';
+  model: string;
+  action: string;
+  priority: 'low' | 'medium' | 'high';
+}
+
+export interface RecommendationInsights {
+  insights: RecommendationInsight[];
+  recommendations: RecommendationAction[];
+  summary: {
+    total_insights: number;
+    total_recommendations: number;
+    critical_issues: number;
+    overall_accuracy: number;
+  };
+}
+
+export interface RecommendationTimeline {
+  daily_recommendations: Array<{
+    date: string;
+    count: number;
+  }>;
+  daily_accuracy: Array<{
+    date: string;
+    accuracy: number;
+  }>;
+  daily_profit: Array<{
+    date: string;
+    profit: number;
+  }>;
+  confidence_trend: Array<{
+    date: string;
+    confidence: number;
+  }>;
+}
+
+export interface RecommendationFilters {
+  strategy?: string;
+  symbol?: string;
+  timeframe?: string;
+  days?: number;
+}

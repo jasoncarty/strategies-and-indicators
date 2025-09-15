@@ -826,5 +826,212 @@ class AnalyticsDatabase:
             'avg_confidence_score': 0
         }
 
+    def insert_active_trade_recommendation(self, recommendation_data: Dict[str, Any]) -> int:
+        """Insert active trade recommendation data"""
+        logger.info(f"📊 Inserting active trade recommendation for trade_id: {recommendation_data['trade_id']}")
+
+        # Generate unique recommendation ID
+        import uuid
+        recommendation_id = str(uuid.uuid4())
+
+        query = """
+        INSERT INTO active_trade_recommendations (
+            recommendation_id, trade_id, strategy, symbol, timeframe, trade_direction,
+            entry_price, current_price, trade_duration_minutes, current_profit_pips,
+            current_profit_money, account_balance, profit_percentage,
+            ml_prediction_available, ml_confidence, ml_probability, ml_model_key, ml_model_type,
+            base_confidence, final_confidence, analysis_method,
+            should_continue, recommendation, reason, confidence_threshold,
+            features_json, recommendation_time
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        )
+        """
+
+        # Convert features to JSON string
+        features_json = json.dumps(recommendation_data.get('features_json', {}))
+
+        # Convert recommendation_time to datetime
+        recommendation_time = datetime.fromtimestamp(recommendation_data['recommendation_time']) if isinstance(recommendation_data['recommendation_time'], (int, float)) else recommendation_data['recommendation_time']
+
+        params = (
+            recommendation_id,
+            recommendation_data['trade_id'],
+            recommendation_data['strategy'],
+            recommendation_data['symbol'],
+            recommendation_data['timeframe'],
+            recommendation_data['trade_direction'],
+            recommendation_data['entry_price'],
+            recommendation_data['current_price'],
+            recommendation_data['trade_duration_minutes'],
+            recommendation_data['current_profit_pips'],
+            recommendation_data['current_profit_money'],
+            recommendation_data['account_balance'],
+            recommendation_data['profit_percentage'],
+            recommendation_data['ml_prediction_available'],
+            recommendation_data['ml_confidence'],
+            recommendation_data['ml_probability'],
+            recommendation_data['ml_model_key'],
+            recommendation_data['ml_model_type'],
+            recommendation_data['base_confidence'],
+            recommendation_data['final_confidence'],
+            recommendation_data['analysis_method'],
+            recommendation_data['should_continue'],
+            recommendation_data['recommendation'],
+            recommendation_data['reason'],
+            recommendation_data['confidence_threshold'],
+            features_json,
+            recommendation_time
+        )
+
+        recommendation_id_int = self.execute_insert(query, params)
+        logger.info(f"✅ Active trade recommendation recorded with ID: {recommendation_id}")
+        return recommendation_id_int
+
+    def update_recommendation_outcome(self, recommendation_id: str, outcome_data: Dict[str, Any]) -> int:
+        """Update recommendation outcome when trade is closed"""
+        logger.info(f"📊 Updating recommendation outcome for recommendation_id: {recommendation_id}")
+
+        query = """
+        UPDATE recommendation_outcomes SET
+            outcome_status = %s,
+            final_decision = %s,
+            decision_timestamp = %s,
+            final_profit_loss = %s,
+            final_profit_pips = %s,
+            final_profit_percentage = %s,
+            close_price = %s,
+            close_time = %s,
+            exit_reason = %s,
+            recommendation_accuracy = %s,
+            profit_if_followed = %s,
+            profit_if_opposite = %s,
+            recommendation_value = %s,
+            confidence_accuracy = %s,
+            confidence_bucket = %s,
+            prediction_accuracy = %s,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE recommendation_id = %s
+        """
+
+        # Convert timestamps to datetime
+        decision_timestamp = None
+        close_time = None
+        if outcome_data.get('decision_timestamp'):
+            decision_timestamp = datetime.fromtimestamp(outcome_data['decision_timestamp']) if isinstance(outcome_data['decision_timestamp'], (int, float)) else outcome_data['decision_timestamp']
+        if outcome_data.get('close_time'):
+            close_time = datetime.fromtimestamp(outcome_data['close_time']) if isinstance(outcome_data['close_time'], (int, float)) else outcome_data['close_time']
+
+        params = (
+            outcome_data['outcome_status'],
+            outcome_data['final_decision'],
+            decision_timestamp,
+            outcome_data.get('final_profit_loss'),
+            outcome_data.get('final_profit_pips'),
+            outcome_data.get('final_profit_percentage'),
+            outcome_data.get('close_price'),
+            close_time,
+            outcome_data.get('exit_reason'),
+            outcome_data.get('recommendation_accuracy'),
+            outcome_data.get('profit_if_followed'),
+            outcome_data.get('profit_if_opposite'),
+            outcome_data.get('recommendation_value'),
+            outcome_data.get('confidence_accuracy'),
+            outcome_data.get('confidence_bucket'),
+            outcome_data.get('prediction_accuracy'),
+            recommendation_id
+        )
+
+        updated_rows = self.execute_update(query, params)
+        logger.info(f"✅ Updated recommendation outcome for {recommendation_id}")
+        return updated_rows
+
+    def create_recommendation_outcome(self, recommendation_id: str, trade_id: int) -> int:
+        """Create initial recommendation outcome record"""
+        logger.info(f"📊 Creating recommendation outcome record for recommendation_id: {recommendation_id}")
+
+        query = """
+        INSERT INTO recommendation_outcomes (
+            recommendation_id, trade_id, outcome_status, final_decision
+        ) VALUES (%s, %s, %s, %s)
+        """
+
+        params = (
+            recommendation_id,
+            trade_id,
+            'pending',
+            'continued'  # Default to continued, will be updated when trade closes
+        )
+
+        return self.execute_insert(query, params)
+
+    def get_recommendation_performance(self, strategy: str = None, symbol: str = None,
+                                     timeframe: str = None, days: int = 30) -> List[Dict[str, Any]]:
+        """Get recommendation performance analytics"""
+        logger.info(f"📊 Getting recommendation performance for strategy: {strategy}, symbol: {symbol}, timeframe: {timeframe}, days: {days}")
+
+        where_conditions = ["r.recommendation_time >= DATE_SUB(NOW(), INTERVAL %s DAY)"]
+        params = [days]
+
+        if strategy:
+            where_conditions.append("r.strategy = %s")
+            params.append(strategy)
+        if symbol:
+            where_conditions.append("r.symbol = %s")
+            params.append(symbol)
+        if timeframe:
+            where_conditions.append("r.timeframe = %s")
+            params.append(timeframe)
+
+        where_clause = " AND ".join(where_conditions)
+
+        query = f"""
+        SELECT
+            r.strategy,
+            r.symbol,
+            r.timeframe,
+            r.ml_model_key,
+            r.analysis_method,
+            CAST(COUNT(*) AS UNSIGNED) as total_recommendations,
+            CAST(SUM(CASE WHEN r.should_continue = 1 THEN 1 ELSE 0 END) AS UNSIGNED) as continue_recommendations,
+            CAST(SUM(CASE WHEN r.should_continue = 0 THEN 1 ELSE 0 END) AS UNSIGNED) as close_recommendations,
+            CAST(SUM(CASE WHEN o.recommendation_accuracy = 1 THEN 1 ELSE 0 END) AS UNSIGNED) as correct_recommendations,
+            CAST(SUM(CASE WHEN o.recommendation_accuracy = 0 THEN 1 ELSE 0 END) AS UNSIGNED) as incorrect_recommendations,
+            CAST(AVG(CASE WHEN o.recommendation_accuracy = 1 THEN 1.0 ELSE 0.0 END) * 100 AS DECIMAL(5,2)) as accuracy_percentage,
+            CAST(AVG(r.ml_confidence) AS DECIMAL(5,4)) as avg_ml_confidence,
+            CAST(AVG(r.final_confidence) AS DECIMAL(5,4)) as avg_final_confidence,
+            CAST(SUM(COALESCE(o.profit_if_followed, 0)) AS DECIMAL(20,8)) as total_profit_if_followed,
+            CAST(SUM(COALESCE(o.profit_if_opposite, 0)) AS DECIMAL(20,8)) as total_profit_if_opposite,
+            CAST(SUM(COALESCE(o.recommendation_value, 0)) AS DECIMAL(20,8)) as total_recommendation_value,
+            CAST(AVG(COALESCE(o.profit_if_followed, 0)) AS DECIMAL(20,8)) as avg_profit_per_recommendation
+        FROM active_trade_recommendations r
+        LEFT JOIN recommendation_outcomes o ON r.recommendation_id = o.recommendation_id
+        WHERE {where_clause}
+        GROUP BY r.strategy, r.symbol, r.timeframe, r.ml_model_key, r.analysis_method
+        ORDER BY accuracy_percentage DESC, total_recommendations DESC
+        """
+
+        return self.execute_query(query, params)
+
+    def get_recommendations_for_trade(self, trade_id: int) -> List[Dict[str, Any]]:
+        """Get active trade recommendations for a specific trade"""
+        logger.info(f"📊 Getting recommendations for trade_id: {trade_id}")
+
+        query = """
+        SELECT
+            recommendation_id, trade_id, strategy, symbol, timeframe, trade_direction,
+            entry_price, current_price, trade_duration_minutes, current_profit_pips,
+            current_profit_money, account_balance, profit_percentage,
+            ml_prediction_available, ml_confidence, ml_probability, ml_model_key, ml_model_type,
+            base_confidence, final_confidence, analysis_method,
+            should_continue, recommendation, reason, confidence_threshold,
+            features_json, recommendation_time
+        FROM active_trade_recommendations
+        WHERE trade_id = %s
+        ORDER BY recommendation_time DESC
+        """
+
+        return self.execute_query(query, (trade_id,))
+
 # Global database instance
 analytics_db = AnalyticsDatabase()
