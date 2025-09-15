@@ -21,7 +21,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Utilities for canonical feature ordering
-from feature_engineering_utils import FeatureEngineeringUtils
+from ML_Webserver.feature_engineering_utils import FeatureEngineeringUtils
 
 class AdvancedRetrainingFramework:
     """

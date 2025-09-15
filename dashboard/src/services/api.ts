@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Trade, MLPrediction, MarketConditions, Summary, MLTrainingData, MLPerformance, MLPredictions, ModelRetrainingStatusResponse } from '../types/analytics';
+import { Trade, MLPrediction, MarketConditions, Summary, MLTrainingData, MLPerformance, MLPredictions, ModelRetrainingStatusResponse, RecommendationSummary, RecommendationPerformance, RecommendationCharts, RecommendationInsights, RecommendationTimeline, RecommendationFilters } from '../types/analytics';
 
 console.log(process.env);
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
@@ -107,6 +107,37 @@ export const getMLTradeCloses = async (params?: {
 }): Promise<any[]> => {
   const response = await api.get('/ml_trade_close', { params });
   return response.data;
+};
+
+// Recommendation Tracking API endpoints
+export const getRecommendationSummary = async (filters?: RecommendationFilters): Promise<RecommendationSummary> => {
+  const response = await api.get('/dashboard/recommendations/summary', { params: filters });
+  return response.data.summary;
+};
+
+export const getRecommendationPerformance = async (filters?: RecommendationFilters): Promise<{
+  data: RecommendationPerformance[];
+  charts: RecommendationCharts;
+}> => {
+  const response = await api.get('/dashboard/recommendations/performance', { params: filters });
+  return {
+    data: response.data.data,
+    charts: response.data.charts
+  };
+};
+
+export const getRecommendationInsights = async (filters?: RecommendationFilters): Promise<RecommendationInsights> => {
+  const response = await api.get('/dashboard/recommendations/insights', { params: filters });
+  return {
+    insights: response.data.insights,
+    recommendations: response.data.recommendations,
+    summary: response.data.summary
+  };
+};
+
+export const getRecommendationTimeline = async (filters?: RecommendationFilters): Promise<RecommendationTimeline> => {
+  const response = await api.get('/dashboard/recommendations/timeline', { params: filters });
+  return response.data.timeline;
 };
 
 // Helper function to format currency

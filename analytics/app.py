@@ -490,6 +490,37 @@ def record_ml_trade_close():
         trade_close_id = analytics_db.insert_ml_trade_close(data)
         logger.info(f"✅ ML trade close recorded successfully with ID: {trade_close_id}")
 
+        # Update recommendation outcomes for this trade
+        try:
+            logger.info(f"🔍 Looking for active trade recommendations for trade_id: {data['trade_id']}")
+
+            # Find active trade recommendations for this trade
+            recommendations = analytics_db.get_recommendations_for_trade(data['trade_id'])
+
+            if recommendations:
+                logger.info(f"📊 Found {len(recommendations)} recommendations for trade {data['trade_id']}")
+
+                for recommendation in recommendations:
+                    # Calculate outcome metrics
+                    outcome_data = calculate_recommendation_outcome(recommendation, data)
+
+                    # Update recommendation outcome
+                    updated_rows = analytics_db.update_recommendation_outcome(
+                        recommendation['recommendation_id'],
+                        outcome_data
+                    )
+
+                    if updated_rows > 0:
+                        logger.info(f"✅ Updated recommendation outcome for {recommendation['recommendation_id']}")
+                    else:
+                        logger.warning(f"⚠️ No recommendation outcome record found for {recommendation['recommendation_id']}")
+            else:
+                logger.info(f"ℹ️ No active trade recommendations found for trade {data['trade_id']}")
+
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to update recommendation outcomes: {e}")
+            # Don't fail the entire request if recommendation tracking fails
+
         return jsonify({
             "status": "success",
             "trade_close_id": trade_close_id,
@@ -502,6 +533,553 @@ def record_ml_trade_close():
         logger.error(f"   Exception details: {str(e)}")
         import traceback
         logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+def calculate_recommendation_outcome(recommendation: dict, trade_close_data: dict) -> dict:
+    """Calculate recommendation outcome metrics"""
+    try:
+        # Determine if the recommendation was correct
+        should_continue = recommendation['should_continue']
+        recommendation_type = recommendation['recommendation']
+
+        # Determine final decision based on trade close
+        # If trade was closed, the final decision was 'closed', otherwise 'continued'
+        final_decision = 'closed'  # Since we're in the trade close handler
+
+        # Calculate recommendation accuracy
+        # This is simplified - in practice, you'd need to track what actually happened
+        # For now, we'll assume the recommendation was followed if the trade was profitable
+        profit_loss = trade_close_data.get('profit_loss', 0)
+        recommendation_accuracy = None  # Would be calculated based on actual vs recommended action
+
+        # Calculate profit metrics
+        profit_if_followed = profit_loss if should_continue else 0.0
+        profit_if_opposite = 0.0 if should_continue else profit_loss
+        recommendation_value = profit_if_followed - profit_if_opposite
+
+        # Calculate confidence accuracy
+        confidence = recommendation.get('final_confidence', 0.0)
+        confidence_accuracy = None  # Would be calculated based on confidence vs actual outcome
+
+        # Determine confidence bucket
+        if confidence >= 0.7:
+            confidence_bucket = 'high'
+        elif confidence >= 0.4:
+            confidence_bucket = 'medium'
+        else:
+            confidence_bucket = 'low'
+
+        # Calculate prediction accuracy (simplified)
+        prediction_accuracy = None  # Would be calculated based on ML prediction vs actual outcome
+
+        return {
+            'outcome_status': 'completed',
+            'final_decision': final_decision,
+            'decision_timestamp': trade_close_data.get('close_time'),
+            'final_profit_loss': profit_loss,
+            'final_profit_pips': trade_close_data.get('profit_loss_pips', 0),
+            'final_profit_percentage': calculate_profit_percentage(profit_loss, recommendation),
+            'close_price': trade_close_data.get('close_price'),
+            'close_time': trade_close_data.get('close_time'),
+            'exit_reason': trade_close_data.get('exit_reason'),
+            'recommendation_accuracy': recommendation_accuracy,
+            'profit_if_followed': profit_if_followed,
+            'profit_if_opposite': profit_if_opposite,
+            'recommendation_value': recommendation_value,
+            'confidence_accuracy': confidence_accuracy,
+            'confidence_bucket': confidence_bucket,
+            'prediction_accuracy': prediction_accuracy
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error calculating recommendation outcome: {e}")
+        return {}
+
+def calculate_profit_percentage(profit_loss: float, recommendation: dict) -> float:
+    """Calculate profit percentage (simplified)"""
+    # This would typically use account balance from the recommendation data
+    account_balance = recommendation.get('account_balance', 10000.0)
+    return (profit_loss / account_balance) * 100 if account_balance > 0 else 0.0
+
+@app.route('/recommendation/active_trade', methods=['POST'])
+def record_active_trade_recommendation():
+    """Record active trade recommendation data"""
+    try:
+        data = request.get_json()
+        if not data:
+            logger.error("❌ No JSON data provided in active trade recommendation request")
+            return jsonify({"error": "No data provided"}), 400
+
+        # Validate required fields
+        required_fields = ['trade_id', 'strategy', 'symbol', 'timeframe', 'trade_direction',
+                           'entry_price', 'current_price', 'trade_duration_minutes', 'current_profit_pips',
+                           'current_profit_money', 'account_balance', 'profit_percentage',
+                           'ml_prediction_available', 'ml_confidence', 'ml_probability', 'ml_model_key',
+                           'ml_model_type', 'base_confidence', 'final_confidence', 'analysis_method',
+                           'should_continue', 'recommendation', 'reason', 'confidence_threshold',
+                           'features_json', 'recommendation_time']
+
+        is_valid, error_msg = validate_required_fields(data, required_fields, "Active trade recommendation")
+        if not is_valid:
+            return jsonify({"error": error_msg}), 400
+
+        logger.info(f"📊 Processing active trade recommendation for trade_id: {data['trade_id']}, strategy: {data.get('strategy', 'unknown')}")
+
+        # Insert active trade recommendation data
+        recommendation_id = analytics_db.insert_active_trade_recommendation(data)
+        logger.info(f"✅ Active trade recommendation recorded successfully with ID: {recommendation_id}")
+
+        # Create initial outcome record
+        try:
+            analytics_db.create_recommendation_outcome(recommendation_id, data['trade_id'])
+            logger.info(f"✅ Created initial outcome record for recommendation {recommendation_id}")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to create initial outcome record: {e}")
+            # Don't fail the entire request if outcome record creation fails
+
+        return jsonify({
+            "status": "success",
+            "recommendation_id": recommendation_id,
+            "message": "Active trade recommendation recorded successfully"
+        }), 201
+
+    except Exception as e:
+        logger.error(f"❌ Error recording active trade recommendation: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/recommendation/outcome', methods=['POST'])
+def update_recommendation_outcome():
+    """Update recommendation outcome when trade is closed"""
+    try:
+        data = request.get_json()
+        if not data:
+            logger.error("❌ No JSON data provided in recommendation outcome request")
+            return jsonify({"error": "No data provided"}), 400
+
+        # Validate required fields
+        required_fields = ['recommendation_id', 'outcome_status', 'final_decision']
+        is_valid, error_msg = validate_required_fields(data, required_fields, "Recommendation outcome")
+        if not is_valid:
+            return jsonify({"error": error_msg}), 400
+
+        logger.info(f"📊 Updating recommendation outcome for recommendation_id: {data['recommendation_id']}")
+
+        # Update recommendation outcome data
+        updated_rows = analytics_db.update_recommendation_outcome(data['recommendation_id'], data)
+        logger.info(f"✅ Recommendation outcome updated successfully for {data['recommendation_id']}")
+
+        return jsonify({
+            "status": "success",
+            "updated_rows": updated_rows,
+            "message": "Recommendation outcome updated successfully"
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error updating recommendation outcome: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/recommendation/performance', methods=['GET'])
+def get_recommendation_performance():
+    """Get recommendation performance analytics"""
+    try:
+        # Get query parameters
+        strategy = request.args.get('strategy')
+        symbol = request.args.get('symbol')
+        timeframe = request.args.get('timeframe')
+        days = int(request.args.get('days', 30))
+
+        logger.info(f"📊 Getting recommendation performance - Strategy: {strategy}, Symbol: {symbol}, Timeframe: {timeframe}, Days: {days}")
+
+        # Get recommendation performance data
+        performance_data = analytics_db.get_recommendation_performance(strategy, symbol, timeframe, days)
+
+        if performance_data:
+            logger.info(f"✅ Retrieved recommendation performance data: {len(performance_data)} records")
+            return jsonify({
+                "status": "success",
+                "data": performance_data,
+                "filters": {
+                    "strategy": strategy,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "days": days
+                }
+            }), 200
+        else:
+            logger.info(f"📭 No recommendation performance data found")
+            return jsonify({
+                "status": "success",
+                "data": [],
+                "message": "No recommendation performance data found"
+            }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error getting recommendation performance: {e}")
+        logger.error(f"   Exception type: {type(e).__name__}")
+        logger.error(f"   Exception details: {str(e)}")
+        import traceback
+        logger.error(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/dashboard/recommendations/summary', methods=['GET'])
+def get_recommendation_summary():
+    """Get recommendation performance summary for dashboard"""
+    try:
+        # Get query parameters
+        strategy = request.args.get('strategy')
+        symbol = request.args.get('symbol')
+        timeframe = request.args.get('timeframe')
+        days = int(request.args.get('days', 30))
+
+        logger.info(f"📊 Getting recommendation summary for dashboard - Strategy: {strategy}, Symbol: {symbol}, Timeframe: {timeframe}, Days: {days}")
+
+        # Get recommendation performance data
+        try:
+            performance_data = analytics_db.get_recommendation_performance(strategy, symbol, timeframe, days)
+            logger.info(f"🔍 Retrieved performance data: {performance_data}")
+        except Exception as e:
+            logger.error(f"❌ Error getting performance data: {e}")
+            raise
+
+        if not performance_data:
+            return jsonify({
+                "status": "success",
+                "summary": {
+                    "total_recommendations": 0,
+                    "overall_accuracy": 0.0,
+                    "total_profit": 0.0,
+                    "avg_confidence": 0.0,
+                    "recommendation_value": 0.0
+                },
+                "message": "No recommendation data available"
+            }), 200
+
+        # Helper function to safely get numeric values
+        def safe_get(row, key, default=0):
+            value = row.get(key, default)
+            if value is None:
+                return default
+            # Convert string numbers to actual numbers
+            if isinstance(value, str):
+                try:
+                    return float(value) if '.' in value else int(value)
+                except (ValueError, TypeError):
+                    return default
+            return value
+
+        # Calculate summary metrics
+        try:
+            total_recommendations = sum(safe_get(row, 'total_recommendations') for row in performance_data)
+            total_correct = sum(safe_get(row, 'correct_recommendations') for row in performance_data)
+            total_incorrect = sum(safe_get(row, 'incorrect_recommendations') for row in performance_data)
+            overall_accuracy = (total_correct / (total_correct + total_incorrect) * 100) if (total_correct + total_incorrect) > 0 else 0
+        except Exception as e:
+            logger.error(f"❌ Error in summary calculation: {e}")
+            logger.error(f"   performance_data: {performance_data}")
+            raise
+
+        total_profit = sum(safe_get(row, 'total_profit_if_followed') for row in performance_data)
+        total_value = sum(safe_get(row, 'total_recommendation_value') for row in performance_data)
+        avg_confidence = sum(safe_get(row, 'avg_final_confidence') for row in performance_data) / len(performance_data) if performance_data else 0
+
+        return jsonify({
+            "status": "success",
+            "summary": {
+                "total_recommendations": total_recommendations,
+                "overall_accuracy": round(overall_accuracy, 2),
+                "total_profit": round(total_profit, 2),
+                "avg_confidence": round(avg_confidence, 3),
+                "recommendation_value": round(total_value, 2),
+                "correct_recommendations": total_correct,
+                "incorrect_recommendations": total_incorrect
+            },
+            "filters": {
+                "strategy": strategy,
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "days": days
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error getting recommendation summary: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/dashboard/recommendations/performance', methods=['GET'])
+def get_dashboard_recommendation_performance():
+    """Get detailed recommendation performance data for dashboard charts"""
+    try:
+        # Get query parameters
+        strategy = request.args.get('strategy')
+        symbol = request.args.get('symbol')
+        timeframe = request.args.get('timeframe')
+        days = int(request.args.get('days', 30))
+
+        logger.info(f"📊 Getting recommendation performance for dashboard charts")
+
+        # Get recommendation performance data
+        performance_data = analytics_db.get_recommendation_performance(strategy, symbol, timeframe, days)
+
+        if not performance_data:
+            return jsonify({
+                "status": "success",
+                "data": [],
+                "charts": {
+                    "accuracy_by_model": [],
+                    "confidence_distribution": [],
+                    "profit_trend": [],
+                    "recommendation_breakdown": []
+                }
+            }), 200
+
+        # Prepare data for charts
+        charts_data = {
+            "accuracy_by_model": [
+                {
+                    "model": row['ml_model_key'],
+                    "accuracy": round(row['accuracy_percentage'], 2),
+                    "recommendations": row['total_recommendations']
+                }
+                for row in performance_data
+            ],
+            "confidence_distribution": [
+                {
+                    "model": row['ml_model_key'],
+                    "avg_confidence": round(row['avg_final_confidence'], 3),
+                    "accuracy": round(row['accuracy_percentage'], 2)
+                }
+                for row in performance_data
+            ],
+            "profit_trend": [
+                {
+                    "model": row['ml_model_key'],
+                    "profit_if_followed": round(row.get('total_profit_if_followed', 0), 2),
+                    "profit_if_opposite": round(row.get('total_profit_if_opposite', 0), 2),
+                    "recommendation_value": round(row.get('total_recommendation_value', 0), 2)
+                }
+                for row in performance_data
+            ],
+            "recommendation_breakdown": [
+                {
+                    "model": row['ml_model_key'],
+                    "continue_recommendations": row['continue_recommendations'],
+                    "close_recommendations": row['close_recommendations'],
+                    "analysis_method": row['analysis_method']
+                }
+                for row in performance_data
+            ]
+        }
+
+        return jsonify({
+            "status": "success",
+            "data": performance_data,
+            "charts": charts_data,
+            "filters": {
+                "strategy": strategy,
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "days": days
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error getting recommendation performance: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/dashboard/recommendations/insights', methods=['GET'])
+def get_recommendation_insights():
+    """Get actionable insights for ML model improvement"""
+    try:
+        # Get query parameters
+        strategy = request.args.get('strategy')
+        symbol = request.args.get('symbol')
+        timeframe = request.args.get('timeframe')
+        days = int(request.args.get('days', 30))
+
+        logger.info(f"📊 Getting recommendation insights for ML improvement")
+
+        # Get recommendation performance data
+        performance_data = analytics_db.get_recommendation_performance(strategy, symbol, timeframe, days)
+
+        if not performance_data:
+            return jsonify({
+                "status": "success",
+                "insights": [],
+                "recommendations": []
+            }), 200
+
+        # Generate insights
+        insights = []
+        recommendations = []
+
+        # Helper function to safely get numeric values
+        def safe_get(row, key, default=0):
+            value = row.get(key, default)
+            if value is None:
+                return default
+            # Convert string numbers to actual numbers
+            if isinstance(value, str):
+                try:
+                    return float(value) if '.' in value else int(value)
+                except (ValueError, TypeError):
+                    return default
+            return value
+
+        # Calculate overall metrics
+        total_recommendations = sum(safe_get(row, 'total_recommendations') for row in performance_data)
+        total_correct = sum(safe_get(row, 'correct_recommendations') for row in performance_data)
+        total_incorrect = sum(safe_get(row, 'incorrect_recommendations') for row in performance_data)
+        overall_accuracy = (total_correct / (total_correct + total_incorrect) * 100) if (total_correct + total_incorrect) > 0 else 0
+
+        # Insight 1: Overall Performance
+        if overall_accuracy >= 70:
+            insights.append({
+                "type": "positive",
+                "title": "Good Overall Performance",
+                "description": f"Overall accuracy is {overall_accuracy:.1f}%, which is above the 70% threshold",
+                "priority": "low"
+            })
+        elif overall_accuracy >= 50:
+            insights.append({
+                "type": "warning",
+                "title": "Moderate Performance",
+                "description": f"Overall accuracy is {overall_accuracy:.1f}%, which needs improvement",
+                "priority": "medium"
+            })
+        else:
+            insights.append({
+                "type": "critical",
+                "title": "Poor Performance",
+                "description": f"Overall accuracy is {overall_accuracy:.1f}%, which is below acceptable levels",
+                "priority": "high"
+            })
+
+        # Insight 2: Model-specific performance
+        for row in performance_data:
+            if row['total_recommendations'] >= 10:  # Only analyze models with sufficient data
+                if row['accuracy_percentage'] < 50:
+                    insights.append({
+                        "type": "critical",
+                        "title": f"Poor Model Performance: {row['ml_model_key']}",
+                        "description": f"Model {row['ml_model_key']} has {row['accuracy_percentage']:.1f}% accuracy with {row['total_recommendations']} recommendations",
+                        "priority": "high"
+                    })
+                    recommendations.append({
+                        "type": "retrain",
+                        "model": row['ml_model_key'],
+                        "action": "Retrain model with additional data or different features",
+                        "priority": "high"
+                    })
+                elif row['accuracy_percentage'] >= 70 and row['avg_final_confidence'] < 0.4:
+                    insights.append({
+                        "type": "info",
+                        "title": f"Underconfident Model: {row['ml_model_key']}",
+                        "description": f"Model {row['ml_model_key']} is accurate ({row['accuracy_percentage']:.1f}%) but underconfident ({row['avg_final_confidence']:.3f})",
+                        "priority": "medium"
+                    })
+                    recommendations.append({
+                        "type": "threshold",
+                        "model": row['ml_model_key'],
+                        "action": "Lower confidence thresholds to allow more trades",
+                        "priority": "medium"
+                    })
+
+        # Insight 3: Confidence calibration
+        avg_confidence = sum(safe_get(row, 'avg_final_confidence') for row in performance_data) / len(performance_data) if performance_data else 0
+        if avg_confidence > 0.8 and overall_accuracy < 70:
+            insights.append({
+                "type": "warning",
+                "title": "Overconfident Models",
+                "description": f"Models show high confidence ({avg_confidence:.2f}) but low accuracy ({overall_accuracy:.1f}%)",
+                "priority": "high"
+            })
+            recommendations.append({
+                "type": "calibration",
+                "model": "all",
+                "action": "Implement confidence calibration or adjust thresholds",
+                "priority": "high"
+            })
+
+        # Insight 4: Profitability analysis
+        total_value = sum(safe_get(row, 'total_recommendation_value') for row in performance_data)
+        if total_value < 0:
+            insights.append({
+                "type": "critical",
+                "title": "Negative Recommendation Value",
+                "description": f"Recommendations are losing money overall (${total_value:.2f})",
+                "priority": "high"
+            })
+            recommendations.append({
+                "type": "risk_management",
+                "model": "all",
+                "action": "Review risk management parameters and recommendation logic",
+                "priority": "high"
+            })
+
+        return jsonify({
+            "status": "success",
+            "insights": insights,
+            "recommendations": recommendations,
+            "summary": {
+                "total_insights": len(insights),
+                "total_recommendations": len(recommendations),
+                "critical_issues": len([i for i in insights if i['priority'] == 'high']),
+                "overall_accuracy": round(overall_accuracy, 2)
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error getting recommendation insights: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/dashboard/recommendations/timeline', methods=['GET'])
+def get_recommendation_timeline():
+    """Get recommendation timeline data for dashboard"""
+    try:
+        # Get query parameters
+        strategy = request.args.get('strategy')
+        symbol = request.args.get('symbol')
+        timeframe = request.args.get('timeframe')
+        days = int(request.args.get('days', 30))
+
+        logger.info(f"📊 Getting recommendation timeline data")
+
+        # This would typically query the active_trade_recommendations table for timeline data
+        # For now, return a placeholder structure
+        timeline_data = {
+            "daily_recommendations": [],
+            "daily_accuracy": [],
+            "daily_profit": [],
+            "confidence_trend": []
+        }
+
+        # In a real implementation, you would:
+        # 1. Query active_trade_recommendations table
+        # 2. Group by date
+        # 3. Calculate daily metrics
+        # 4. Return structured timeline data
+
+        return jsonify({
+            "status": "success",
+            "timeline": timeline_data,
+            "filters": {
+                "strategy": strategy,
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "days": days
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error getting recommendation timeline: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/analytics/trades', methods=['GET'])

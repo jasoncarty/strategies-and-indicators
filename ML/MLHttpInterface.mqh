@@ -664,7 +664,7 @@ public:
         }
 
         // Limit to max 10 calls per minute
-        if(apiCallCount >= 10 && (currentTime - lastApiCallTime) < 60) {
+        /* if(apiCallCount >= 10 && (currentTime - lastApiCallTime) < 60) {
             Print("⚠️ Rate limit exceeded: Too many API calls to active_trade_recommendation endpoint");
             Print("   Waiting for rate limit reset...");
 
@@ -672,7 +672,7 @@ public:
             rateLimitedPrediction.is_valid = false;
             rateLimitedPrediction.error_message = "Rate limit exceeded - too many API calls";
             return rateLimitedPrediction;
-        }
+        } */
 
         apiCallCount++;
         lastApiCallTime = currentTime;

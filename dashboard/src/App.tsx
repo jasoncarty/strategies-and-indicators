@@ -11,6 +11,7 @@ import MLPredictionsDashboard from './components/MLPredictionsDashboard';
 import ModelPerformanceView from './components/ModelPerformanceView';
 import ModelCalibrationView from './components/ModelCalibrationView';
 import ModelRetrainingDashboard from './components/ModelRetrainingDashboard';
+import RecommendationTrackingDashboard from './components/RecommendationTrackingDashboard';
 import { Summary, Trade, MLPerformance, MLPredictions } from './types/analytics';
 
 const queryClient = new QueryClient({
@@ -86,6 +87,9 @@ function Dashboard() {
               </a>
               <a href="/model-retraining" className="ml-2 inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-700">
                 Retraining
+              </a>
+              <a href="/recommendations" className="ml-2 inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-purple-600 text-white hover:bg-purple-700">
+                Recommendations
               </a>
             </div>
           </div>
@@ -164,6 +168,7 @@ function App() {
           <Route path="/model-health" element={<ModelHealthDashboard />} />
           <Route path="/model-calibration/:modelKey" element={<ModelCalibrationView />} />
           <Route path="/model-retraining" element={<ModelRetrainingDashboard />} />
+          <Route path="/recommendations" element={<RecommendationTrackingDashboard />} />
         </Routes>
       </Router>
     </QueryClientProvider>

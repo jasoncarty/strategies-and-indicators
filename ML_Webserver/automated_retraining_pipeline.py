@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 import requests
 import numpy as np
-from advanced_retraining_framework import AdvancedRetrainingFramework
+from ML_Webserver.advanced_retraining_framework import AdvancedRetrainingFramework
+from ML_Webserver.recommendation_insights import RecommendationInsights
 
 # Configure logging
 logging.basicConfig(
@@ -47,6 +48,9 @@ class AutomatedRetrainingPipeline:
 
         # Initialize advanced retraining framework
         self.retraining_framework = AdvancedRetrainingFramework(models_dir)
+
+        # Initialize recommendation insights analyzer
+        self.recommendation_analyzer = RecommendationInsights(analytics_url)
 
         # Retraining configuration
         self.auto_retrain_critical = True
@@ -112,6 +116,66 @@ class AutomatedRetrainingPipeline:
         except Exception as e:
             logger.error(f"Error checking model health: {e}")
             return {"models": [], "summary": {}}
+
+    def get_recommendation_based_retraining_suggestions(self) -> Dict[str, Any]:
+        """Get retraining suggestions based on recommendation analysis"""
+        try:
+            logger.info("🔍 Analyzing recommendation-based retraining suggestions...")
+
+            # Get all existing models from the models directory
+            existing_models = []
+            for model_file in self.models_dir.glob("*_model_*.pkl"):
+                # Extract model key from filename: buy_model_EURUSD+_PERIOD_M5.pkl -> buy_EURUSD+_PERIOD_M5
+                filename = model_file.stem
+                parts = filename.split('_')
+                if len(parts) >= 4:
+                    model_key = f"{parts[0]}_{parts[2]}_PERIOD_{parts[4]}"
+                    existing_models.append(model_key)
+
+            if not existing_models:
+                logger.info("No existing models found for recommendation analysis")
+                return {"retrain_candidates": [], "total_candidates": 0}
+
+            # Get recommendation insights for all models
+            insights_result = self.recommendation_analyzer.get_all_model_insights(existing_models)
+
+            # Filter for models that should be retrained
+            retrain_candidates = []
+            for model_key, insights in insights_result.get('insights', {}).items():
+                if insights.get('should_retrain', False):
+                    retrain_candidates.append({
+                        'model_key': model_key,
+                        'priority': insights.get('retrain_priority', 'low'),
+                        'reason': insights.get('retrain_reason', 'Unknown'),
+                        'recommended_actions': insights.get('retraining_suggestions', {}).get('recommended_actions', []),
+                        'confidence_adjustments': insights.get('retraining_suggestions', {}).get('confidence_adjustments', []),
+                        'insights': insights.get('insights', {})
+                    })
+
+            # Sort by priority
+            priority_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+            retrain_candidates.sort(key=lambda x: priority_order.get(x['priority'], 4))
+
+            result = {
+                'analysis_date': datetime.now().isoformat(),
+                'models_analyzed': len(existing_models),
+                'retrain_candidates': retrain_candidates,
+                'total_candidates': len(retrain_candidates),
+                'insights_summary': {
+                    'total_recommendations': sum(insights.get('insights', {}).get('total_recommendations', 0)
+                                               for insights in insights_result.get('insights', {}).values()),
+                    'avg_accuracy': np.mean([insights.get('insights', {}).get('overall_accuracy', 0)
+                                           for insights in insights_result.get('insights', {}).values()
+                                           if insights.get('insights', {}).get('total_recommendations', 0) > 0]) if any(insights.get('insights', {}).get('total_recommendations', 0) > 0 for insights in insights_result.get('insights', {}).values()) else 0
+                }
+            }
+
+            logger.info(f"✅ Recommendation analysis complete: {len(retrain_candidates)} models need retraining")
+            return result
+
+        except Exception as e:
+            logger.error(f"❌ Error getting recommendation-based retraining suggestions: {e}")
+            return {"retrain_candidates": [], "total_candidates": 0, "error": str(e)}
 
     def get_training_data(self, symbol: str, timeframe: str, days: int = 90) -> List[Dict]:
         """Get training data for a specific model"""
@@ -610,7 +674,7 @@ class AutomatedRetrainingPipeline:
         return analysis
 
     def process_retraining_queue(self) -> Dict[str, Any]:
-        """Process the retraining queue based on alerts and health data"""
+        """Process the retraining queue based on alerts, health data, and recommendation analysis"""
         try:
             logger.info("🔄 Processing retraining queue...")
 
@@ -618,10 +682,13 @@ class AutomatedRetrainingPipeline:
             alerts_data = self.check_model_alerts()
             health_data = self.check_model_health()
 
+            # Get recommendation-based retraining suggestions
+            recommendation_suggestions = self.get_recommendation_based_retraining_suggestions()
+
             # Discover new models that need to be created
             new_models = self.discover_new_models()
 
-            # Combine existing alerts with new model discoveries
+            # Combine all sources of retraining candidates
             all_models_to_process = []
 
             # Add existing alerts
@@ -631,8 +698,22 @@ class AutomatedRetrainingPipeline:
                         'model_key': alert['model_key'],
                         'type': 'existing_model',
                         'reason': 'degradation_alert',
-                        'priority': 'high' if alert['alert_level'] == 'critical' else 'medium'
+                        'priority': 'high' if alert['alert_level'] == 'critical' else 'medium',
+                        'source': 'alerts'
                     })
+
+            # Add recommendation-based suggestions
+            for candidate in recommendation_suggestions.get('retrain_candidates', []):
+                all_models_to_process.append({
+                    'model_key': candidate['model_key'],
+                    'type': 'existing_model',
+                    'reason': f"recommendation_analysis: {candidate['reason']}",
+                    'priority': candidate['priority'],
+                    'source': 'recommendations',
+                    'recommended_actions': candidate.get('recommended_actions', []),
+                    'confidence_adjustments': candidate.get('confidence_adjustments', []),
+                    'insights': candidate.get('insights', {})
+                })
 
             # Add new model discoveries
             for new_model in new_models:
@@ -641,18 +722,26 @@ class AutomatedRetrainingPipeline:
                     'type': 'new_model',
                     'reason': 'new_model_discovery',
                     'priority': 'high',
+                    'source': 'discovery',
                     'discovery_data': new_model
                 })
 
             if not all_models_to_process:
-                logger.info("No models to process (alerts or new discoveries)")
-                return {"processed": 0, "retrained": 0, "skipped": 0, "new_models": 0}
+                logger.info("No models to process (alerts, recommendations, or new discoveries)")
+                return {
+                    "processed": 0,
+                    "retrained": 0,
+                    "skipped": 0,
+                    "new_models": 0,
+                    "recommendation_candidates": recommendation_suggestions.get('total_candidates', 0)
+                }
 
-            # Process each model (existing alerts + new discoveries)
+            # Process each model (alerts + recommendations + new discoveries)
             processed = 0
             retrained = 0
             skipped = 0
             new_models_created = 0
+            recommendation_retrained = 0
 
             for model_info in all_models_to_process:
                 model_key = model_info['model_key']
@@ -745,6 +834,8 @@ class AutomatedRetrainingPipeline:
                         )
                         if success:
                             retrained += 1
+                            if model_info.get('source') == 'recommendations':
+                                recommendation_retrained += 1
                         else:
                             skipped += 1
                 else:
@@ -766,6 +857,8 @@ class AutomatedRetrainingPipeline:
                 "retrained": retrained,
                 "skipped": skipped,
                 "new_models_created": new_models_created,
+                "recommendation_retrained": recommendation_retrained,
+                "recommendation_candidates": recommendation_suggestions.get('total_candidates', 0),
                 "active_retraining": len([k for k, v in self.active_retraining.items()
                                        if v['status'] == 'in_progress'])
             }
@@ -804,6 +897,36 @@ class AutomatedRetrainingPipeline:
                 "check_interval_minutes": self.check_interval // 60
             }
         }
+
+    def get_recommendation_analysis_status(self) -> Dict[str, Any]:
+        """Get current recommendation analysis status"""
+        try:
+            # Get recommendation-based suggestions
+            recommendation_suggestions = self.get_recommendation_based_retraining_suggestions()
+
+            # Get cache status
+            cache_info = {
+                'cached_models': len(self.recommendation_analyzer.insights_cache),
+                'cache_duration_minutes': self.recommendation_analyzer.cache_duration // 60
+            }
+
+            return {
+                'analysis_date': datetime.now().isoformat(),
+                'recommendation_candidates': recommendation_suggestions.get('total_candidates', 0),
+                'models_analyzed': recommendation_suggestions.get('models_analyzed', 0),
+                'insights_summary': recommendation_suggestions.get('insights_summary', {}),
+                'cache_info': cache_info,
+                'retrain_candidates': recommendation_suggestions.get('retrain_candidates', [])
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting recommendation analysis status: {e}")
+            return {
+                'analysis_date': datetime.now().isoformat(),
+                'error': str(e),
+                'recommendation_candidates': 0,
+                'models_analyzed': 0
+            }
 
     def get_detailed_retraining_status(self, model_key: str = None) -> Dict[str, Any]:
         """Get detailed retraining status for debugging"""
@@ -957,6 +1080,12 @@ def main():
     health = pipeline.check_model_health()
     print(f"Overall health: {health.get('summary', {}).get('overall_health', 0):.1f}%")
 
+    # Test recommendation analysis
+    print("🔍 Testing recommendation analysis...")
+    rec_status = pipeline.get_recommendation_analysis_status()
+    print(f"Recommendation candidates: {rec_status.get('recommendation_candidates', 0)}")
+    print(f"Models analyzed: {rec_status.get('models_analyzed', 0)}")
+
     # Test retraining queue processing
     print("🔄 Processing retraining queue...")
     result = pipeline.process_retraining_queue()
@@ -967,6 +1096,7 @@ def main():
     status = pipeline.get_retraining_status()
     print(f"Active retraining: {len(status['active_retraining'])}")
     print(f"Retraining history: {len(status['retraining_history'])}")
+    print(f"Recommendation retrained: {result.get('recommendation_retrained', 0)}")
 
     # Show failed models if any
     detailed_status = pipeline.get_detailed_retraining_status()

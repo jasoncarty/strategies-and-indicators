@@ -1303,6 +1303,67 @@ def active_trade_recommendation():
         logger.info(f"📤 Trade Analysis fields: entry={result['entry_price']}, current={result['current_price']}, profit={result['profit_money']}")
         logger.info("📤 ===== END RESPONSE =====")
 
+        # Track recommendation for analytics (async to avoid blocking response)
+        try:
+            import threading
+            import requests
+
+            def track_recommendation_async():
+                try:
+                    # Prepare recommendation data for tracking
+                    recommendation_data = {
+                        'trade_id': data.get('trade_id', 0),
+                        'strategy': 'active_trade_analysis',
+                        'symbol': symbol,
+                        'timeframe': timeframe,
+                        'trade_direction': trade_direction,
+                        'entry_price': entry_price,
+                        'current_price': current_price,
+                        'trade_duration_minutes': trade_duration_minutes,
+                        'current_profit_pips': current_profit_pips,
+                        'current_profit_money': current_profit_money,
+                        'account_balance': account_balance,
+                        'profit_percentage': (current_profit_money / account_balance) * 100 if account_balance > 0 else 0,
+                        'ml_prediction_available': ml_prediction is not None,
+                        'ml_confidence': ml_confidence,
+                        'ml_probability': ml_probability,
+                        'ml_model_key': ml_prediction.get('prediction', {}).get('model_key', 'active_trade_analysis') if ml_prediction else 'active_trade_analysis',
+                        'ml_model_type': 'ml_enhanced' if ml_prediction else 'trade_health',
+                        'base_confidence': base_confidence,
+                        'final_confidence': final_confidence,
+                        'analysis_method': 'ml_enhanced' if ml_prediction else 'trade_health_only',
+                        'should_continue': should_continue,
+                        'recommendation': 'continue' if should_continue else 'close',
+                        'reason': 'profitable_trade' if current_profit_money > 0 else 'max_loss_threshold' if abs(current_profit_money) / account_balance >= float(os.getenv('MAX_LOSS_PERCENTAGE', 0.01)) else 'acceptable_loss',
+                        'confidence_threshold': float(os.getenv('THRESHOLD_NORMAL', 0.5)),
+                        'features_json': features,
+                        'recommendation_time': int(time.time())
+                    }
+
+                    # Send to analytics service
+                    analytics_url = os.getenv('ANALYTICS_URL', 'http://localhost:5001')
+                    response = requests.post(
+                        f"{analytics_url}/recommendation/active_trade",
+                        json=recommendation_data,
+                        timeout=5
+                    )
+
+                    if response.status_code == 201:
+                        logger.info(f"✅ Recommendation tracked successfully")
+                    else:
+                        logger.warning(f"⚠️ Failed to track recommendation: {response.status_code} - {response.text}")
+
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to track recommendation asynchronously: {e}")
+
+            # Start async tracking
+            tracking_thread = threading.Thread(target=track_recommendation_async)
+            tracking_thread.daemon = True
+            tracking_thread.start()
+
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to start recommendation tracking: {e}")
+
         return jsonify(result)
 
     except Exception as e:
