@@ -210,6 +210,9 @@ export interface ModelRetrainingStatus {
   model_type: string | null;
   retrained_by: string | null;
   model_version: number | null;
+  // New fields for UI badges
+  used_lenient_threshold?: boolean;
+  model_quality?: 'standard' | 'low_accuracy';
 }
 
 export interface ModelRetrainingStatusResponse {

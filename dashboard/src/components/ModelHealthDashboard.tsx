@@ -125,15 +125,15 @@ const ModelHealthDashboard: React.FC = () => {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'healthy':
-        return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
+        return <CheckCircleIcon title="Healthy" className="h-5 w-5 text-green-500" />;
       case 'warning':
-        return <ExclamationTriangleIcon className="h-5 w-5 text-yellow-500" />;
+        return <ExclamationTriangleIcon title="Warning" className="h-5 w-5 text-yellow-500" />;
       case 'critical':
-        return <XCircleIcon className="h-5 w-5 text-red-500" />;
+        return <XCircleIcon title="Critical" className="h-5 w-5 text-red-500" />;
       case 'no_data':
-        return <InformationCircleIcon className="h-5 w-5 text-gray-500" />;
+        return <InformationCircleIcon title="No Data" className="h-5 w-5 text-gray-500" />;
       default:
-        return <InformationCircleIcon className="h-5 w-5 text-gray-500" />;
+        return <InformationCircleIcon title="Default" className="h-5 w-5 text-gray-500" />;
     }
   };
 

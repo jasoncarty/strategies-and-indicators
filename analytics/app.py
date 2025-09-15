@@ -1822,8 +1822,86 @@ def get_model_degradation_alerts():
         warning_alerts = 0
         info_alerts = 0
 
+        # Helper: validate model files on disk for integrity issues (e.g., tiny feature_names pickles)
+        import os
+        from pathlib import Path
+        ml_models_dir = os.getenv('ML_MODELS_DIR', "/app/ml_models")
+        models_root = Path(ml_models_dir)
+
+        def validate_model_files(model_key: str, symbol: str, timeframe: str, direction: str) -> list:
+            problems = []
+            try:
+                # Build expected file paths
+                feature_names = models_root / f"{direction}_feature_names_{symbol}_PERIOD_{timeframe}.pkl"
+                model_file = models_root / f"{direction}_model_{symbol}_PERIOD_{timeframe}.pkl"
+                scaler_file = models_root / f"{direction}_scaler_{symbol}_PERIOD_{timeframe}.pkl"
+                metadata_file = models_root / f"{direction}_metadata_{symbol}_PERIOD_{timeframe}.json"
+
+                # Size thresholds (bytes)
+                FN_MIN = 100   # feature_names should be a reasonably sized list
+                MD_MIN = 150   # metadata JSON typically > 150 bytes
+                SC_MIN = 200   # scaler pickle usually > 200 bytes
+                MO_MIN = 1024  # model pickle usually > 1KB
+
+                # Check existence and sizes
+                if not feature_names.exists() or feature_names.stat().st_size < FN_MIN:
+                    problems.append(f"feature_names file missing or too small ({feature_names.stat().st_size if feature_names.exists() else 'missing'} bytes)")
+                if not metadata_file.exists() or metadata_file.stat().st_size < MD_MIN:
+                    problems.append("metadata file missing or too small")
+                if not scaler_file.exists() or scaler_file.stat().st_size < SC_MIN:
+                    problems.append("scaler file missing or too small")
+                if not model_file.exists() or model_file.stat().st_size < MO_MIN:
+                    problems.append("model file missing or too small")
+
+            except Exception as e:
+                problems.append(f"validation error: {e}")
+            return problems
+
         for model in models:
             model_key = model['ml_model_key']
+
+            # File integrity validation (runs before DB-based performance checks) and read invert flag
+            try:
+                parts = model_key.split('_')
+                if len(parts) >= 4:
+                    direction = parts[0]
+                    symbol = model.get('symbol') or parts[1]
+                    timeframe = model.get('timeframe') or parts[3]
+
+                    # Read metadata to detect invert_confidence for consistent alerting
+                    invert_confidence = False
+                    try:
+                        import json
+                        metadata_file = models_root / f"{direction}_metadata_{symbol}_PERIOD_{timeframe}.json"
+                        if metadata_file.exists():
+                            with open(metadata_file, 'r') as f:
+                                meta = json.load(f)
+                            invert_confidence = bool(meta.get('invert_confidence', False))
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to read metadata for {model_key}: {e}")
+
+                    file_problems = validate_model_files(model_key, symbol, timeframe, direction)
+                    for prob in file_problems:
+                        alerts.append({
+                            'model_key': model_key,
+                            'model_type': model['ml_model_type'],
+                            'symbol': symbol,
+                            'timeframe': timeframe,
+                            'alert_level': 'critical',
+                            'alerts': [{
+                                'type': 'model_file_integrity',
+                                'level': 'critical',
+                                'message': f'Model file integrity issue: {prob}',
+                                'recommendation': 'Regenerate model artifacts and verify volumes are mounted correctly'
+                            }],
+                            'current_metrics': {}
+                        })
+                        critical_alerts += 1
+                else:
+                    invert_confidence = False
+            except Exception as e:
+                logger.warning(f"⚠️ File integrity validation failed for {model_key}: {e}")
+                invert_confidence = False
 
             # Get recent performance (last 7 days for faster alerting)
             recent_performance = analytics_db.execute_query("""
@@ -1855,10 +1933,12 @@ def get_model_degradation_alerts():
             avg_profit_loss = float(perf['avg_profit_loss']) if perf['avg_profit_loss'] else 0
 
             # Check for confidence inversion (higher confidence = worse performance)
-            confidence_analysis = analytics_db.execute_query("""
+            # Confidence analysis respects training-time inversion flag
+            confidence_expr = "(1 - ml_confidence)" if invert_confidence else "ml_confidence"
+            confidence_analysis = analytics_db.execute_query(f"""
                 SELECT
                     CASE
-                        WHEN ml_confidence < 0.5 THEN 'low'
+                        WHEN {confidence_expr} < 0.5 THEN 'low'
                         ELSE 'high'
                     END as confidence_level,
                     AVG(CASE WHEN profit_loss > 0 THEN 1 ELSE 0 END) as win_rate,
@@ -2128,7 +2208,10 @@ def get_model_retraining_status():
                     'training_samples': metadata.get('training_samples'),
                     'model_type': metadata.get('model_type'),
                     'retrained_by': metadata.get('retrained_by'),
-                    'model_version': metadata.get('model_version', 1.0)
+                    'model_version': metadata.get('model_version', 1.0),
+                    # New fields for UI badges
+                    'used_lenient_threshold': metadata.get('used_lenient_threshold', False),
+                    'model_quality': metadata.get('model_quality', 'standard')
                 }
 
                 retraining_status.append(model_info)

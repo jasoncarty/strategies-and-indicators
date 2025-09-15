@@ -198,12 +198,68 @@ class AutomatedRetrainingPipeline:
                     'urgency': 'none'
                 }
 
+        # Gate auto-retrains for lenient first-time models until enough data/time accumulates
+        try:
+            direction, symbol, _, timeframe = model_key.split('_')
+            metadata_path = self.models_dir / f"{direction}_metadata_{symbol}_PERIOD_{timeframe}.json"
+            if metadata_path.exists():
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+
+                used_lenient = metadata.get('used_lenient_threshold', False)
+                training_date_str = metadata.get('training_date')
+
+                if used_lenient and training_date_str:
+                    # Compute days since training
+                    try:
+                        training_dt = datetime.fromisoformat(training_date_str)
+                    except Exception:
+                        training_dt = datetime.strptime(training_date_str[:19], '%Y-%m-%dT%H:%M:%S')
+
+                    days_since = (datetime.now() - training_dt).days
+
+                    # Count new closed trades with features since training
+                    new_trades = self._count_new_trades_since_training(symbol, timeframe, training_dt)
+
+                    min_days = 14
+                    min_trades = 50
+                    if days_since < min_days and new_trades < min_trades:
+                        return {
+                            'should_retrain': False,
+                            'reason': f"Lenient model awaiting data: {days_since}d < {min_days} and {new_trades} < {min_trades} new trades",
+                            'priority': 'none',
+                            'urgency': 'none'
+                        }
+        except Exception as e:
+            logger.warning(f"⚠️ Lenient gating check failed for {model_key}: {e}")
+
         return {
             'should_retrain': retrain_reason is not None,
             'reason': retrain_reason,
             'priority': priority,
             'urgency': urgency
         }
+
+    def _count_new_trades_since_training(self, symbol: str, timeframe: str, since_dt: datetime) -> int:
+        """Count number of closed trades with features since a given datetime using analytics service."""
+        try:
+            start_date = since_dt.strftime('%Y-%m-%d')
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            params = {
+                'symbol': symbol,
+                'timeframe': timeframe,
+                'start_date': start_date,
+                'end_date': end_date,
+            }
+            resp = requests.get(f"{self.analytics_url}/analytics/ml_training_data", params=params, timeout=20)
+            if resp.status_code == 200:
+                data = resp.json()
+                return len(data) if isinstance(data, list) else 0
+            logger.warning(f"⚠️ Failed to count trades since training ({resp.status_code}) for {symbol} {timeframe}")
+            return 0
+        except Exception as e:
+            logger.warning(f"⚠️ Error counting new trades since training for {symbol} {timeframe}: {e}")
+            return 0
 
     def retrain_model(self, model_key: str, reason: str, priority: str) -> bool:
         """Retrain a specific model"""
@@ -238,8 +294,8 @@ class AutomatedRetrainingPipeline:
                 self.active_retraining[model_key]['status'] = 'failed'
                 return False
 
-            # Use advanced retraining framework
-            success = self.retraining_framework.retrain_model(symbol, timeframe, training_data, direction)
+            # Use advanced retraining framework (strict only for retrains)
+            success = self.retraining_framework.retrain_model(symbol, timeframe, training_data, direction, allow_lenient_threshold=False)
 
             if success:
                 self.active_retraining[model_key]['status'] = 'completed'
@@ -347,6 +403,26 @@ class AutomatedRetrainingPipeline:
         """Create a new model from scratch using available training data"""
         try:
             model_key = f"{direction}_{symbol}_PERIOD_{timeframe}"
+            # Guard 1: skip if we already have an in-flight creation for this key
+            if model_key in self.active_retraining and self.active_retraining[model_key].get('status') in {'creating','in_progress'}:
+                logger.info(f"⏳ Skipping new model creation for {model_key}: already in progress")
+                return False
+
+            # Guard 2: skip if model artifacts already exist on disk
+            model_path = self.models_dir / f"{direction}_model_{symbol}_PERIOD_{timeframe}.pkl"
+            scaler_path = self.models_dir / f"{direction}_scaler_{symbol}_PERIOD_{timeframe}.pkl"
+            feature_names_path = self.models_dir / f"{direction}_feature_names_{symbol}_PERIOD_{timeframe}.pkl"
+            metadata_path = self.models_dir / f"{direction}_metadata_{symbol}_PERIOD_{timeframe}.json"
+
+            def _exists_min(p: Path, min_bytes: int) -> bool:
+                try:
+                    return p.exists() and p.stat().st_size >= min_bytes
+                except Exception:
+                    return False
+
+            if _exists_min(model_path, 1024) and _exists_min(scaler_path, 200) and _exists_min(feature_names_path, 100) and _exists_min(metadata_path, 150):
+                logger.info(f"🛑 Skipping new model creation for {model_key}: artifacts already exist")
+                return True
             logger.info(f"🆕 Creating new model: {model_key}")
             logger.info(f"   Symbol: {symbol}")
             logger.info(f"   Timeframe: {timeframe}")
@@ -372,7 +448,8 @@ class AutomatedRetrainingPipeline:
             logger.info(f"📊 Retrieved {len(training_data)} training samples for new {symbol} {timeframe} model")
 
             # Use advanced retraining framework to create the model
-            success = self.retraining_framework.retrain_model(symbol, timeframe, training_data, direction)
+            # For first-time creation, allow lenient threshold
+            success = self.retraining_framework.retrain_model(symbol, timeframe, training_data, direction, allow_lenient_threshold=True)
 
             if success:
                 self.active_retraining[model_key]['status'] = 'completed'
@@ -401,6 +478,18 @@ class AutomatedRetrainingPipeline:
             logger.error(f"   Exception type: {type(e).__name__}")
             logger.error(f"   Full traceback:")
             logger.error(traceback.format_exc())
+
+            # Also log training data details for debugging
+            logger.error(f"   Debug info: Training data count: {len(training_data) if 'training_data' in locals() else 'N/A'}")
+            if 'training_data' in locals() and training_data:
+                sample = training_data[0]
+                logger.error(f"   Debug info: Sample data keys: {list(sample.keys()) if isinstance(sample, dict) else 'Not a dict'}")
+                if isinstance(sample, dict) and 'features' in sample:
+                    features = sample['features']
+                    logger.error(f"   Debug info: Features type: {type(features)}, is_dict: {isinstance(features, dict)}")
+                    if isinstance(features, dict):
+                        logger.error(f"   Debug info: Feature keys: {list(features.keys())}")
+                        logger.error(f"   Debug info: Feature values sample: {list(features.values())[:3]}")
 
             if model_key in self.active_retraining:
                 self.active_retraining[model_key]['status'] = 'failed'

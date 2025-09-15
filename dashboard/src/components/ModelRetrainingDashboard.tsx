@@ -300,8 +300,13 @@ const ModelRetrainingDashboard: React.FC = () => {
                           {getStatusIcon(model.status)}
                         </div>
                         <div className="ml-4">
-                          <div className="text-sm font-small text-gray-900">
+                          <div className="text-sm font-small text-gray-900 flex items-center gap-2">
                             {model.model_key}
+                            {retrainInfo?.used_lenient_threshold && (
+                              <span className="inline-flex items-center rounded-md bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800 border border-yellow-200">
+                                Low accuracy (lenient)
+                              </span>
+                            )}
                           </div>
                           <div className="text-sm font-small text-gray-500">
                             {model.model_key.split('_')[1]} {model.model_key.split('_')[3]}
