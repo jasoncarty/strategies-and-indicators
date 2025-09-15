@@ -20,6 +20,9 @@ from sklearn.calibration import CalibratedClassifierCV
 import warnings
 warnings.filterwarnings('ignore')
 
+# Utilities for canonical feature ordering
+from feature_engineering_utils import FeatureEngineeringUtils
+
 class AdvancedRetrainingFramework:
     """
     Advanced retraining framework with:
@@ -38,8 +41,8 @@ class AdvancedRetrainingFramework:
         self.min_trades_for_training = 50  # Reduced from 100
         self.min_trades_for_validation = 15  # Reduced from 30
         self.walk_forward_splits = 3  # Reduced from 5 for smaller datasets
-        self.feature_selection_method = 'mutual_info'  # 'mutual_info', 'f_classif', 'rfe'
-        self.max_features = 15  # Reduced from 20 for smaller datasets
+        self.feature_selection_method = 'f_classif'  # 'mutual_info', 'f_classif', 'rfe'
+        self.max_features = 19  # Allow more features to improve signal
         self.calibration_method = 'isotonic'  # 'isotonic', 'sigmoid'
 
         # Performance thresholds - More lenient for broken models
@@ -189,9 +192,9 @@ class AdvancedRetrainingFramework:
                     else:
                         auc = 0.5
 
-                    # Confidence correlation (higher confidence should correlate with better performance)
-                    confidence = np.max(y_pred_proba, axis=1)
-                    confidence_performance_corr = np.corrcoef(confidence, y_val)[0, 1]
+                    # Confidence correlation using positive-class probability vs actual outcome
+                    positive_proba = y_pred_proba[:, 1]
+                    confidence_performance_corr = np.corrcoef(positive_proba, y_val)[0, 1]
                     if np.isnan(confidence_performance_corr):
                         confidence_performance_corr = 0
                     confidence_correlations.append(confidence_performance_corr)
@@ -230,18 +233,27 @@ class AdvancedRetrainingFramework:
         """
         Train a model with proper hyperparameters
         """
-        # Use Gradient Boosting for better generalization
+        # Use Gradient Boosting with more capacity and class balancing
         model = GradientBoostingClassifier(
-            n_estimators=100,
-            learning_rate=0.1,
-            max_depth=6,
-            min_samples_split=20,
-            min_samples_leaf=10,
-            subsample=0.8,
+            n_estimators=300,
+            learning_rate=0.05,
+            max_depth=3,
+            min_samples_split=10,
+            min_samples_leaf=5,
+            subsample=0.9,
             random_state=42
         )
 
-        model.fit(X, y)
+        # Compute inverse-frequency sample weights to balance classes
+        try:
+            class_counts = y.value_counts().to_dict()
+            total = float(len(y)) if len(y) > 0 else 1.0
+            weight_map = {cls: (total / (2.0 * cnt)) if cnt > 0 else 0.0 for cls, cnt in class_counts.items()}
+            sample_weight = y.map(weight_map).astype(float).values
+            model.fit(X, y, sample_weight=sample_weight)
+        except Exception:
+            # Fallback without weights if anything goes wrong
+            model.fit(X, y)
         return model
 
     def calibrate_confidence(self, model: Any, X: pd.DataFrame, y: pd.Series) -> Any:
@@ -339,6 +351,12 @@ class AdvancedRetrainingFramework:
         """
         try:
             print(f"🔄 Starting advanced retraining for {symbol} {timeframe}")
+            # Initialize to a safe default so later references are always defined
+            final_conf_corr = 0.0
+            # Determine if a model already exists; if so, we will not allow lenient thresholds regardless of flag
+            existing_model_path = self.models_dir / f"{direction}_model_{symbol}_PERIOD_{timeframe}.pkl"
+            existing_model_exists = existing_model_path.exists()
+            print(f"   Debug: allow_lenient_threshold={allow_lenient_threshold}, existing_model={existing_model_exists}")
 
             # Special handling for very small datasets
             if len(training_data) < 20:
@@ -358,17 +376,27 @@ class AdvancedRetrainingFramework:
                 print("❌ No features column found in training data")
                 return False
 
-            # Extract features
-            feature_data = []
-            labels = []
+            # Extract features in a canonical, named order to ensure stability when saving feature_names
+            # Prefer using engineered features (28) for better signal capture
+            expected_features = FeatureEngineeringUtils.get_expected_28_features()
+            feature_data: List[List[float]] = []
+            labels: List[int] = []
 
             for _, row in df.iterrows():
                 features = row['features']
                 if isinstance(features, dict):
-                    feature_values = list(features.values())
-                    if len(feature_values) > 0 and all(isinstance(v, (int, float)) for v in feature_values):
-                        feature_data.append(feature_values)
-                        labels.append(1 if row.get('profit_loss', 0) > 0 else 0)
+                    ordered_values: List[float] = []
+                    for fname in expected_features:
+                        val = features.get(fname, 0.0)
+                        try:
+                            # Cast to float where possible; fall back to 0.0 for non-numeric
+                            ordered_values.append(float(val))
+                        except Exception:
+                            ordered_values.append(0.0)
+
+                    # Ensure at least some non-zero signal exists; otherwise still include as zeros
+                    feature_data.append(ordered_values)
+                    labels.append(1 if row.get('profit_loss', 0) > 0 else 0)
 
             if len(feature_data) < self.min_trades_for_training:
                 print(f"❌ Insufficient valid feature data: {len(feature_data)} < {self.min_trades_for_training}")
@@ -384,7 +412,8 @@ class AdvancedRetrainingFramework:
                             print(f"   Sample {i+1}: first few values={feature_values[:3]}")
                 return False
 
-            X = pd.DataFrame(feature_data)
+            # Build DataFrame with explicit column names so downstream feature selection returns names
+            X = pd.DataFrame(feature_data, columns=expected_features)
             y = pd.Series(labels)
 
             # Check if we have both classes (wins and losses)
@@ -425,7 +454,7 @@ class AdvancedRetrainingFramework:
                 print(f"   This suggests the model is fundamentally broken or the data is poor quality")
                 print(f"   Consider: 1) Collecting more data, 2) Reviewing features, 3) Manual intervention")
 
-                if allow_lenient_threshold:
+                if allow_lenient_threshold and not existing_model_exists:
                     # For first-time model creation, optionally allow a more lenient threshold
                     print(f"   🔄 Attempting more lenient approach for new model creation...")
                     lenient_threshold = 0.35  # 35% instead of 45%
@@ -459,10 +488,96 @@ class AdvancedRetrainingFramework:
             scaler = RobustScaler().fit(X_selected)
             health_check = self.validate_model_health(calibrated_model, X_selected, y, scaler)
 
-            # More lenient health check for retraining - we're trying to fix broken models
-            if health_check['health_score'] < 40:  # Only reject if completely broken
+            # Retrain-only fallbacks on low health (<40)
+            used_alt_feature_selection = False
+            used_alt_model = False
+            preferred_classifier = 'gradient_boosting'
+
+            if health_check['health_score'] < 40:
                 print(f"❌ Model health check failed: score {health_check['health_score']}/100 (too low)")
+
+                # Only attempt fallbacks when updating an existing model
+                if existing_model_exists:
+                    # Fallback 1: Alternate feature selection (mutual_info)
+                    try:
+                        print("🔁 Trying fallback: alternate feature selection (mutual_info)...")
+                        original_method = self.feature_selection_method
+                        self.feature_selection_method = 'mutual_info'
+                        X_alt, selected_features_alt = self.select_features(X, y)
+
+                        # Train and validate again
+                        print("🔄 Training with alternate features...")
+                        model_alt = self._train_model(X_alt, y)
+                        print("🔄 Calibrating confidence (alt)...")
+                        model_alt_cal = self.calibrate_confidence(model_alt, X_alt, y)
+                        scaler_alt = RobustScaler().fit(X_alt)
+                        health_alt = self.validate_model_health(model_alt_cal, X_alt, y, scaler_alt)
+
+                        # Restore method for subsequent operations
+                        self.feature_selection_method = original_method
+
+                        if health_alt['health_score'] >= 40:
+                            print(f"✅ Fallback succeeded with alternate feature selection: health {health_alt['health_score']}/100")
+                            # Adopt alternate artifacts
+                            calibrated_model = model_alt_cal
+                            scaler = scaler_alt
+                            X_selected = X_alt
+                            selected_features = selected_features_alt
+                            health_check = health_alt
+                            used_alt_feature_selection = True
+                        else:
+                            print(f"❌ Fallback (alternate features) still too low: {health_alt['health_score']}/100")
+                    except Exception as e:
+                        print(f"⚠️ Alternate feature selection fallback failed: {e}")
+
+                # Fallback 2: Alternate model (RandomForest) if still low
+                if health_check['health_score'] < 40 and existing_model_exists:
+                    try:
+                        print("🔁 Trying fallback: alternate classifier (RandomForest)...")
+                        from sklearn.ensemble import RandomForestClassifier
+
+                        rf = RandomForestClassifier(
+                            n_estimators=500,
+                            max_depth=None,
+                            min_samples_split=5,
+                            min_samples_leaf=2,
+                            n_jobs=-1,
+                            random_state=42
+                        )
+
+                        # Build sample weights (same as _train_model)
+                        class_counts = y.value_counts().to_dict()
+                        total = float(len(y)) if len(y) > 0 else 1.0
+                        weight_map = {cls: (total / (2.0 * cnt)) if cnt > 0 else 0.0 for cls, cnt in class_counts.items()}
+                        sample_weight = y.map(weight_map).astype(float).values
+
+                        rf.fit(X_selected, y, sample_weight=sample_weight)
+                        print("🔄 Calibrating confidence (RF)...")
+                        rf_cal = self.calibrate_confidence(rf, X_selected, y)
+                        scaler_rf = RobustScaler().fit(X_selected)
+                        health_rf = self.validate_model_health(rf_cal, X_selected, y, scaler_rf)
+
+                        if health_rf['health_score'] >= 40:
+                            print(f"✅ Fallback succeeded with RandomForest: health {health_rf['health_score']}/100")
+                            calibrated_model = rf_cal
+                            scaler = scaler_rf
+                            health_check = health_rf
+                            used_alt_model = True
+                            preferred_classifier = 'random_forest'
+                        else:
+                            print(f"❌ Fallback (RandomForest) still too low: {health_rf['health_score']}/100")
+                    except Exception as e:
+                        print(f"⚠️ Alternate model fallback failed: {e}")
+
+            # Final decision after potential fallbacks
+            if health_check['health_score'] < 40:
+                print(f"❌ Model health check failed after fallbacks: score {health_check['health_score']}/100")
                 return False
+
+            invert_confidence = False
+            if final_conf_corr < 0:
+                print(f"⚠️ Final positive-proba correlation is negative ({final_conf_corr:.3f}). Will mark model for confidence inversion handling.")
+                invert_confidence = True
 
             if health_check['health_score'] < 70:
                 print(f"⚠️ Model health check warning: score {health_check['health_score']}/100 (will retrain anyway)")
@@ -470,7 +585,20 @@ class AdvancedRetrainingFramework:
                 print(f"✅ Model health check passed: score {health_check['health_score']}/100")
 
             # Track if we used lenient accuracy threshold
-            used_lenient_threshold = bool(allow_lenient_threshold and (cv_results['cv_accuracy'] < self.min_accuracy_threshold))
+            used_lenient_threshold = bool((not existing_model_exists) and allow_lenient_threshold and (cv_results['cv_accuracy'] < self.min_accuracy_threshold))
+
+            # Compute final confidence correlation on the trained (calibrated) model
+            # Start with CV average as a safe default to avoid UnboundLocalError
+            final_conf_corr = float(cv_results['avg_confidence_correlation'])
+            try:
+                y_pred_proba_final = calibrated_model.predict_proba(X_selected)
+                # Positive-class probability correlation with correctness
+                positive_proba_final = y_pred_proba_final[:, 1]
+                final_conf_corr = np.corrcoef(positive_proba_final, y)[0, 1]
+                if np.isnan(final_conf_corr):
+                    final_conf_corr = 0.0
+            except Exception:
+                pass
 
             # Save model files using original naming convention for compatibility
             model_filename = f"{direction}_model_{symbol}_PERIOD_{timeframe}.pkl"
@@ -515,7 +643,9 @@ class AdvancedRetrainingFramework:
                 'features_used': selected_features,
                 'cv_accuracy': float(cv_results['cv_accuracy']),
                 'cv_std': float(cv_results['cv_std']),
-                'confidence_correlation': float(cv_results['avg_confidence_correlation']),
+                'confidence_correlation': float(final_conf_corr),
+                'cv_confidence_correlation': float(cv_results['avg_confidence_correlation']),
+                'final_confidence_correlation': float(final_conf_corr),
                 'market_regime': make_json_serializable(regime_info),
                 'health_score': int(health_check['health_score']),
                 'model_type': 'advanced_retraining_framework',
@@ -523,7 +653,11 @@ class AdvancedRetrainingFramework:
                 'model_version': 2.0,  # Version 2.0 for retrained models
                 'used_lenient_threshold': used_lenient_threshold,
                 'accuracy_threshold_used': float(self.min_accuracy_threshold if not used_lenient_threshold else 0.35),
-                'model_quality': 'low_accuracy' if used_lenient_threshold else 'standard'
+                'model_quality': 'low_accuracy' if used_lenient_threshold else 'standard',
+                'used_alt_feature_selection': used_alt_feature_selection,
+                'used_alt_model': used_alt_model,
+                'invert_confidence': invert_confidence,
+                'preferred_classifier': preferred_classifier
             }
 
             # Debug: Check metadata for any remaining non-serializable types
@@ -543,7 +677,7 @@ class AdvancedRetrainingFramework:
             print(f"✅ Advanced retraining completed successfully for {symbol} {timeframe}")
             print(f"   Model saved: {model_filename}")
             print(f"   Health score: {health_check['health_score']}/100")
-            print(f"   Confidence correlation: {cv_results['avg_confidence_correlation']:.3f}")
+            print(f"   Confidence correlation (final): {final_conf_corr:.3f}")
 
             return True
 

@@ -372,8 +372,10 @@ class MLPredictionService:
             else:  # Multi-class or regression
                 probability = prediction[0]
 
-            # Calculate confidence (corrected - distance from 0.5, scaled to 0-1)
-            confidence = abs(probability - 0.5) * 2  # This is actually correct!
+            # Calculate confidence (allow inversion based on training metadata)
+            invert_confidence = bool(self.model_metadata.get(model_key, {}).get('invert_confidence', False))
+            effective_probability = (1 - probability) if invert_confidence else probability
+            confidence = abs(effective_probability - 0.5) * 2
             # Alternative: confidence = max(probability, 1 - probability)
 
                         # Get model metadata
@@ -397,6 +399,7 @@ class MLPredictionService:
                     'model_health': health_data,
                     'prediction': {
                         'probability': float(probability),
+                        'confidence_inverted': invert_confidence,
                         'confidence': float(confidence),
                         'model_key': model_key,
                         'model_type': model_type,
@@ -419,6 +422,7 @@ class MLPredictionService:
                     'status': 'success',
                     'prediction': {
                         'probability': float(probability),
+                        'confidence_inverted': invert_confidence,
                         'confidence': float(confidence),
                         'model_key': model_key,
                         'model_type': model_type,

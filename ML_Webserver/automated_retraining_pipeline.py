@@ -294,8 +294,8 @@ class AutomatedRetrainingPipeline:
                 self.active_retraining[model_key]['status'] = 'failed'
                 return False
 
-            # Use advanced retraining framework
-            success = self.retraining_framework.retrain_model(symbol, timeframe, training_data, direction)
+            # Use advanced retraining framework (strict only for retrains)
+            success = self.retraining_framework.retrain_model(symbol, timeframe, training_data, direction, allow_lenient_threshold=False)
 
             if success:
                 self.active_retraining[model_key]['status'] = 'completed'
@@ -403,6 +403,26 @@ class AutomatedRetrainingPipeline:
         """Create a new model from scratch using available training data"""
         try:
             model_key = f"{direction}_{symbol}_PERIOD_{timeframe}"
+            # Guard 1: skip if we already have an in-flight creation for this key
+            if model_key in self.active_retraining and self.active_retraining[model_key].get('status') in {'creating','in_progress'}:
+                logger.info(f"⏳ Skipping new model creation for {model_key}: already in progress")
+                return False
+
+            # Guard 2: skip if model artifacts already exist on disk
+            model_path = self.models_dir / f"{direction}_model_{symbol}_PERIOD_{timeframe}.pkl"
+            scaler_path = self.models_dir / f"{direction}_scaler_{symbol}_PERIOD_{timeframe}.pkl"
+            feature_names_path = self.models_dir / f"{direction}_feature_names_{symbol}_PERIOD_{timeframe}.pkl"
+            metadata_path = self.models_dir / f"{direction}_metadata_{symbol}_PERIOD_{timeframe}.json"
+
+            def _exists_min(p: Path, min_bytes: int) -> bool:
+                try:
+                    return p.exists() and p.stat().st_size >= min_bytes
+                except Exception:
+                    return False
+
+            if _exists_min(model_path, 1024) and _exists_min(scaler_path, 200) and _exists_min(feature_names_path, 100) and _exists_min(metadata_path, 150):
+                logger.info(f"🛑 Skipping new model creation for {model_key}: artifacts already exist")
+                return True
             logger.info(f"🆕 Creating new model: {model_key}")
             logger.info(f"   Symbol: {symbol}")
             logger.info(f"   Timeframe: {timeframe}")
